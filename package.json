@@ -1,8 +1,8 @@
 {
   "name": "torn-revive-chat-collector",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "Research collector for visible Torn Chat 2.0 messages, with local buffering and optional Google Sheets sync.",
+  "description": "Research collector for Torn chat messages rendered in actively used chat surfaces, with resilient chat discovery, local buffering, and optional Google Sheets sync.",
   "scripts": {
     "test": "node --test",
     "build": "node scripts/build.js",
