@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Revive Chat Collector
 // @namespace    r4g3runn3r.torn.revive.collector
-// @version      0.1.0
+// @version      0.1.1
 // @description  Collects visible Torn Chat 2.0 messages for revive-language research and optionally syncs them to Google Sheets.
 // @author       R4G3RUNN3R
 // @match        https://www.torn.com/*
@@ -22,11 +22,12 @@
   window.__TRCC_ACTIVE__ = true;
 
   const Core = globalThis.TornReviveCore;
-  const VERSION = '0.1.0';
+  const VERSION = '0.1.1';
   const DB_NAME = 'tornReviveChatCollector';
   const STORE = 'messages';
   const BATCH_SIZE = 25;
   const SYNC_EVERY_MS = 15000;
+  const MESSAGE_SELECTOR = '[class*="chat-box-message___"]';
 
   const KEYS = {
     endpoint: 'trcc_sheet_endpoint',
@@ -34,11 +35,6 @@
     paused: 'trcc_paused',
     minimized: 'trcc_minimized'
   };
-
-  const MESSAGE_SELECTOR = [
-    '[class*="chat-box-message___"]',
-    '[class*="chatBoxMessage___"]'
-  ].join(',');
 
   const state = {
     db: null,
@@ -52,13 +48,8 @@
     stats: { total: 0, unsynced: 0, conversations: 0, lastCaptured: '' }
   };
 
-  function captureAllowed() {
-    return !state.paused && document.visibilityState === 'visible' && document.hasFocus();
-  }
-
-  function normalize(value) {
-    return Core.normalizeText(value);
-  }
+  const norm = (value) => Core.normalizeText(value);
+  const captureAllowed = () => !state.paused && document.visibilityState === 'visible' && document.hasFocus();
 
   function userIdFromHref(href) {
     if (!href) return '';
@@ -70,66 +61,57 @@
     return String(href).match(/(?:XID|ID|userId)=(\d+)/i)?.[1] || '';
   }
 
-  function chatBoxFor(node) {
-    return node.closest('[class*="group-chat-box___"], [class*="chat-box___"], [class*="chatBox___"], [class*="conversation___"]') || node.parentElement;
+  function findChatBox(node) {
+    return node.closest('[class*="group-chat-box__chat-box-wrapper___"], [class*="group-chat-box___"]') || node.parentElement;
   }
 
-  function conversationName(box) {
+  function getConversationName(box) {
     if (!box) return 'Unknown';
     const selectors = [
-      '[class*="chat-box-header___"] [class*="title___"]',
-      '[class*="chatBoxHeader___"] [class*="title___"]',
-      '[class*="chat-box-title___"]',
-      '[class*="header___"] [class*="name___"]',
-      'h1', 'h2', 'h3', 'h4', '[role="heading"]'
+      '[class*="chat-box-header__info___"]',
+      '[class*="chat-box-header___"]',
+      '[aria-label]'
     ];
     for (const selector of selectors) {
-      const text = normalize(box.querySelector(selector)?.textContent);
-      if (text && text.length <= 80) return text;
+      const element = box.querySelector(selector);
+      const text = norm(element?.textContent || element?.getAttribute?.('aria-label'));
+      if (text && text.length <= 100) return text;
     }
-    for (const attr of ['aria-label', 'data-name', 'data-title', 'title']) {
-      const text = normalize(box.getAttribute?.(attr));
-      if (text && text.length <= 80) return text;
+    for (const attr of ['data-name', 'data-title', 'title', 'aria-label']) {
+      const text = norm(box.getAttribute?.(attr));
+      if (text && text.length <= 100) return text;
     }
     return 'Unknown';
   }
 
-  function conversationId(box, name) {
-    const value = normalize(
+  function getConversationId(box, name) {
+    return norm(
       box?.getAttribute?.('data-conversation-id') ||
       box?.getAttribute?.('data-channel-id') ||
       box?.getAttribute?.('data-chat-id') ||
       box?.id
-    );
-    return value || `name:${name.toLowerCase()}`;
+    ) || `name:${name.toLowerCase()}`;
   }
 
-  function sender(node) {
-    const senderEl = node.querySelector('[class*="message-sender___"], [class*="sender___"]');
+  function getSender(node) {
+    const senderEl = node.querySelector('[class*="chat-box-message__sender___"]');
     const link = senderEl?.closest?.('a[href]') || senderEl?.querySelector?.('a[href]') || node.querySelector('a[href*="XID="]');
-    let name = normalize(senderEl?.textContent || link?.textContent);
-    if (name.length > 80) name = name.slice(0, 80);
-    return { senderName: name, senderId: userIdFromHref(link?.href || '') };
+    let senderName = norm(senderEl?.textContent || link?.textContent);
+    senderName = senderName.replace(/:\s*$/, '');
+    if (senderName.length > 80) senderName = senderName.slice(0, 80);
+    return { senderName, senderId: userIdFromHref(link?.href || '') };
   }
 
-  function messageText(node) {
-    const selectors = [
-      '[class*="message-content___"]',
-      '[class*="messageContent___"]',
-      '[class*="chat-message-text___"]',
-      '[class*="message-text___"]'
-    ];
-    for (const selector of selectors) {
-      const el = node.querySelector(selector);
-      if (el) return String(el.textContent || '').trim();
-    }
+  function getMessageText(node) {
+    const element = node.querySelector('[class*="chat-box-message__message___"]');
+    if (element) return String(element.textContent || '').trim();
 
     const clone = node.cloneNode(true);
-    clone.querySelectorAll('time,button,svg,[class*="message-sender___"],[class*="sender___"],[class*="timestamp___"]').forEach((el) => el.remove());
+    clone.querySelectorAll('time,button,svg,[class*="chat-box-message__sender___"],[class*="chat-box-message__avatar___"],[class*="timestamp___"]').forEach((el) => el.remove());
     return String(clone.textContent || '').trim();
   }
 
-  function timestamp(node) {
+  function getTimestamp(node) {
     const time = node.querySelector('time');
     const candidates = [
       time?.dateTime,
@@ -146,8 +128,8 @@
     return '';
   }
 
-  function sourceMessageId(node) {
-    return normalize(
+  function getSourceMessageId(node) {
+    return norm(
       node.getAttribute?.('data-message-id') ||
       node.getAttribute?.('data-messageid') ||
       node.getAttribute?.('data-id') ||
@@ -155,28 +137,28 @@
     );
   }
 
-  function parse(node) {
-    const text = messageText(node);
-    if (!normalize(text)) return null;
+  function parseMessage(node) {
+    const text = getMessageText(node);
+    if (!norm(text)) return null;
 
-    const box = chatBoxFor(node);
-    const name = conversationName(box);
-    const id = conversationId(box, name);
-    const who = sender(node);
+    const box = findChatBox(node);
+    const conversationName = getConversationName(box);
+    const conversationId = getConversationId(box, conversationName);
+    const sender = getSender(node);
     const capturedAt = new Date().toISOString();
 
     const record = {
-      conversationId: id,
-      conversationName: name,
-      conversationType: Core.inferConversationType(name),
-      abroadLocation: Core.inferAbroadLocation(name),
-      senderId: who.senderId,
-      senderName: who.senderName,
+      conversationId,
+      conversationName,
+      conversationType: Core.inferConversationType(conversationName),
+      abroadLocation: Core.inferAbroadLocation(conversationName),
+      senderId: sender.senderId,
+      senderName: sender.senderName,
       text,
-      messageTimestamp: timestamp(node),
+      messageTimestamp: getTimestamp(node),
       capturedAt,
       pageUrl: location.href,
-      sourceMessageId: sourceMessageId(node),
+      sourceMessageId: getSourceMessageId(node),
       synced: false
     };
     record.fingerprint = Core.fingerprintMessage(record);
@@ -188,37 +170,31 @@
       const request = indexedDB.open(DB_NAME, 1);
       request.onupgradeneeded = () => {
         const db = request.result;
-        if (!db.objectStoreNames.contains(STORE)) {
-          const store = db.createObjectStore(STORE, { keyPath: 'fingerprint' });
-          store.createIndex('capturedAt', 'capturedAt', { unique: false });
-        }
+        if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'fingerprint' });
       };
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error || new Error('IndexedDB failed to open'));
     });
   }
 
-  function requestDb(mode, operation) {
+  function dbRequest(mode, operation) {
     return new Promise((resolve, reject) => {
       const tx = state.db.transaction(STORE, mode);
-      const req = operation(tx.objectStore(STORE));
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error || new Error('IndexedDB request failed'));
+      const request = operation(tx.objectStore(STORE));
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error || new Error('IndexedDB request failed'));
     });
   }
 
   async function save(record) {
     try {
-      await requestDb('readwrite', (store) => store.add(record));
+      await dbRequest('readwrite', (store) => store.add(record));
       state.stats.total += 1;
       state.stats.unsynced += 1;
       state.stats.lastCaptured = record.capturedAt;
       refreshPanel();
-      return true;
     } catch (error) {
-      if (error?.name === 'ConstraintError') return false;
-      console.warn('[TRCC] Save failed', error);
-      return false;
+      if (error?.name !== 'ConstraintError') console.warn('[TRCC] Save failed', error);
     }
   }
 
@@ -231,7 +207,7 @@
     for (const node of nodes) {
       if (state.seenNodes.has(node)) continue;
       state.seenNodes.add(node);
-      const record = parse(node);
+      const record = parseMessage(node);
       if (record) await save(record);
     }
   }
@@ -244,9 +220,7 @@
     state.observedRoot = root;
     state.observer = new MutationObserver((mutations) => {
       if (!captureAllowed()) return;
-      for (const mutation of mutations) {
-        for (const added of mutation.addedNodes) scan(added);
-      }
+      for (const mutation of mutations) for (const node of mutation.addedNodes) scan(node);
     });
     state.observer.observe(root, { childList: true, subtree: true });
     scan(root);
@@ -255,12 +229,12 @@
 
   function watchForChatRoot() {
     attachChatObserver();
-    state.rootWatcher = new MutationObserver(() => attachChatObserver());
+    state.rootWatcher = new MutationObserver(attachChatObserver);
     state.rootWatcher.observe(document.body, { childList: true, subtree: true });
   }
 
   async function allMessages() {
-    return requestDb('readonly', (store) => store.getAll());
+    return dbRequest('readonly', (store) => store.getAll());
   }
 
   async function updateStats() {
@@ -272,19 +246,12 @@
     refreshPanel();
   }
 
-  async function unsynced(limit = BATCH_SIZE) {
-    return (await allMessages())
-      .filter((row) => !row.synced)
-      .sort((a, b) => a.capturedAt.localeCompare(b.capturedAt))
-      .slice(0, limit);
-  }
-
   async function markSynced(fingerprints) {
     for (const fingerprint of fingerprints) {
-      const row = await requestDb('readonly', (store) => store.get(fingerprint));
+      const row = await dbRequest('readonly', (store) => store.get(fingerprint));
       if (!row) continue;
       row.synced = true;
-      await requestDb('readwrite', (store) => store.put(row));
+      await dbRequest('readwrite', (store) => store.put(row));
     }
     await updateStats();
   }
@@ -310,10 +277,13 @@
 
   async function sync() {
     if (state.syncing) return;
-    const endpoint = normalize(GM_getValue(KEYS.endpoint, ''));
+    const endpoint = norm(GM_getValue(KEYS.endpoint, ''));
     if (!endpoint) return;
 
-    const rows = await unsynced();
+    const rows = (await allMessages())
+      .filter((row) => !row.synced)
+      .sort((a, b) => a.capturedAt.localeCompare(b.capturedAt))
+      .slice(0, BATCH_SIZE);
     if (!rows.length) return;
 
     state.syncing = true;
@@ -347,17 +317,17 @@
       ? [headers.join(','), ...rows.map((row) => headers.map((key) => csvEscape(row[key])).join(','))].join('\n')
       : JSON.stringify(rows, null, 2);
     const blob = new Blob([content], { type: kind === 'csv' ? 'text/csv;charset=utf-8' : 'application/json;charset=utf-8' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `torn-chat-research-${new Date().toISOString().slice(0,10)}.${kind}`;
-    document.body.appendChild(a);
-    a.click();
-    URL.revokeObjectURL(a.href);
-    a.remove();
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `torn-chat-research-${new Date().toISOString().slice(0,10)}.${kind}`;
+    document.body.appendChild(link);
+    link.click();
+    URL.revokeObjectURL(link.href);
+    link.remove();
   }
 
   async function clearLocalData() {
-    await requestDb('readwrite', (store) => store.clear());
+    await dbRequest('readwrite', (store) => store.clear());
     await updateStats();
   }
 
@@ -460,7 +430,7 @@
     refreshPanel();
   }
 
-  function lifecycle() {
+  function installLifecycleListeners() {
     window.addEventListener('focus', () => {
       refreshPanel();
       if (state.observedRoot) scan(state.observedRoot);
@@ -479,7 +449,7 @@
       createPanel();
       await updateStats();
       watchForChatRoot();
-      lifecycle();
+      installLifecycleListeners();
       setInterval(() => {
         if (!state.paused && document.visibilityState === 'visible') sync();
       }, SYNC_EVERY_MS);
