@@ -13,10 +13,19 @@
     chatWrapper: '[class*="group-chat-box__chat-box-wrapper___"], [class*="group-chat-box___"]',
     chatBody: '[class*="chat-box-body___"], [class*="chatBoxBody___"]',
 
-    // Current 2026 chat roots. Examples include #chatRoot [id^="faction-"]
-    // with classes beginning/containing "root".
-    chatRootWrapper: 'div[class^="root"][id*="-"], div[class*="root"][id*="-"]',
-    chatFallbackWrapper: 'div[id*="-"]',
+    // Current 2026 roots use two naming families:
+    //   public_global / public_trade / public_hospital / other public_* channels
+    //   faction-* / company-* / private-* / other hyphenated group chats
+    // Keep CSS-module class matching loose because Torn hashes the suffixes.
+    chatRootWrapper: [
+      'div[class^="root"][id^="public_"]',
+      'div[class*="root"][id^="public_"]',
+      'div[class*="chat-box___"][id^="public_"]',
+      'div[class^="root"][id*="-"]',
+      'div[class*="root"][id*="-"]',
+      'div[class*="chat-box___"][id*="-"]'
+    ].join(', '),
+    chatFallbackWrapper: 'div[id^="public_"], div[id*="-"]',
 
     // Current virtualized message container plus older list/body fallbacks.
     messageContainer: '[class*="scrollWrapper__"], [class^="list"], [class*="list___"]',
@@ -26,7 +35,7 @@
     messageItem: '[class*="box__"], [class*="virtualItem__"], [class*="chat-box-message___"], [class*="chatBoxMessage___"]',
     message: '[class*="box__"], [class*="virtualItem__"], [class*="chat-box-message___"], [class*="chatBoxMessage___"]',
 
-    // Current July 2026 extraction classes first, old Chat 2.0 classes second.
+    // Current July/August 2026 extraction classes first, old Chat 2.0 classes second.
     sender: '[class*="senderContainer__"], [class*="chat-box-message__sender___"], [class*="sender_"]',
     messageText: '[class*="body__"], [class*="message__"], [class*="content__"], [class*="chat-box-message__message___"]',
     headerInfo: '[class*="chat-box-header__info___"], [class*="chat-box-header___"], [class*="header__"]',
@@ -38,6 +47,31 @@
 
   function unique(elements) {
     return [...new Set((elements || []).filter(Boolean))];
+  }
+
+  function titleCaseSlug(value) {
+    return String(value || '')
+      .split(/[_-]+/)
+      .filter(Boolean)
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+  }
+
+  function conversationNameFromId(id) {
+    const value = String(id || '').trim().toLowerCase();
+    if (!value) return '';
+
+    if (value.startsWith('public_')) {
+      const slug = value.slice('public_'.length);
+      if (slug.startsWith('travel_')) return titleCaseSlug(slug.slice('travel_'.length));
+      return titleCaseSlug(slug);
+    }
+
+    if (value.startsWith('faction-')) return 'Faction';
+    if (value.startsWith('company-')) return 'Company';
+    if (value.startsWith('competition-')) return 'Competition';
+    if (value.startsWith('poker-')) return 'Poker';
+    return '';
   }
 
   function findMessageContainer(body) {
@@ -102,6 +136,7 @@
     findChatContexts,
     findMessageContainer,
     messageCandidates,
-    isRecentlyInteracted
+    isRecentlyInteracted,
+    conversationNameFromId
   };
 });
