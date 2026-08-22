@@ -62,6 +62,28 @@ test('findChatContexts discovers and deduplicates chats from both wrappers and t
   assert.deepEqual(contexts.map((ctx) => ctx.body), [bodyA, bodyB]);
 });
 
+test('findChatContexts supports current root/id chats that expose a list without old chat-body classes', () => {
+  const list = makeElement({ name: 'messageList' });
+  const currentRootChat = makeElement({
+    name: 'currentRootChat',
+    queries: { [SELECTORS.messageContainer]: list }
+  });
+
+  const root = makeElement({
+    queries: {
+      [SELECTORS.chatWrapper]: [],
+      [SELECTORS.chatRootWrapper]: [currentRootChat],
+      [SELECTORS.chatTextarea]: []
+    }
+  });
+
+  const contexts = findChatContexts(root);
+  assert.equal(contexts.length, 1);
+  assert.equal(contexts[0].chat, currentRootChat);
+  assert.equal(contexts[0].body, currentRootChat);
+  assert.equal(findMessageContainer(contexts[0].body), list);
+});
+
 test('findMessageContainer prefers the dedicated chat body list and falls back to chat body', () => {
   const list = makeElement({ name: 'list' });
   const body = makeElement({
