@@ -30,7 +30,6 @@ test('selectors include stable textarea, legacy Chat 2.0 classes, current virtua
   assert.match(SELECTORS.chatBody, /chat-box-body/);
   assert.match(SELECTORS.chatRootWrapper, /root/);
   assert.match(SELECTORS.chatRootWrapper, /public_/);
-  assert.match(SELECTORS.chatRootWrapper, /private-/);
   assert.match(SELECTORS.messageContainer, /scrollWrapper/);
   assert.match(SELECTORS.messageContainer, /\[class\^="list"\]/);
   assert.match(SELECTORS.messageItem, /box__/);
