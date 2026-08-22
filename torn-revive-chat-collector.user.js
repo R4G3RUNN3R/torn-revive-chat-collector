@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Revive Chat Collector
 // @namespace    r4g3runn3r.torn.revive.collector
-// @version      0.2.0
+// @version      0.2.1
 // @description  Collects Torn chat messages rendered in actively used chat surfaces for revive-language research and optionally syncs them to Google Sheets.
 // @author       R4G3RUNN3R
 // @match        https://www.torn.com/*
@@ -24,7 +24,7 @@
 
   const Core = globalThis.TornReviveCore;
   const ChatDom = globalThis.TornReviveChatDom;
-  const VERSION = '0.2.0';
+  const VERSION = '0.2.1';
   const DB_NAME = 'tornReviveChatCollector';
   const STORE = 'messages';
   const BATCH_SIZE = 25;
@@ -88,16 +88,7 @@
   }
 
   function conversationNameFromId(id) {
-    const value = norm(id).toLowerCase();
-    if (!value) return '';
-    if (value.startsWith('faction-')) return 'Faction';
-    if (value.startsWith('company-')) return 'Company';
-    if (value.startsWith('global-')) return 'Global';
-    if (value.startsWith('trade-')) return 'Trade';
-    if (value.startsWith('hospital-')) return 'Hospital';
-    if (value.startsWith('jail-')) return 'Jail';
-    if (value.startsWith('new-player-') || value.startsWith('newplayer-')) return 'New Player';
-    return '';
+    return ChatDom.conversationNameFromId(id);
   }
 
   function getConversationName(chat) {
@@ -505,7 +496,7 @@
         <label>Collector token (optional)</label>
         <input id="trcc-token" type="password" placeholder="Stored locally only">
         <div class="trcc-note">Captures messages from every chat Torn has instantiated in the actively used page. It scans existing messages and watches each loaded chat independently.</div>
-        <div class="trcc-warning">Closed/unloaded chats may only expose an unread/list preview. v0.2 does not hook Torn/Sendbird WebSockets or auto-open chats.</div>
+        <div class="trcc-warning">Closed/unloaded chats may only expose an unread/list preview. This version does not hook Torn/Sendbird WebSockets or auto-open chats.</div>
         <div class="trcc-actions">
           <button id="trcc-pause" type="button">Pause</button>
           <button id="trcc-save" type="button">Save settings</button>
