@@ -5,7 +5,8 @@ const {
   SELECTORS,
   findChatContexts,
   findMessageContainer,
-  isRecentlyInteracted
+  isRecentlyInteracted,
+  conversationNameFromId
 } = require('../src/chat-dom');
 
 function makeElement({ name = '', matches = {}, queries = {}, closest = {} } = {}) {
@@ -23,11 +24,13 @@ function makeElement({ name = '', matches = {}, queries = {}, closest = {} } = {
   };
 }
 
-test('selectors include stable textarea, legacy Chat 2.0 classes, and July 2026 virtualized chat classes', () => {
+test('selectors include stable textarea, legacy Chat 2.0 classes, current virtualized chat classes, and public chat ids', () => {
   assert.match(SELECTORS.chatTextarea, /Type your message here/);
   assert.match(SELECTORS.chatWrapper, /group-chat-box/);
   assert.match(SELECTORS.chatBody, /chat-box-body/);
   assert.match(SELECTORS.chatRootWrapper, /root/);
+  assert.match(SELECTORS.chatRootWrapper, /public_/);
+  assert.match(SELECTORS.chatRootWrapper, /private-/);
   assert.match(SELECTORS.messageContainer, /scrollWrapper/);
   assert.match(SELECTORS.messageContainer, /\[class\^="list"\]/);
   assert.match(SELECTORS.messageItem, /box__/);
@@ -36,6 +39,17 @@ test('selectors include stable textarea, legacy Chat 2.0 classes, and July 2026 
   assert.match(SELECTORS.sender, /senderContainer__/);
   assert.match(SELECTORS.messageText, /chat-box-message__message/);
   assert.match(SELECTORS.messageText, /body__/);
+});
+
+test('conversationNameFromId understands current Torn public chat ids generically', () => {
+  assert.equal(conversationNameFromId('public_global'), 'Global');
+  assert.equal(conversationNameFromId('public_trade'), 'Trade');
+  assert.equal(conversationNameFromId('public_hospital'), 'Hospital');
+  assert.equal(conversationNameFromId('public_jail'), 'Jail');
+  assert.equal(conversationNameFromId('public_new_player'), 'New Player');
+  assert.equal(conversationNameFromId('public_mexico'), 'Mexico');
+  assert.equal(conversationNameFromId('faction-123'), 'Faction');
+  assert.equal(conversationNameFromId('company-456'), 'Company');
 });
 
 test('findChatContexts discovers and deduplicates chats from both wrappers and textareas', () => {
