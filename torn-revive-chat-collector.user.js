@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Torn Revive Chat Collector
 // @namespace    r4g3runn3r.torn.revive.collector
-// @version      0.2.1
+// @version      0.2.2
 // @description  Collects Torn chat messages rendered in actively used chat surfaces for revive-language research and optionally syncs them to Google Sheets.
 // @author       R4G3RUNN3R
 // @match        https://www.torn.com/*
@@ -24,11 +24,11 @@
 
   const Core = globalThis.TornReviveCore;
   const ChatDom = globalThis.TornReviveChatDom;
-  const VERSION = '0.2.1';
+  const VERSION = '0.2.2';
   const DB_NAME = 'tornReviveChatCollector';
   const STORE = 'messages';
   const BATCH_SIZE = 25;
-  const SYNC_EVERY_MS = 15_000;
+  const SYNC_EVERY_MS = 5_000;
   const DISCOVERY_EVERY_MS = 2_000;
   const ACTIVE_WINDOW_MS = 60_000;
 
