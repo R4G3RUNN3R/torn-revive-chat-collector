@@ -23,13 +23,19 @@ function makeElement({ name = '', matches = {}, queries = {}, closest = {} } = {
   };
 }
 
-test('selectors include stable textarea and current Torn Chat 2.0 class fallbacks', () => {
+test('selectors include stable textarea, legacy Chat 2.0 classes, and July 2026 virtualized chat classes', () => {
   assert.match(SELECTORS.chatTextarea, /Type your message here/);
   assert.match(SELECTORS.chatWrapper, /group-chat-box/);
   assert.match(SELECTORS.chatBody, /chat-box-body/);
+  assert.match(SELECTORS.chatRootWrapper, /root/);
+  assert.match(SELECTORS.messageContainer, /scrollWrapper/);
   assert.match(SELECTORS.messageContainer, /\[class\^="list"\]/);
+  assert.match(SELECTORS.messageItem, /box__/);
+  assert.match(SELECTORS.messageItem, /virtualItem__/);
   assert.match(SELECTORS.sender, /chat-box-message__sender/);
+  assert.match(SELECTORS.sender, /senderContainer__/);
   assert.match(SELECTORS.messageText, /chat-box-message__message/);
+  assert.match(SELECTORS.messageText, /body__/);
 });
 
 test('findChatContexts discovers and deduplicates chats from both wrappers and textareas', () => {
@@ -52,6 +58,7 @@ test('findChatContexts discovers and deduplicates chats from both wrappers and t
   const root = makeElement({
     queries: {
       [SELECTORS.chatWrapper]: [wrapperA, wrapperB],
+      [SELECTORS.chatRootWrapper]: [],
       [SELECTORS.chatTextarea]: [textareaA]
     }
   });
@@ -62,7 +69,7 @@ test('findChatContexts discovers and deduplicates chats from both wrappers and t
   assert.deepEqual(contexts.map((ctx) => ctx.body), [bodyA, bodyB]);
 });
 
-test('findChatContexts supports current root/id chats that expose a list without old chat-body classes', () => {
+test('findChatContexts supports current root/id chats that expose a virtualized message list without old chat-body classes', () => {
   const list = makeElement({ name: 'messageList' });
   const currentRootChat = makeElement({
     name: 'currentRootChat',
@@ -84,7 +91,7 @@ test('findChatContexts supports current root/id chats that expose a list without
   assert.equal(findMessageContainer(contexts[0].body), list);
 });
 
-test('findMessageContainer prefers the dedicated chat body list and falls back to chat body', () => {
+test('findMessageContainer prefers the dedicated virtualized scroll/list wrapper and falls back to chat body', () => {
   const list = makeElement({ name: 'list' });
   const body = makeElement({
     name: 'body',
