@@ -20,6 +20,12 @@ const RETURNING = `
     last_error, completed_at, payload, created_at, updated_at
 `;
 
+const CLAIM_RETURNING = `
+  RETURNING j.id, j.type, j.entity_id, j.run_at, j.attempts,
+    j.locked_at, j.locked_by, j.last_error, j.completed_at,
+    j.payload, j.created_at, j.updated_at
+`;
+
 function createJobRepository(pool, { now = () => new Date() } = {}) {
   if (!pool || typeof pool.query !== 'function') {
     throw new TypeError('PostgreSQL pool is required');
@@ -72,7 +78,7 @@ function createJobRepository(pool, { now = () => new Date() } = {}) {
           updated_at = $1
       FROM picked
       WHERE j.id = picked.id
-      ${RETURNING}
+      ${CLAIM_RETURNING}
     `, [claimedAt, limit, workerId.trim()]);
 
     return result.rows.map(mapJob);
