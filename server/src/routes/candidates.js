@@ -1,5 +1,5 @@
 const { z } = require('zod');
-const { canonicalPublicChannel } = require('../../../src/public-channels');
+const { canonicalPublicChannel } = require('../public-channels');
 
 const candidateSchema = z.object({
   channelId: z.string().min(1).max(128),
