@@ -50,4 +50,32 @@ grep -Ei 'dungeonmaster|nexis' deploy/docker-compose.yml && exit 1 || true
 
 ## Backups
 
-ReviveRelay backups belong only under `/srv/voidsmith/reviverelay/backups`. A restore procedure must target only `reviverelay-db` and `/srv/voidsmith/reviverelay/data/postgres`. Do not reuse backup commands, credentials, or volumes from another Voidsmith product.
+ReviveRelay backups belong only under `/srv/voidsmith/reviverelay/backups`. The supplied backup script talks only to the private `reviverelay-db` service and writes a gzip-compressed PostgreSQL dump named `reviverelay-YYYYmmdd-HHMMSS.sql.gz`.
+
+From the deployed repository:
+
+```bash
+sh deploy/backup.sh
+```
+
+By default the script expects:
+
+- project root: `/srv/voidsmith/reviverelay`
+- application copy: `/srv/voidsmith/reviverelay/app`
+- compose file: `/srv/voidsmith/reviverelay/app/deploy/docker-compose.yml`
+- environment file: `/srv/voidsmith/reviverelay/config/.env`
+- backup directory: `/srv/voidsmith/reviverelay/backups`
+
+The paths can be overridden with the corresponding `REVIVERELAY_*` environment variables when testing or relocating ReviveRelay. The backup is first written to a temporary file and renamed only after `pg_dump | gzip` completes successfully, so an interrupted dump is not presented as a valid backup.
+
+## Restore
+
+Restore accepts exactly one `.sql.gz` backup path and targets only the `reviverelay-db` database service:
+
+```bash
+sh deploy/restore.sh /srv/voidsmith/reviverelay/backups/reviverelay-20260824-001500.sql.gz
+```
+
+Calling the restore script without exactly one backup path fails before Docker is contacted. `psql` runs with `ON_ERROR_STOP=1`, so the restore stops on the first SQL error instead of cheerfully continuing through a damaged database like nothing happened.
+
+Before any production restore, stop or put the API and worker into maintenance mode so they are not writing to the database while it is being restored. Backups and restores must never reuse credentials, volumes, commands, or database services from another Voidsmith product.
