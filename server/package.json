@@ -1,0 +1,20 @@
+{
+  "name": "reviverelay-server",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test",
+    "start": "node src/server.js",
+    "worker": "node src/worker.js",
+    "migrate": "node src/db/migrate.js"
+  },
+  "dependencies": {
+    "@fastify/rate-limit": "^10.0.0",
+    "fastify": "^5.0.0",
+    "pg": "^8.13.0",
+    "zod": "^3.23.8"
+  }
+}
