@@ -31,8 +31,29 @@ jobs:
         with:
           node-version: 20
       - run: npm install --prefix server --no-audit --no-fund
-      - run: npm test
-      - run: node --check torn-revive-chat-collector.user.js
-      - run: node --check src/core.js
-      - run: node --check src/chat-dom.js
-      - run: node --check server/src/config.js
+      - name: Full client and server test suite
+        run: npm test
+      - name: Explicit server PostgreSQL suite
+        run: npm --prefix server test
+      - name: Build installable userscript
+        run: npm run build
+      - name: Syntax check userscript sources and build
+        run: |
+          node --check torn-revive-chat-collector.user.js
+          node --check dist/torn-revive-chat-collector.user.js
+          node --check src/core.js
+          node --check src/chat-dom.js
+          node --check src/public-channels.js
+      - name: Syntax check ReviveRelay server entrypoints
+        run: |
+          node --check server/src/config.js
+          node --check server/src/app.js
+          node --check server/src/server.js
+          node --check server/src/worker.js
+          node --check server/src/db/migrate.js
+          node --check server/src/db/jobs.js
+          node --check server/src/db/transactions.js
+      - name: Syntax check deployment scripts
+        run: |
+          sh -n deploy/backup.sh
+          sh -n deploy/restore.sh
