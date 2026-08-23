@@ -1,8 +1,24 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
+const { setTimeout: sleep } = require('node:timers/promises');
 const { createPool } = require('../../src/db/pool');
 const { migrate } = require('../../src/db/migrate');
+
+async function waitForDatabaseSessionsToClose(adminPool, dbName) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const result = await adminPool.query(`
+      SELECT COUNT(*)::int AS count
+      FROM pg_stat_activity
+      WHERE datname = $1
+    `, [dbName]);
+
+    if (result.rows[0].count === 0) return;
+    await sleep(10);
+  }
+
+  throw new Error(`Timed out waiting for PostgreSQL sessions to close for ${dbName}`);
+}
 
 test('concurrent migration runners safely serialize on the same fresh database', async () => {
   const sourceUrl = process.env.TEST_DATABASE_URL;
@@ -31,30 +47,9 @@ test('concurrent migration runners safely serialize on the same fresh database',
     `);
     assert.equal(result.rows[0].count, 1);
   } finally {
-    const shutdownResults = await Promise.allSettled(pools.map(pool => pool.end()));
-    const rejected = shutdownResults
-      .map((result, index) => ({ result, index }))
-      .filter(entry => entry.result.status === 'rejected')
-      .map(entry => ({
-        pool: entry.index,
-        error: String(entry.result.reason && entry.result.reason.message || entry.result.reason)
-      }));
-
-    const remaining = await adminPool.query(`
-      SELECT pid, state, application_name, query
-      FROM pg_stat_activity
-      WHERE datname = $1
-      ORDER BY pid
-    `, [dbName]);
-
-    if (rejected.length || remaining.rowCount) {
-      console.error('MIGRATION_TEARDOWN_DIAGNOSTIC', JSON.stringify({
-        rejected,
-        remaining: remaining.rows
-      }));
-    }
-
-    await adminPool.query(`DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)`);
+    await Promise.all(pools.map(pool => pool.end()));
+    await waitForDatabaseSessionsToClose(adminPool, dbName);
+    await adminPool.query(`DROP DATABASE IF EXISTS "${dbName}"`);
     await adminPool.end();
   }
 });
