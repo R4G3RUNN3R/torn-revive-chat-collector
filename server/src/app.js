@@ -1,6 +1,7 @@
 const Fastify = require('fastify');
 const { registerAuthRoutes } = require('./routes/auth');
 const { registerCandidateRoutes } = require('./routes/candidates');
+const { registerRequestRoutes } = require('./routes/requests');
 const { createAuthenticator } = require('./security/authenticate');
 
 function authStatus(code) {
@@ -14,6 +15,7 @@ function createApp({
   userRepository,
   sessionRepository = null,
   candidateRepository = null,
+  requestRepository = null,
   logger = false
 }) {
   if (!config || !tornClient || !userRepository) {
@@ -60,6 +62,10 @@ function createApp({
 
   registerCandidateRoutes(app, {
     candidateRepository
+  });
+
+  registerRequestRoutes(app, {
+    requestRepository
   });
 
   return app;
