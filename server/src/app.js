@@ -2,6 +2,7 @@ const Fastify = require('fastify');
 const { registerAuthRoute } = require('./routes/auth');
 const { registerCandidateRoutes } = require('./routes/candidates');
 const { registerRequestRoutes } = require('./routes/requests');
+const { registerReviverQueueRoutes } = require('./routes/reviver-queue');
 const { installAuthentication } = require('./security/authenticate');
 
 function buildApp({
@@ -11,6 +12,7 @@ function buildApp({
   sessionRepository = null,
   candidateRepository = null,
   requestRepository = null,
+  transactionRepository = null,
   logger = false
 }) {
   if (!config) throw new Error('config is required');
@@ -51,6 +53,15 @@ function buildApp({
     }
     app.register(async instance => {
       await registerRequestRoutes(instance, { requestRepository });
+    });
+  }
+
+  if (transactionRepository) {
+    if (!sessionRepository) {
+      throw new Error('reviver queue routes require a sessionRepository');
+    }
+    app.register(async instance => {
+      await registerReviverQueueRoutes(instance, { transactionRepository });
     });
   }
 
