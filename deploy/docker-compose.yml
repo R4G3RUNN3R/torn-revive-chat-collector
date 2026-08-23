@@ -1,0 +1,73 @@
+services:
+  reviverelay-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${REVIVERELAY_DB_NAME:-reviverelay}
+      POSTGRES_USER: ${REVIVERELAY_DB_USER:-reviverelay_app}
+      POSTGRES_PASSWORD: ${REVIVERELAY_DB_PASSWORD}
+    volumes:
+      - ${REVIVERELAY_DATA_DIR:-/srv/voidsmith/reviverelay/data/postgres}:/var/lib/postgresql/data
+    networks:
+      - reviverelay_internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${REVIVERELAY_DB_USER:-reviverelay_app} -d ${REVIVERELAY_DB_NAME:-reviverelay}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  reviverelay-api:
+    build:
+      context: ../server
+    restart: unless-stopped
+    depends_on:
+      reviverelay-db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3100
+      DATABASE_URL: postgresql://${REVIVERELAY_DB_USER:-reviverelay_app}:${REVIVERELAY_DB_PASSWORD}@reviverelay-db:5432/${REVIVERELAY_DB_NAME:-reviverelay}
+      API_KEY_ENCRYPTION_KEY: ${API_KEY_ENCRYPTION_KEY}
+      SESSION_TOKEN_PEPPER: ${SESSION_TOKEN_PEPPER}
+      TORN_API_BASE_URL: ${TORN_API_BASE_URL:-https://api.torn.com/v2}
+      OPERATOR_TORN_ID: ${OPERATOR_TORN_ID:-}
+      ADMIN_API_TOKEN: ${ADMIN_API_TOKEN:-}
+      SHEETS_MIRROR_URL: ${SHEETS_MIRROR_URL:-}
+      SHEETS_MIRROR_TOKEN: ${SHEETS_MIRROR_TOKEN:-}
+      PAID_TIER_ENABLED: ${PAID_TIER_ENABLED:-false}
+    ports:
+      - 127.0.0.1:${REVIVERELAY_API_PORT:-3100}:3100
+    networks:
+      - reviverelay_internal
+      - reviverelay_egress
+
+  reviverelay-worker:
+    build:
+      context: ../server
+    restart: unless-stopped
+    command: ["npm", "run", "worker"]
+    depends_on:
+      reviverelay-db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${REVIVERELAY_DB_USER:-reviverelay_app}:${REVIVERELAY_DB_PASSWORD}@reviverelay-db:5432/${REVIVERELAY_DB_NAME:-reviverelay}
+      API_KEY_ENCRYPTION_KEY: ${API_KEY_ENCRYPTION_KEY}
+      SESSION_TOKEN_PEPPER: ${SESSION_TOKEN_PEPPER}
+      TORN_API_BASE_URL: ${TORN_API_BASE_URL:-https://api.torn.com/v2}
+      OPERATOR_TORN_ID: ${OPERATOR_TORN_ID:-}
+      ADMIN_API_TOKEN: ${ADMIN_API_TOKEN:-}
+      SHEETS_MIRROR_URL: ${SHEETS_MIRROR_URL:-}
+      SHEETS_MIRROR_TOKEN: ${SHEETS_MIRROR_TOKEN:-}
+      PAID_TIER_ENABLED: ${PAID_TIER_ENABLED:-false}
+    networks:
+      - reviverelay_internal
+      - reviverelay_egress
+
+networks:
+  reviverelay_internal:
+    name: reviverelay_internal
+    internal: true
+  reviverelay_egress:
+    name: reviverelay_egress
