@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs/promises');
 const path = require('node:path');
 const { setTimeout: sleep } = require('node:timers/promises');
 const { createPool } = require('../../src/db/pool');
@@ -39,13 +40,16 @@ test('concurrent migration runners safely serialize on the same fresh database',
     }
 
     const migrationsDir = path.resolve(__dirname, '../../src/db/migrations');
+    const expectedMigrationCount = (await fs.readdir(migrationsDir))
+      .filter(name => name.endsWith('.sql')).length;
+
     await Promise.all(pools.map(pool => migrate(pool, migrationsDir)));
 
     const result = await pools[0].query(`
       SELECT COUNT(*)::int AS count
       FROM schema_migrations
     `);
-    assert.equal(result.rows[0].count, 1);
+    assert.equal(result.rows[0].count, expectedMigrationCount);
   } finally {
     await Promise.all(pools.map(pool => pool.end()));
     await waitForDatabaseSessionsToClose(adminPool, dbName);
