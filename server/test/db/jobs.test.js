@@ -1,9 +1,25 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
+const { setTimeout: sleep } = require('node:timers/promises');
 const { createPool } = require('../../src/db/pool');
 const { migrate } = require('../../src/db/migrate');
 const { enqueueJob, claimDueJobs } = require('../../src/db/jobs');
+
+async function waitForDatabaseSessionsToClose(adminPool, dbName) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const result = await adminPool.query(`
+      SELECT COUNT(*)::int AS count
+      FROM pg_stat_activity
+      WHERE datname = $1
+    `, [dbName]);
+
+    if (result.rows[0].count === 0) return;
+    await sleep(10);
+  }
+
+  throw new Error(`Timed out waiting for PostgreSQL sessions to close for ${dbName}`);
+}
 
 test('two workers claim ten due jobs exactly once using SKIP LOCKED', async () => {
   const sourceUrl = process.env.TEST_DATABASE_URL;
@@ -56,7 +72,8 @@ test('two workers claim ten due jobs exactly once using SKIP LOCKED', async () =
     assert.ok(rows.rows.every(row => row.locked_by));
   } finally {
     await pool.end();
-    await adminPool.query(`DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)`);
+    await waitForDatabaseSessionsToClose(adminPool, dbName);
+    await adminPool.query(`DROP DATABASE IF EXISTS "${dbName}"`);
     await adminPool.end();
   }
 });
