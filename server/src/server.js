@@ -4,6 +4,7 @@ const { createIdentityRepository } = require('./db/users');
 const { createSessionRepository } = require('./db/sessions');
 const { createCandidateRepository } = require('./db/candidates');
 const { createRequestRepository } = require('./db/requests');
+const { createTransactionRepository } = require('./db/transactions');
 const { createTornClient } = require('./torn/client');
 const { buildApp } = require('./app');
 
@@ -15,6 +16,7 @@ async function start() {
   const sessionRepository = createSessionRepository(pool);
   const candidateRepository = createCandidateRepository(pool);
   const requestRepository = createRequestRepository(pool);
+  const transactionRepository = createTransactionRepository(pool);
   const app = buildApp({
     config,
     tornClient,
@@ -22,6 +24,7 @@ async function start() {
     sessionRepository,
     candidateRepository,
     requestRepository,
+    transactionRepository,
     logger: true
   });
 
