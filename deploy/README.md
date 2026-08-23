@@ -36,6 +36,12 @@ Confirm the database has no host `ports:` mapping:
 docker compose --env-file /srv/voidsmith/reviverelay/config/.env -f deploy/docker-compose.yml config | sed -n '/reviverelay-db:/,/reviverelay-api:/p'
 ```
 
+Confirm only ReviveRelay services are attached to the private database network after startup:
+
+```bash
+docker network inspect reviverelay_internal
+```
+
 Confirm no unrelated database or network names are present:
 
 ```bash
