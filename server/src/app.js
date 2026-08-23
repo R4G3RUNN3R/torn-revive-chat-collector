@@ -1,6 +1,7 @@
 const Fastify = require('fastify');
 const { registerAuthRoute } = require('./routes/auth');
 const { registerCandidateRoutes } = require('./routes/candidates');
+const { registerRequestRoutes } = require('./routes/requests');
 const { installAuthentication } = require('./security/authenticate');
 
 function buildApp({
@@ -9,6 +10,7 @@ function buildApp({
   identityRepository,
   sessionRepository = null,
   candidateRepository = null,
+  requestRepository = null,
   logger = false
 }) {
   if (!config) throw new Error('config is required');
@@ -40,6 +42,15 @@ function buildApp({
     }
     app.register(async instance => {
       await registerCandidateRoutes(instance, { candidateRepository });
+    });
+  }
+
+  if (requestRepository) {
+    if (!sessionRepository) {
+      throw new Error('request routes require a sessionRepository');
+    }
+    app.register(async instance => {
+      await registerRequestRoutes(instance, { requestRepository });
     });
   }
 
