@@ -18,7 +18,8 @@ const expectedTables = [
   'disputes',
   'bans',
   'subscriptions',
-  'audit_events'
+  'audit_events',
+  'jobs'
 ];
 
 test('initial migrations create the Stage 1 schema and are idempotent', async t => {
