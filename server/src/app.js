@@ -1,5 +1,6 @@
 const Fastify = require('fastify');
 const { registerAuthRoutes } = require('./routes/auth');
+const { registerCandidateRoutes } = require('./routes/candidates');
 const { createAuthenticator } = require('./security/authenticate');
 
 function authStatus(code) {
@@ -7,7 +8,14 @@ function authStatus(code) {
   return 401;
 }
 
-function createApp({ config, tornClient, userRepository, sessionRepository = null, logger = false }) {
+function createApp({
+  config,
+  tornClient,
+  userRepository,
+  sessionRepository = null,
+  candidateRepository = null,
+  logger = false
+}) {
   if (!config || !tornClient || !userRepository) {
     throw new TypeError('config, tornClient and userRepository are required');
   }
@@ -48,6 +56,10 @@ function createApp({ config, tornClient, userRepository, sessionRepository = nul
     config,
     tornClient,
     userRepository
+  });
+
+  registerCandidateRoutes(app, {
+    candidateRepository
   });
 
   return app;
