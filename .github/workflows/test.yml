@@ -14,7 +14,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      - run: npm install --prefix server --no-audit --no-fund
       - run: npm test
       - run: node --check torn-revive-chat-collector.user.js
       - run: node --check src/core.js
       - run: node --check src/chat-dom.js
+      - run: node --check server/src/config.js
