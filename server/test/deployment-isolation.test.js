@@ -1,8 +1,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const path = require('node:path');
 
-const compose = fs.readFileSync('deploy/docker-compose.yml', 'utf8');
+const composePath = path.resolve(__dirname, '../../deploy/docker-compose.yml');
+const compose = fs.readFileSync(composePath, 'utf8');
 
 test('database has no published host port', () => {
   const dbBlock = compose.split('reviverelay-db:')[1].split('\n  reviverelay-')[0];
