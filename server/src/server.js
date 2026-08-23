@@ -1,6 +1,7 @@
 const { loadConfig } = require('./config');
 const { createPool } = require('./db/pool');
 const { createIdentityRepository } = require('./db/users');
+const { createSessionRepository } = require('./db/sessions');
 const { createTornClient } = require('./torn/client');
 const { buildApp } = require('./app');
 
@@ -9,10 +10,12 @@ async function start() {
   const pool = createPool(config.DATABASE_URL);
   const tornClient = createTornClient({ baseUrl: config.TORN_API_BASE_URL });
   const identityRepository = createIdentityRepository(pool);
+  const sessionRepository = createSessionRepository(pool);
   const app = buildApp({
     config,
     tornClient,
     identityRepository,
+    sessionRepository,
     logger: true
   });
 
