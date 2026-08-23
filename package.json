@@ -4,7 +4,9 @@
   "private": true,
   "description": "Research collector for Torn chat messages rendered in actively used chat surfaces, with resilient chat discovery, local buffering, and optional Google Sheets sync.",
   "scripts": {
-    "test": "node --test",
+    "test": "npm run test:client && npm run test:server",
+    "test:client": "node --test test",
+    "test:server": "npm --prefix server test",
     "build": "node scripts/build.js",
     "check": "npm test && npm run build && node --check dist/torn-revive-chat-collector.user.js"
   },
