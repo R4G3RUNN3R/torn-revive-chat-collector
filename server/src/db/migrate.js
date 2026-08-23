@@ -2,50 +2,64 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { createPool } = require('./pool');
 
+const MIGRATION_LOCK_NAME = 'reviverelay:migrations';
+
 async function migrate(pool, migrationsDir) {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS schema_migrations (
-      filename text PRIMARY KEY,
-      applied_at timestamptz NOT NULL DEFAULT now()
-    )
-  `);
+  const client = await pool.connect();
+  let locked = false;
 
-  const filenames = (await fs.readdir(migrationsDir))
-    .filter(name => name.endsWith('.sql'))
-    .sort();
-
-  for (const filename of filenames) {
-    const alreadyApplied = await pool.query(
-      'SELECT 1 FROM schema_migrations WHERE filename = $1',
-      [filename]
+  try {
+    await client.query(
+      'SELECT pg_advisory_lock(hashtext($1))',
+      [MIGRATION_LOCK_NAME]
     );
+    locked = true;
 
-    if (alreadyApplied.rowCount > 0) continue;
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS schema_migrations (
+        filename text PRIMARY KEY,
+        applied_at timestamptz NOT NULL DEFAULT now()
+      )
+    `);
 
-    const sql = await fs.readFile(path.join(migrationsDir, filename), 'utf8');
-    const client = await pool.connect();
+    const filenames = (await fs.readdir(migrationsDir))
+      .filter(name => name.endsWith('.sql'))
+      .sort();
 
-    try {
-      await client.query('BEGIN');
-
-      const recheck = await client.query(
-        'SELECT 1 FROM schema_migrations WHERE filename = $1 FOR UPDATE',
+    for (const filename of filenames) {
+      const alreadyApplied = await client.query(
+        'SELECT 1 FROM schema_migrations WHERE filename = $1',
         [filename]
       );
 
-      if (recheck.rowCount === 0) {
+      if (alreadyApplied.rowCount > 0) continue;
+
+      const sql = await fs.readFile(path.join(migrationsDir, filename), 'utf8');
+
+      try {
+        await client.query('BEGIN');
         await client.query(sql);
         await client.query(
           'INSERT INTO schema_migrations (filename) VALUES ($1)',
           [filename]
         );
+        await client.query('COMMIT');
+      } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
       }
-
-      await client.query('COMMIT');
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
+    }
+  } finally {
+    if (locked) {
+      try {
+        await client.query(
+          'SELECT pg_advisory_unlock(hashtext($1))',
+          [MIGRATION_LOCK_NAME]
+        );
+      } finally {
+        client.release();
+      }
+    } else {
       client.release();
     }
   }
