@@ -31,7 +31,29 @@ test('concurrent migration runners safely serialize on the same fresh database',
     `);
     assert.equal(result.rows[0].count, 1);
   } finally {
-    await Promise.allSettled(pools.map(pool => pool.end()));
+    const shutdownResults = await Promise.allSettled(pools.map(pool => pool.end()));
+    const rejected = shutdownResults
+      .map((result, index) => ({ result, index }))
+      .filter(entry => entry.result.status === 'rejected')
+      .map(entry => ({
+        pool: entry.index,
+        error: String(entry.result.reason && entry.result.reason.message || entry.result.reason)
+      }));
+
+    const remaining = await adminPool.query(`
+      SELECT pid, state, application_name, query
+      FROM pg_stat_activity
+      WHERE datname = $1
+      ORDER BY pid
+    `, [dbName]);
+
+    if (rejected.length || remaining.rowCount) {
+      console.error('MIGRATION_TEARDOWN_DIAGNOSTIC', JSON.stringify({
+        rejected,
+        remaining: remaining.rows
+      }));
+    }
+
     await adminPool.query(`DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)`);
     await adminPool.end();
   }
