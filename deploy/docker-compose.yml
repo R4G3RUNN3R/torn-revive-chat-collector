@@ -1,0 +1,59 @@
+services:
+  reviverelay-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${REVIVERELAY_DB_NAME:-reviverelay}
+      POSTGRES_USER: ${REVIVERELAY_DB_USER:-reviverelay_app}
+      POSTGRES_PASSWORD: ${REVIVERELAY_DB_PASSWORD}
+    volumes:
+      - ${REVIVERELAY_DATA_DIR:-/srv/voidsmith/reviverelay/data/postgres}:/var/lib/postgresql/data
+    networks:
+      - reviverelay_internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${REVIVERELAY_DB_USER:-reviverelay_app} -d ${REVIVERELAY_DB_NAME:-reviverelay}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  reviverelay-api:
+    image: node:20-alpine
+    restart: unless-stopped
+    working_dir: /app/server
+    command: ["node", "src/server.js"]
+    env_file:
+      - ${REVIVERELAY_ENV_FILE:-/srv/voidsmith/reviverelay/config/.env}
+    environment:
+      PORT: 3100
+      DATABASE_URL: postgres://${REVIVERELAY_DB_USER:-reviverelay_app}:${REVIVERELAY_DB_PASSWORD}@reviverelay-db:5432/${REVIVERELAY_DB_NAME:-reviverelay}
+    volumes:
+      - ${REVIVERELAY_APP_DIR:-/srv/voidsmith/reviverelay/app}:/app:ro
+    ports:
+      - "127.0.0.1:${REVIVERELAY_API_PORT:-3100}:3100"
+    depends_on:
+      reviverelay-db:
+        condition: service_healthy
+    networks:
+      - reviverelay_internal
+
+  reviverelay-worker:
+    image: node:20-alpine
+    restart: unless-stopped
+    working_dir: /app/server
+    command: ["node", "src/worker.js"]
+    env_file:
+      - ${REVIVERELAY_ENV_FILE:-/srv/voidsmith/reviverelay/config/.env}
+    environment:
+      DATABASE_URL: postgres://${REVIVERELAY_DB_USER:-reviverelay_app}:${REVIVERELAY_DB_PASSWORD}@reviverelay-db:5432/${REVIVERELAY_DB_NAME:-reviverelay}
+    volumes:
+      - ${REVIVERELAY_APP_DIR:-/srv/voidsmith/reviverelay/app}:/app:ro
+    depends_on:
+      reviverelay-db:
+        condition: service_healthy
+    networks:
+      - reviverelay_internal
+
+networks:
+  reviverelay_internal:
+    name: reviverelay_internal
+    internal: true
