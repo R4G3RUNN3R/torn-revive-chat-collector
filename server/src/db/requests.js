@@ -1,3 +1,5 @@
+const { canTransition } = require('../domain/transaction-state');
+
 function rowToRequest(row) {
   if (!row) return null;
   return {
@@ -78,18 +80,68 @@ async function cancelRequest(pool, { requestId, requesterId, now = new Date() })
     }
 
     const request = current.rows[0];
-    const transaction = await client.query(
-      'SELECT 1 FROM transactions WHERE request_id = $1 LIMIT 1',
-      [requestId]
-    );
-
-    if (request.closed_at || request.state !== 'AVAILABLE' || transaction.rowCount > 0) {
+    if (request.closed_at) {
       await client.query('ROLLBACK');
       return {
         cancelled: false,
         reason: 'REQUEST_COMMITTED',
         request: rowToRequest(request)
       };
+    }
+
+    const transactionResult = await client.query(`
+      SELECT *
+      FROM transactions
+      WHERE request_id = $1
+      LIMIT 1
+      FOR UPDATE
+    `, [requestId]);
+
+    if (transactionResult.rowCount === 0) {
+      if (request.state !== 'AVAILABLE') {
+        await client.query('ROLLBACK');
+        return {
+          cancelled: false,
+          reason: 'REQUEST_COMMITTED',
+          request: rowToRequest(request)
+        };
+      }
+    } else {
+      const transaction = transactionResult.rows[0];
+      const cancellationState = canTransition(transaction.state, 'requester_cancel');
+
+      if (request.state !== 'WAITING_FOR_PAYMENT' ||
+          transaction.payment_verified_at ||
+          !cancellationState) {
+        await client.query('ROLLBACK');
+        return {
+          cancelled: false,
+          reason: 'PAYMENT_COMMITTED',
+          request: rowToRequest(request)
+        };
+      }
+
+      const payment = await client.query(
+        'SELECT 1 FROM payments WHERE transaction_id = $1 LIMIT 1',
+        [transaction.id]
+      );
+
+      if (payment.rowCount > 0) {
+        await client.query('ROLLBACK');
+        return {
+          cancelled: false,
+          reason: 'PAYMENT_COMMITTED',
+          request: rowToRequest(request)
+        };
+      }
+
+      await client.query(`
+        UPDATE transactions
+        SET state = $2,
+            closed_at = $3,
+            updated_at = $3
+        WHERE id = $1
+      `, [transaction.id, cancellationState, now]);
     }
 
     const updated = await client.query(`
