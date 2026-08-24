@@ -1,5 +1,8 @@
+const { z } = require('zod');
 const { validateOffer } = require('../domain/request');
 const { RATE_LIMITS } = require('../security/rate-limits');
+
+const requestIdSchema = z.string().uuid();
 
 async function registerRequestRoutes(app, { requestRepository }) {
   if (!requestRepository ||
@@ -46,8 +49,13 @@ async function registerRequestRoutes(app, { requestRepository }) {
       rateLimit: RATE_LIMITS.REQUEST_WRITE
     }
   }, async (request, reply) => {
+    const parsedId = requestIdSchema.safeParse(request.params.id);
+    if (!parsedId.success) {
+      return reply.code(422).send({ error: 'INVALID_REQUEST_ID' });
+    }
+
     const result = await requestRepository.cancelRequest({
-      requestId: request.params.id,
+      requestId: parsedId.data,
       requesterId: request.reviveRelayUser.userId,
       now: new Date()
     });
