@@ -150,3 +150,30 @@ test('processMessageNode leaves a transiently unparseable React node eligible fo
   assert.equal(third, false);
   assert.equal(saved.length, 1);
 });
+
+test('findChatContexts applies acceptChat before returning attachable contexts', () => {
+  const publicBody = makeElement({ name: 'publicBody' });
+  const factionBody = makeElement({ name: 'factionBody' });
+  const privateBody = makeElement({ name: 'privateBody' });
+
+  const publicChat = makeElement({ name: 'publicChat', queries: { [SELECTORS.chatBody]: publicBody } });
+  publicChat.id = 'public_global';
+  const factionChat = makeElement({ name: 'factionChat', queries: { [SELECTORS.chatBody]: factionBody } });
+  factionChat.id = 'faction-123';
+  const privateChat = makeElement({ name: 'privateChat', queries: { [SELECTORS.chatBody]: privateBody } });
+  privateChat.id = 'private-456';
+
+  const root = makeElement({
+    queries: {
+      [SELECTORS.chatWrapper]: [publicChat, factionChat, privateChat],
+      [SELECTORS.chatRootWrapper]: [],
+      [SELECTORS.chatTextarea]: []
+    }
+  });
+
+  const contexts = findChatContexts(root, {
+    acceptChat: (chat) => String(chat.id || '').startsWith('public_')
+  });
+
+  assert.deepEqual(contexts.map((context) => context.chat), [publicChat]);
+});
