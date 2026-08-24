@@ -17,8 +17,82 @@ function rowToRequest(row) {
 }
 
 async function createRequest(pool, input) {
-  const result = await pool.query(`
-    WITH inserted AS (
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      'SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))',
+      [input.requesterId]
+    );
+
+    const existingResult = await client.query(`
+      SELECT *
+      FROM revive_requests
+      WHERE requester_id = $1
+        AND closed_at IS NULL
+      ORDER BY created_at DESC
+      LIMIT 1
+      FOR UPDATE
+    `, [input.requesterId]);
+
+    if (existingResult.rowCount === 1) {
+      const existing = existingResult.rows[0];
+
+      if (existing.state !== 'AVAILABLE') {
+        await client.query('ROLLBACK');
+        return {
+          created: false,
+          updated: false,
+          reason: 'REQUEST_COMMITTED',
+          request: rowToRequest(existing)
+        };
+      }
+
+      const updated = await client.query(`
+        UPDATE revive_requests
+        SET payment_method = $2,
+            offer_amount = $3,
+            comment = $4,
+            updated_at = now()
+        WHERE id = $1
+        RETURNING *
+      `, [
+        existing.id,
+        input.paymentMethod,
+        input.offerAmount,
+        input.comment == null ? null : input.comment
+      ]);
+
+      await client.query(`
+        INSERT INTO audit_events (
+          actor_type,
+          actor_id,
+          entity_type,
+          entity_id,
+          action,
+          details
+        ) VALUES (
+          'user',
+          $1,
+          'revive_request',
+          $2,
+          'request.updated',
+          jsonb_build_object(
+            'paymentMethod', $3::text,
+            'offerAmount', $4::bigint
+          )
+        )
+      `, [input.requesterId, existing.id, input.paymentMethod, input.offerAmount]);
+
+      await client.query('COMMIT');
+      return {
+        created: false,
+        updated: true,
+        request: rowToRequest(updated.rows[0])
+      };
+    }
+
+    const inserted = await client.query(`
       INSERT INTO revive_requests (
         requester_id,
         payment_method,
@@ -26,9 +100,15 @@ async function createRequest(pool, input) {
         comment,
         state
       ) VALUES ($1, $2, $3, $4, 'AVAILABLE')
-      ON CONFLICT (requester_id) WHERE closed_at IS NULL DO NOTHING
       RETURNING *
-    ), audited AS (
+    `, [
+      input.requesterId,
+      input.paymentMethod,
+      input.offerAmount,
+      input.comment == null ? null : input.comment
+    ]);
+
+    await client.query(`
       INSERT INTO audit_events (
         actor_type,
         actor_id,
@@ -36,40 +116,31 @@ async function createRequest(pool, input) {
         entity_id,
         action,
         details
-      )
-      SELECT
+      ) VALUES (
         'user',
-        requester_id,
+        $1,
         'revive_request',
-        id,
+        $2,
         'request.created',
         jsonb_build_object(
-          'paymentMethod', payment_method,
-          'offerAmount', offer_amount::bigint
+          'paymentMethod', $3::text,
+          'offerAmount', $4::bigint
         )
-      FROM inserted
-      RETURNING id
-    )
-    SELECT * FROM inserted
-  `, [
-    input.requesterId,
-    input.paymentMethod,
-    input.offerAmount,
-    input.comment == null ? null : input.comment
-  ]);
+      )
+    `, [input.requesterId, inserted.rows[0].id, input.paymentMethod, input.offerAmount]);
 
-  if (result.rowCount === 1) {
+    await client.query('COMMIT');
     return {
       created: true,
-      request: rowToRequest(result.rows[0])
+      updated: false,
+      request: rowToRequest(inserted.rows[0])
     };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
   }
-
-  const existing = await getActiveRequest(pool, input.requesterId);
-  return {
-    created: false,
-    request: existing
-  };
 }
 
 async function getActiveRequest(pool, requesterId) {
