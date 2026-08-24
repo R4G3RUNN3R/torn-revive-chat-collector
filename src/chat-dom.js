@@ -94,8 +94,12 @@
       || textarea.closest(SELECTORS.chatFallbackWrapper);
   }
 
-  function findChatContexts(root) {
+  function findChatContexts(root, options = {}) {
     if (!root?.querySelectorAll) return [];
+
+    const acceptChat = typeof options.acceptChat === 'function'
+      ? options.acceptChat
+      : () => true;
 
     const candidates = [];
     candidates.push(...root.querySelectorAll(SELECTORS.chatWrapper));
@@ -107,6 +111,7 @@
     }
 
     return unique(candidates)
+      .filter((chat) => acceptChat(chat))
       .map((chat) => ({ chat, body: findBody(chat) }))
       .filter((context) => context.body);
   }
