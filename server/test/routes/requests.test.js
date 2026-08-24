@@ -95,6 +95,39 @@ test('POST /v1/requests rejects invalid offer server-side', async t => {
   assert.equal(calls, 0);
 });
 
+test('POST /v1/requests refuses to mutate an already committed request contract', async t => {
+  const app = makeApp({
+    async createRequest() {
+      return {
+        created: false,
+        updated: false,
+        reason: 'REQUEST_COMMITTED',
+        request: {
+          id: VALID_REQUEST_ID,
+          requesterId: 'requester-user-id',
+          paymentMethod: 'cash',
+          offerAmount: 750000,
+          state: 'WAITING_FOR_PAYMENT'
+        }
+      };
+    },
+    async getActiveRequest() { return null; },
+    async cancelRequest() { throw new Error('not used'); }
+  });
+  t.after(() => app.close());
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/v1/requests',
+    headers: { authorization: 'Bearer requester-token' },
+    payload: { paymentMethod: 'xanax', offerAmount: 2 }
+  });
+
+  assert.equal(response.statusCode, 409);
+  assert.equal(response.json().error, 'REQUEST_COMMITTED');
+  assert.equal(response.json().request.id, VALID_REQUEST_ID);
+});
+
 test('GET active and POST cancel are scoped to authenticated requester', async t => {
   const calls = [];
   const app = makeApp({
