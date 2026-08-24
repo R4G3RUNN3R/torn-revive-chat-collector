@@ -131,12 +131,25 @@
     return now - lastInteractionAt <= windowMs;
   }
 
+  async function processMessageNode({ node, chat, seenNodes, parseMessage, save }) {
+    if (!node || !seenNodes || typeof parseMessage !== 'function' || typeof save !== 'function') return false;
+    if (seenNodes.has(node)) return false;
+
+    const record = parseMessage(node, chat);
+    if (!record) return false;
+
+    seenNodes.add(node);
+    await save(record);
+    return true;
+  }
+
   return {
     SELECTORS,
     findChatContexts,
     findMessageContainer,
     messageCandidates,
     isRecentlyInteracted,
-    conversationNameFromId
+    conversationNameFromId,
+    processMessageNode
   };
 });
