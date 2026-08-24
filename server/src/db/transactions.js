@@ -58,6 +58,11 @@ async function acceptRequest(pool, { requestId, reviverId, now = new Date() }) {
       return { accepted: false, reason: 'REQUEST_UNAVAILABLE' };
     }
 
+    if (requestResult.rows[0].requester_id === reviverId) {
+      await client.query('ROLLBACK');
+      return { accepted: false, reason: 'SELF_ACCEPT_NOT_ALLOWED' };
+    }
+
     const reviver = await client.query(`
       SELECT user_id
       FROM revivers
