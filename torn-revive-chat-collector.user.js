@@ -245,10 +245,13 @@
   async function processCandidate(candidate, chat) {
     if (!captureAllowed()) return;
     for (const node of expandMessageNodes(candidate)) {
-      if (state.seenNodes.has(node)) continue;
-      state.seenNodes.add(node);
-      const record = parseMessage(node, chat);
-      if (record) await save(record);
+      await ChatDom.processMessageNode({
+        node,
+        chat,
+        seenNodes: state.seenNodes,
+        parseMessage,
+        save
+      });
     }
   }
 
