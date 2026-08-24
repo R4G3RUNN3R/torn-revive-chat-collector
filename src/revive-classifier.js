@@ -54,7 +54,7 @@
       addReason(reasons, 'positive:request-language');
     }
 
-    const terseReviveQuestion = /^rev(?:ive)?\s*\?$/.test(normalized);
+    const terseReviveQuestion = /^rev(?:ive)?\s*\?(?:\s|$)/.test(normalized);
     if (terseReviveQuestion) {
       score += 20;
       addReason(reasons, 'positive:terse-question');
