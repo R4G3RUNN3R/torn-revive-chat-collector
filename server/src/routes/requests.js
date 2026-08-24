@@ -1,4 +1,5 @@
 const { validateOffer } = require('../domain/request');
+const { RATE_LIMITS } = require('../security/rate-limits');
 
 async function registerRequestRoutes(app, { requestRepository }) {
   if (!requestRepository ||
@@ -11,7 +12,12 @@ async function registerRequestRoutes(app, { requestRepository }) {
     throw new Error('request routes require session authentication');
   }
 
-  app.post('/v1/requests', { preHandler: app.authenticate }, async (request, reply) => {
+  app.post('/v1/requests', {
+    preHandler: app.authenticate,
+    config: {
+      rateLimit: RATE_LIMITS.REQUEST_WRITE
+    }
+  }, async (request, reply) => {
     let offer;
     try {
       offer = validateOffer(request.body || {});
@@ -34,7 +40,12 @@ async function registerRequestRoutes(app, { requestRepository }) {
     return reply.code(200).send({ request: active });
   });
 
-  app.post('/v1/requests/:id/cancel', { preHandler: app.authenticate }, async (request, reply) => {
+  app.post('/v1/requests/:id/cancel', {
+    preHandler: app.authenticate,
+    config: {
+      rateLimit: RATE_LIMITS.REQUEST_WRITE
+    }
+  }, async (request, reply) => {
     const result = await requestRepository.cancelRequest({
       requestId: request.params.id,
       requesterId: request.reviveRelayUser.userId,
