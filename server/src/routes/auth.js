@@ -1,5 +1,6 @@
 const { z } = require('zod');
 const { encryptSecret } = require('../security/crypto');
+const { RATE_LIMITS } = require('../security/rate-limits');
 const { newSessionToken, hashSessionToken } = require('../security/sessions');
 const { TornApiError } = require('../torn/client');
 
@@ -13,7 +14,11 @@ async function registerAuthRoute(app, {
   tornClient,
   identityRepository
 }) {
-  app.post('/v1/auth/bind', async (request, reply) => {
+  app.post('/v1/auth/bind', {
+    config: {
+      rateLimit: RATE_LIMITS.AUTH_BIND
+    }
+  }, async (request, reply) => {
     const parsed = bindSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.code(422).send({
