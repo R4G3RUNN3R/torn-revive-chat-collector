@@ -1,5 +1,6 @@
 const { z } = require('zod');
 const { canonicalPublicChannel } = require('../../../src/public-channels');
+const { RATE_LIMITS } = require('../security/rate-limits');
 
 const candidateSchema = z.object({
   channelId: z.string().min(1).max(120),
@@ -22,7 +23,12 @@ async function registerCandidateRoutes(app, { candidateRepository }) {
     throw new Error('candidate routes require session authentication');
   }
 
-  app.post('/v1/candidates', { preHandler: app.authenticate }, async (request, reply) => {
+  app.post('/v1/candidates', {
+    preHandler: app.authenticate,
+    config: {
+      rateLimit: RATE_LIMITS.CANDIDATE_INGEST
+    }
+  }, async (request, reply) => {
     const parsed = candidateSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.code(422).send({ error: 'INVALID_CANDIDATE' });
