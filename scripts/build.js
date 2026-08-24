@@ -9,7 +9,8 @@ const requiredSupportModules = [
   'src/core.js',
   'src/chat-dom.js',
   'src/public-channels.js',
-  'src/client-chat-policy.js'
+  'src/client-chat-policy.js',
+  'src/api-client.js'
 ];
 
 if (!fs.existsSync(source)) {
