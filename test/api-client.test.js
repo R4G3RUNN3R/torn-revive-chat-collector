@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const {
   ApiClientError,
   createApiClient,
+  createGmRequestAdapter,
   createOutboxEntry,
   nextRetryDelay,
   drainCandidateOutbox
@@ -120,6 +121,45 @@ test('API methods use the Stage 1 route contract', async () => {
     ['POST', '/v1/requests/123e4567-e89b-12d3-a456-426614174000/cancel'],
     ['GET', '/v1/me']
   ]);
+});
+
+test('GM adapter serializes JSON and parses successful JSON response', async () => {
+  const calls = [];
+  const request = createGmRequestAdapter((options) => {
+    calls.push(options);
+    options.onload({ status: 201, responseText: '{"duplicate":true}' });
+  });
+
+  const result = await request({
+    method: 'POST',
+    url: 'https://relay.example/v1/candidates',
+    headers: { Authorization: 'Bearer secret', 'Content-Type': 'application/json' },
+    body: { text: 'need revive' }
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].method, 'POST');
+  assert.equal(calls[0].data, '{"text":"need revive"}');
+  assert.equal(calls[0].timeout, 20_000);
+  assert.deepEqual(result, { status: 201, body: { duplicate: true } });
+});
+
+test('GM adapter rejects network and timeout callbacks without embedding request secrets', async () => {
+  for (const callback of ['onerror', 'ontimeout']) {
+    const request = createGmRequestAdapter((options) => options[callback]());
+    await assert.rejects(
+      () => request({
+        method: 'GET',
+        url: 'https://relay.example/v1/me',
+        headers: { Authorization: 'Bearer do-not-leak' }
+      }),
+      (error) => {
+        assert.equal(error instanceof Error, true);
+        assert.doesNotMatch(error.message, /do-not-leak/);
+        return true;
+      }
+    );
+  }
 });
 
 test('candidate retry schedule is bounded at 5s, 15s, 30s and 60s', () => {
