@@ -6,6 +6,8 @@ const JOB_TYPES = Object.freeze([
   'sheets.mirror'
 ]);
 
+const JOB_LOCK_TIMEOUT_MS = 5 * 60 * 1000;
+
 function rowToJob(row) {
   if (!row) return null;
   return {
@@ -49,13 +51,17 @@ async function enqueueJob(pool, {
 async function claimDueJobs(pool, {
   limit = 10,
   workerId,
-  now = new Date()
+  now = new Date(),
+  lockTimeoutMs = JOB_LOCK_TIMEOUT_MS
 }) {
   if (typeof workerId !== 'string' || !workerId.trim()) {
     throw new Error('workerId is required');
   }
   if (!(now instanceof Date) || Number.isNaN(now.getTime())) {
     throw new Error('now must be a valid Date');
+  }
+  if (!Number.isInteger(lockTimeoutMs) || lockTimeoutMs <= 0) {
+    throw new Error('lockTimeoutMs must be a positive integer');
   }
 
   const normalizedLimit = Math.max(
@@ -71,8 +77,11 @@ async function claimDueJobs(pool, {
         SELECT id
         FROM jobs
         WHERE completed_at IS NULL
-          AND locked_at IS NULL
           AND run_at <= $1
+          AND (
+            locked_at IS NULL
+            OR locked_at <= $1::timestamptz - ($4::bigint * interval '1 millisecond')
+          )
         ORDER BY run_at ASC, id ASC
         FOR UPDATE SKIP LOCKED
         LIMIT $2
@@ -85,7 +94,7 @@ async function claimDueJobs(pool, {
       FROM due
       WHERE j.id = due.id
       RETURNING j.*
-    `, [now, normalizedLimit, workerId.trim()]);
+    `, [now, normalizedLimit, workerId.trim(), lockTimeoutMs]);
     await client.query('COMMIT');
     return result.rows.map(rowToJob);
   } catch (error) {
@@ -154,6 +163,7 @@ function createJobRepository(pool) {
 
 module.exports = {
   JOB_TYPES,
+  JOB_LOCK_TIMEOUT_MS,
   enqueueJob,
   claimDueJobs,
   completeJob,
