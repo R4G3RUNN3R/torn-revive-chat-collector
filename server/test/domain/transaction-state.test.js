@@ -4,6 +4,7 @@ const { STATES, canTransition } = require('../../src/domain/transaction-state');
 
 const transitions = [
   ['AVAILABLE', 'accept', 'WAITING_FOR_PAYMENT'],
+  ['WAITING_FOR_PAYMENT', 'requester_cancel', 'CANCELLED_BY_REQUESTER'],
   ['WAITING_FOR_PAYMENT', 'deadline', 'PAYMENT_RECONCILING'],
   ['PAYMENT_RECONCILING', 'valid_payment', 'WAITING_FOR_REVIVE'],
   ['PAYMENT_RECONCILING', 'no_payment', 'AVAILABLE'],
@@ -22,6 +23,12 @@ test('Stage 1 transaction transitions are explicit and deterministic', () => {
     assert.equal(STATES[to], to);
     assert.equal(canTransition(from, event), to, `${from} --${event}--> ${to}`);
   }
+});
+
+test('requester cancellation is only a pre-payment transaction event', () => {
+  assert.equal(canTransition('WAITING_FOR_PAYMENT', 'requester_cancel'), 'CANCELLED_BY_REQUESTER');
+  assert.equal(canTransition('PAYMENT_RECONCILING', 'requester_cancel'), null);
+  assert.equal(canTransition('WAITING_FOR_REVIVE', 'requester_cancel'), null);
 });
 
 test('unsupported transaction transitions return null', () => {
