@@ -13,6 +13,8 @@
 // @connect      script.googleusercontent.com
 // @require      https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/main/src/core.js
 // @require      https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/main/src/chat-dom.js
+// @require      https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/main/src/public-channels.js
+// @require      https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/main/src/client-chat-policy.js
 // @run-at       document-idle
 // ==/UserScript==
 
@@ -24,6 +26,8 @@
 
   const Core = globalThis.TornReviveCore;
   const ChatDom = globalThis.TornReviveChatDom;
+  const PublicChannels = globalThis.TornRevivePublicChannels;
+  const ClientChatPolicy = globalThis.TornReviveClientChatPolicy;
   const VERSION = '0.2.2';
   const DB_NAME = 'tornReviveChatCollector';
   const STORE = 'messages';
@@ -106,6 +110,14 @@
     return conversationNameFromId(chat.id) || 'Unknown';
   }
 
+  function getPublicChannel(chat) {
+    return ClientChatPolicy.resolvePublicChat(chat, { getName: getConversationName });
+  }
+
+  function isEligiblePublicChat(chat) {
+    return Boolean(getPublicChannel(chat));
+  }
+
   function getConversationId(chat, name) {
     return norm(
       chat?.getAttribute?.('data-conversation-id') ||
@@ -169,21 +181,23 @@
   }
 
   function parseMessage(node, chat) {
-    if (!node?.querySelector) return null;
+    if (!node?.querySelector || !isEligiblePublicChat(chat)) return null;
     const text = getMessageText(node);
     if (!norm(text)) return null;
 
     const sender = getSender(node);
     if (!sender.senderName && !sender.senderId) return null;
 
-    const conversationName = getConversationName(chat);
-    const conversationId = getConversationId(chat, conversationName);
+    const channel = getPublicChannel(chat);
+    if (!channel) return null;
+    const conversationName = channel.name;
+    const conversationId = channel.id;
     const capturedAt = new Date().toISOString();
     const record = {
       conversationId,
       conversationName,
-      conversationType: Core.inferConversationType(conversationName),
-      abroadLocation: Core.inferAbroadLocation(conversationName),
+      conversationType: channel.type,
+      abroadLocation: channel.type === 'travel' ? channel.name : '',
       senderId: sender.senderId,
       senderName: sender.senderName,
       text,
@@ -243,7 +257,7 @@
   }
 
   async function processCandidate(candidate, chat) {
-    if (!captureAllowed()) return;
+    if (!captureAllowed() || !isEligiblePublicChat(chat)) return;
     for (const node of expandMessageNodes(candidate)) {
       await ChatDom.processMessageNode({
         node,
@@ -256,7 +270,7 @@
   }
 
   async function scanContext(context) {
-    if (!captureAllowed() || !context?.body) return;
+    if (!captureAllowed() || !context?.body || !isEligiblePublicChat(context.chat)) return;
     const container = ChatDom.findMessageContainer(context.body);
     if (!container) return;
     for (const candidate of ChatDom.messageCandidates(container)) {
@@ -265,6 +279,7 @@
   }
 
   function attachContext(context) {
+    if (!isEligiblePublicChat(context?.chat)) return;
     const container = ChatDom.findMessageContainer(context.body);
     if (!container) return;
 
@@ -289,7 +304,7 @@
         ...root.querySelectorAll(ChatDom.SELECTORS.minimizedItem),
         ...root.querySelectorAll('[class*="chat-app__chat-list-chat-box-wrapper___"] [data-name]')
       ];
-      state.stats.chatListItems = new Set(listItems).size;
+      state.stats.chatListItems = new Set(listItems.filter(isEligiblePublicChat)).size;
     }
     state.lastDomScanAt = Date.now();
     refreshPanel();
@@ -297,7 +312,7 @@
 
   function discoverChats() {
     if (!visibleAndFocused()) return [];
-    const contexts = ChatDom.findChatContexts(document);
+    const contexts = ChatDom.findChatContexts(document, { acceptChat: isEligiblePublicChat });
     updateCoverageStats(contexts);
     contexts.forEach(attachContext);
     return contexts;
@@ -442,8 +457,8 @@
 
   function coverageLabel() {
     if (!document.querySelector(ChatDom.SELECTORS.chatRoot)) return 'NO CHAT ROOT';
-    if (!state.stats.openChats) return 'NO INSTANTIATED CHATS';
-    return `${state.stats.openChats} ACTIVE/LOADED`;
+    if (!state.stats.openChats) return 'NO ELIGIBLE PUBLIC CHATS';
+    return `${state.stats.openChats} PUBLIC LOADED`;
   }
 
   function refreshPanel() {
@@ -488,9 +503,9 @@
           <span>State</span><strong id="trcc-state">STARTING</strong>
           <span>Messages</span><strong id="trcc-total">0</strong>
           <span>Unsynced</span><strong id="trcc-unsynced">0</strong>
-          <span>Conversations captured</span><strong id="trcc-conversations">0</strong>
-          <span>Instantiated chats</span><strong id="trcc-open-chats">0</strong>
-          <span>Chat-list items</span><strong id="trcc-list-items">0</strong>
+          <span>Public conversations captured</span><strong id="trcc-conversations">0</strong>
+          <span>Eligible public chats loaded</span><strong id="trcc-open-chats">0</strong>
+          <span>Eligible public list items</span><strong id="trcc-list-items">0</strong>
           <span>Coverage</span><strong id="trcc-coverage">STARTING</strong>
           <span>Last captured</span><strong id="trcc-last">—</strong>
         </div>
@@ -498,8 +513,8 @@
         <input id="trcc-endpoint" type="url" placeholder="https://script.google.com/macros/s/.../exec">
         <label>Collector token (optional)</label>
         <input id="trcc-token" type="password" placeholder="Stored locally only">
-        <div class="trcc-note">Captures messages from every chat Torn has instantiated in the actively used page. It scans existing messages and watches each loaded chat independently.</div>
-        <div class="trcc-warning">Closed/unloaded chats may only expose an unread/list preview. This version does not hook Torn/Sendbird WebSockets or auto-open chats.</div>
+        <div class="trcc-note">Inspects only explicitly allowlisted public Torn chats that are instantiated in the actively used page. Faction, Company, private, competition, poker, and unknown chats are excluded before message parsing.</div>
+        <div class="trcc-warning">Closed/unloaded public chats may expose only a list preview. This version does not hook Torn/Sendbird WebSockets or auto-open chats.</div>
         <div class="trcc-actions">
           <button id="trcc-pause" type="button">Pause</button>
           <button id="trcc-save" type="button">Save settings</button>
@@ -540,13 +555,13 @@
     document.getElementById('trcc-rescan').onclick = () => {
       markInteraction();
       const contexts = discoverChats();
-      setStatus(`Rescan found ${contexts.length} instantiated chat(s)`);
+      setStatus(`Rescan found ${contexts.length} eligible public chat(s)`);
     };
     document.getElementById('trcc-json').onclick = () => exportRows('json');
     document.getElementById('trcc-csv').onclick = () => exportRows('csv');
     document.getElementById('trcc-clear').onclick = async () => {
       markInteraction();
-      if (confirm('Delete all locally collected chat data?')) {
+      if (confirm('Delete all locally collected public chat data?')) {
         await clearLocalData();
         setStatus('Local data cleared');
       }
@@ -571,8 +586,13 @@
   }
 
   async function init() {
-    if (!Core || !ChatDom) {
-      console.error('[TRCC] Required dependency unavailable.', { Core: Boolean(Core), ChatDom: Boolean(ChatDom) });
+    if (!Core || !ChatDom || !PublicChannels || !ClientChatPolicy) {
+      console.error('[TRCC] Required dependency unavailable.', {
+        Core: Boolean(Core),
+        ChatDom: Boolean(ChatDom),
+        PublicChannels: Boolean(PublicChannels),
+        ClientChatPolicy: Boolean(ClientChatPolicy)
+      });
       return;
     }
 
