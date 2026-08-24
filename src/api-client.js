@@ -54,6 +54,36 @@
     return new ApiClientError('REQUEST_FAILED', { status, retryable: false, details });
   }
 
+  function createGmRequestAdapter(gmXmlHttpRequest, options = {}) {
+    if (typeof gmXmlHttpRequest !== 'function') throw new Error('GM_xmlhttpRequest transport is required');
+    const timeoutMs = Number.isFinite(options.timeoutMs) ? options.timeoutMs : 20_000;
+
+    return function gmRequest(request) {
+      return new Promise((resolve, reject) => {
+        const settings = {
+          method: request.method || 'GET',
+          url: request.url,
+          headers: { ...(request.headers || {}) },
+          timeout: timeoutMs,
+          onload: (response) => {
+            let body = {};
+            const text = response?.responseText;
+            if (text) {
+              try { body = JSON.parse(text); }
+              catch (_) { body = {}; }
+            }
+            resolve({ status: Number(response?.status || 0), body });
+          },
+          onerror: () => reject(new Error('ReviveRelay network request failed')),
+          ontimeout: () => reject(new Error('ReviveRelay network request timed out'))
+        };
+
+        if (request.body !== undefined) settings.data = JSON.stringify(request.body);
+        gmXmlHttpRequest(settings);
+      });
+    };
+  }
+
   function createApiClient({ baseUrl, getToken, request }) {
     const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
     if (typeof request !== 'function') throw new Error('request transport is required');
@@ -189,6 +219,7 @@
     ApiClientError,
     RETRY_DELAYS_MS,
     createApiClient,
+    createGmRequestAdapter,
     createOutboxEntry,
     nextRetryDelay,
     drainCandidateOutbox
