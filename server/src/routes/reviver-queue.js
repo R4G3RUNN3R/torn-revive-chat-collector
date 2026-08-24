@@ -37,6 +37,9 @@ async function registerReviverQueueRoutes(app, { transactionRepository }) {
     if (result.reason === 'REVIVER_NOT_ELIGIBLE') {
       return reply.code(403).send({ error: 'REVIVER_NOT_ELIGIBLE' });
     }
+    if (result.reason === 'SELF_ACCEPT_NOT_ALLOWED') {
+      return reply.code(409).send({ error: 'SELF_ACCEPT_NOT_ALLOWED' });
+    }
     return reply.code(409).send({ error: 'REQUEST_UNAVAILABLE' });
   });
 }
