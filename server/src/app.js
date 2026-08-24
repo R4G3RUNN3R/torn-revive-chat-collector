@@ -1,4 +1,5 @@
 const Fastify = require('fastify');
+const fastifyRateLimit = require('@fastify/rate-limit');
 const { registerAuthRoute } = require('./routes/auth');
 const { registerCandidateRoutes } = require('./routes/candidates');
 const { registerRequestRoutes } = require('./routes/requests');
@@ -19,7 +20,14 @@ function buildApp({
   if (!tornClient) throw new Error('tornClient is required');
   if (!identityRepository) throw new Error('identityRepository is required');
 
-  const app = Fastify({ logger });
+  const app = Fastify({
+    logger,
+    trustProxy: true
+  });
+
+  app.register(fastifyRateLimit, {
+    global: false
+  });
 
   if (sessionRepository) {
     installAuthentication(app, {
