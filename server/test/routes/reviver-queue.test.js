@@ -72,6 +72,25 @@ test('reviver queue and accept use the authenticated reviver identity', async t 
   assert.equal(calls[0].reviverId, 'reviver-user-id');
 });
 
+test('self-acceptance returns a specific conflict instead of creating a transaction', async t => {
+  const app = makeApp({
+    async listAvailableRequests() { return []; },
+    async acceptRequest() {
+      return { accepted: false, reason: 'SELF_ACCEPT_NOT_ALLOWED' };
+    }
+  });
+  t.after(() => app.close());
+
+  const accepted = await app.inject({
+    method: 'POST',
+    url: '/v1/requests/request-1/accept',
+    headers: { authorization: 'Bearer reviver-token' }
+  });
+
+  assert.equal(accepted.statusCode, 409);
+  assert.equal(accepted.json().error, 'SELF_ACCEPT_NOT_ALLOWED');
+});
+
 test('non-reviver sessions cannot view or accept the reviver queue', async t => {
   const app = makeApp({
     async listAvailableRequests() { throw new Error('must not be called'); },
