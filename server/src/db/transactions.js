@@ -109,10 +109,42 @@ async function acceptRequest(pool, { requestId, reviverId, now = new Date() }) {
       WHERE id = $1
     `, [requestId, nextState, now]);
 
+    const transaction = transactionResult.rows[0];
+    await client.query(`
+      INSERT INTO audit_events (
+        actor_type,
+        actor_id,
+        entity_type,
+        entity_id,
+        action,
+        details,
+        created_at
+      ) VALUES (
+        'user',
+        $1,
+        'transaction',
+        $2,
+        'transaction.accepted',
+        jsonb_build_object(
+          'requestId', $3::text,
+          'requesterId', $4::text,
+          'paymentDeadline', $5::timestamptz
+        ),
+        $6
+      )
+    `, [
+      reviverId,
+      transaction.id,
+      requestId,
+      requestResult.rows[0].requester_id,
+      transaction.payment_deadline,
+      now
+    ]);
+
     await client.query('COMMIT');
     return {
       accepted: true,
-      transaction: rowToTransaction(transactionResult.rows[0])
+      transaction: rowToTransaction(transaction)
     };
   } catch (error) {
     await client.query('ROLLBACK');
