@@ -1,4 +1,7 @@
+const { z } = require('zod');
 const { RATE_LIMITS } = require('../security/rate-limits');
+
+const requestIdSchema = z.string().uuid();
 
 async function registerReviverQueueRoutes(app, { transactionRepository }) {
   if (!transactionRepository ||
@@ -33,8 +36,13 @@ async function registerReviverQueueRoutes(app, { transactionRepository }) {
       rateLimit: RATE_LIMITS.ACCEPT
     }
   }, async (request, reply) => {
+    const parsedId = requestIdSchema.safeParse(request.params.id);
+    if (!parsedId.success) {
+      return reply.code(422).send({ error: 'INVALID_REQUEST_ID' });
+    }
+
     const result = await transactionRepository.acceptRequest({
-      requestId: request.params.id,
+      requestId: parsedId.data,
       reviverId: request.reviveRelayUser.userId,
       now: new Date()
     });
