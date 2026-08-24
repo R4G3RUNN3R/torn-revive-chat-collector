@@ -47,6 +47,9 @@ async function registerRequestRoutes(app, { requestRepository }) {
     if (result.reason === 'NOT_FOUND') {
       return reply.code(404).send({ error: 'REQUEST_NOT_FOUND' });
     }
+    if (result.reason === 'PAYMENT_COMMITTED') {
+      return reply.code(409).send({ error: 'PAYMENT_COMMITTED' });
+    }
     if (result.reason === 'REQUEST_COMMITTED') {
       return reply.code(409).send({ error: 'REQUEST_COMMITTED' });
     }
