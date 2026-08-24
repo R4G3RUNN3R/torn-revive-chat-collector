@@ -6,15 +6,24 @@ const path = require('node:path');
 const userscriptPath = path.join(__dirname, '..', 'torn-revive-chat-collector.user.js');
 const source = fs.readFileSync(userscriptPath, 'utf8');
 
-test('automatic Google Sheets sync runs every five seconds', () => {
-  assert.match(source, /const\s+SYNC_EVERY_MS\s*=\s*5_000\s*;/);
+test('legacy raw Google Sheets autosync is removed from the installable userscript', () => {
+  assert.doesNotMatch(source, /SYNC_EVERY_MS/);
+  assert.doesNotMatch(source, /BATCH_SIZE/);
+  assert.doesNotMatch(source, /trcc_sheet_endpoint/);
+  assert.doesNotMatch(source, /trcc_sheet_token/);
+  assert.doesNotMatch(source, /script\.google\.com/);
+  assert.doesNotMatch(source, /script\.googleusercontent\.com/);
+  assert.doesNotMatch(source, /records:\s*rows\.map\(Core\.buildSheetRecord\)/);
 });
 
-test('automatic sync keeps the safe 25-row batch size', () => {
-  assert.match(source, /const\s+BATCH_SIZE\s*=\s*25\s*;/);
+test('candidate outbox draining is gated by active Torn use', () => {
+  assert.match(source, /drainCandidateOutbox/);
+  assert.match(source, /if\s*\(!captureAllowed\(\)\)\s*return\s*;/);
 });
 
-test('automatic sync is gated and will not overlap an in-flight sync', () => {
-  assert.match(source, /if\s*\(state\.syncing\s*\|\|\s*!captureAllowed\(\)\)\s*return\s*;/);
-  assert.match(source, /setInterval\([\s\S]*?if\s*\(captureAllowed\(\)\)\s*sync\(\)[\s\S]*?SYNC_EVERY_MS/);
+test('candidate pipeline is the only automatic public-message submission path', () => {
+  assert.match(source, /ReviveRelayCandidatePipeline\.handlePublicMessage/);
+  assert.match(source, /enqueueCandidate/);
+  assert.doesNotMatch(source, /postJson\(/);
+  assert.doesNotMatch(source, /markSynced\(/);
 });
