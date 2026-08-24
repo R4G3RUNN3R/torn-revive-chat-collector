@@ -33,6 +33,13 @@ async function registerRequestRoutes(app, { requestRepository }) {
       ...offer
     });
 
+    if (result.reason === 'REQUEST_COMMITTED') {
+      return reply.code(409).send({
+        error: 'REQUEST_COMMITTED',
+        request: result.request
+      });
+    }
+
     return reply.code(result.created ? 201 : 200).send(result);
   });
 
