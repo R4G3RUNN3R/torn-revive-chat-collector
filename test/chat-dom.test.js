@@ -6,7 +6,8 @@ const {
   findChatContexts,
   findMessageContainer,
   isRecentlyInteracted,
-  conversationNameFromId
+  conversationNameFromId,
+  processMessageNode
 } = require('../src/chat-dom');
 
 function makeElement({ name = '', matches = {}, queries = {}, closest = {} } = {}) {
@@ -121,4 +122,31 @@ test('isRecentlyInteracted accepts only interaction inside the configured activi
   assert.equal(isRecentlyInteracted(10_000, 15_000, 10_000), true);
   assert.equal(isRecentlyInteracted(10_000, 20_001, 10_000), false);
   assert.equal(isRecentlyInteracted(0, 15_000, 10_000), false);
+});
+
+test('processMessageNode leaves a transiently unparseable React node eligible for a later pass', async () => {
+  assert.equal(typeof processMessageNode, 'function', 'chat DOM helper must expose processMessageNode');
+
+  const seenNodes = new WeakSet();
+  const node = {};
+  const saved = [];
+  let parseable = false;
+
+  const parseMessage = () => parseable ? { text: 'need a revive please' } : null;
+  const save = async (record) => saved.push(record);
+
+  const first = await processMessageNode({ node, chat: {}, seenNodes, parseMessage, save });
+  assert.equal(first, false);
+  assert.equal(seenNodes.has(node), false);
+  assert.equal(saved.length, 0);
+
+  parseable = true;
+  const second = await processMessageNode({ node, chat: {}, seenNodes, parseMessage, save });
+  assert.equal(second, true);
+  assert.equal(seenNodes.has(node), true);
+  assert.equal(saved.length, 1);
+
+  const third = await processMessageNode({ node, chat: {}, seenNodes, parseMessage, save });
+  assert.equal(third, false);
+  assert.equal(saved.length, 1);
 });
