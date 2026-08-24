@@ -38,3 +38,15 @@ for (const id of [
     assert.equal(isPublicChannel(id), false);
   });
 }
+
+test('legacy exact public display names resolve through the same allowlist', () => {
+  assert.equal(canonicalPublicChannel('Global')?.id, 'public_global');
+  assert.equal(canonicalPublicChannel('Trade')?.id, 'public_trade');
+  assert.equal(canonicalPublicChannel('Hospital')?.id, 'public_hospital');
+  assert.equal(canonicalPublicChannel('Mexico')?.id, 'public_travel_mexico');
+
+  assert.equal(canonicalPublicChannel('Faction'), null);
+  assert.equal(canonicalPublicChannel('Company'), null);
+  assert.equal(canonicalPublicChannel('Private'), null);
+  assert.equal(canonicalPublicChannel('Mystery Room'), null);
+});
