@@ -1,3 +1,5 @@
+const { RATE_LIMITS } = require('../security/rate-limits');
+
 async function registerReviverQueueRoutes(app, { transactionRepository }) {
   if (!transactionRepository ||
       typeof transactionRepository.listAvailableRequests !== 'function' ||
@@ -16,14 +18,20 @@ async function registerReviverQueueRoutes(app, { transactionRepository }) {
   }
 
   app.get('/v1/reviver/queue', {
-    preHandler: [app.authenticate, requireReviver]
+    preHandler: [app.authenticate, requireReviver],
+    config: {
+      rateLimit: RATE_LIMITS.REVIVER_QUEUE
+    }
   }, async (request, reply) => {
     const requests = await transactionRepository.listAvailableRequests();
     return reply.code(200).send({ requests });
   });
 
   app.post('/v1/requests/:id/accept', {
-    preHandler: [app.authenticate, requireReviver]
+    preHandler: [app.authenticate, requireReviver],
+    config: {
+      rateLimit: RATE_LIMITS.ACCEPT
+    }
   }, async (request, reply) => {
     const result = await transactionRepository.acceptRequest({
       requestId: request.params.id,
