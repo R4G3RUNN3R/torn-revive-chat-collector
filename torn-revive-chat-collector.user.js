@@ -15,6 +15,7 @@
 // @require      https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/main/src/chat-dom.js
 // @require      https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/main/src/public-channels.js
 // @require      https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/main/src/client-chat-policy.js
+// @require      https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/main/src/api-client.js
 // @run-at       document-idle
 // ==/UserScript==
 
@@ -28,6 +29,7 @@
   const ChatDom = globalThis.TornReviveChatDom;
   const PublicChannels = globalThis.TornRevivePublicChannels;
   const ClientChatPolicy = globalThis.TornReviveClientChatPolicy;
+  const ReviveRelayApiClient = globalThis.ReviveRelayApiClient;
   const VERSION = '0.2.2';
   const DB_NAME = 'tornReviveChatCollector';
   const STORE = 'messages';
@@ -586,12 +588,13 @@
   }
 
   async function init() {
-    if (!Core || !ChatDom || !PublicChannels || !ClientChatPolicy) {
+    if (!Core || !ChatDom || !PublicChannels || !ClientChatPolicy || !ReviveRelayApiClient) {
       console.error('[TRCC] Required dependency unavailable.', {
         Core: Boolean(Core),
         ChatDom: Boolean(ChatDom),
         PublicChannels: Boolean(PublicChannels),
-        ClientChatPolicy: Boolean(ClientChatPolicy)
+        ClientChatPolicy: Boolean(ClientChatPolicy),
+        ReviveRelayApiClient: Boolean(ReviveRelayApiClient)
       });
       return;
     }
