@@ -2,6 +2,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { buildApp } = require('../../src/app');
 
+const VALID_REQUEST_ID = '11111111-1111-4111-8111-111111111111';
+
 function makeSessionRepository() {
   return {
     async findByTokenHash() {
@@ -39,7 +41,7 @@ test('POST /v1/requests derives requester identity from authenticated session', 
       return {
         created: true,
         request: {
-          id: 'request-1',
+          id: VALID_REQUEST_ID,
           requesterId: input.requesterId,
           paymentMethod: input.paymentMethod,
           offerAmount: input.offerAmount,
@@ -99,7 +101,7 @@ test('GET active and POST cancel are scoped to authenticated requester', async t
     async createRequest() { throw new Error('not used'); },
     async getActiveRequest(requesterId) {
       calls.push(['active', requesterId]);
-      return { id: 'request-1', requesterId, state: 'AVAILABLE' };
+      return { id: VALID_REQUEST_ID, requesterId, state: 'AVAILABLE' };
     },
     async cancelRequest(input) {
       calls.push(['cancel', input.requesterId, input.requestId]);
@@ -120,13 +122,33 @@ test('GET active and POST cancel are scoped to authenticated requester', async t
 
   const cancelled = await app.inject({
     method: 'POST',
-    url: '/v1/requests/request-1/cancel',
+    url: `/v1/requests/${VALID_REQUEST_ID}/cancel`,
     headers: { authorization: 'Bearer requester-token' }
   });
   assert.equal(cancelled.statusCode, 200);
 
   assert.deepEqual(calls, [
     ['active', 'requester-user-id'],
-    ['cancel', 'requester-user-id', 'request-1']
+    ['cancel', 'requester-user-id', VALID_REQUEST_ID]
   ]);
+});
+
+test('POST cancel rejects malformed request ids before repository access', async t => {
+  let calls = 0;
+  const app = makeApp({
+    async createRequest() { throw new Error('not used'); },
+    async getActiveRequest() { return null; },
+    async cancelRequest() { calls += 1; }
+  });
+  t.after(() => app.close());
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/v1/requests/not-a-uuid/cancel',
+    headers: { authorization: 'Bearer requester-token' }
+  });
+
+  assert.equal(response.statusCode, 422);
+  assert.equal(response.json().error, 'INVALID_REQUEST_ID');
+  assert.equal(calls, 0);
 });
