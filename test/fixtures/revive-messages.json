@@ -1,0 +1,14 @@
+[
+  {"text":"need a revive please","channelType":"global","expected":true},
+  {"text":"rev? paying xan","channelType":"hospital","expected":true},
+  {"text":"can someone rev me 500k","channelType":"trade","expected":true},
+  {"text":"rev please","channelType":"hospital","expected":true},
+  {"text":"need rev, paying cash","channelType":"global","expected":true},
+  {"text":"selling revives 1m","channelType":"trade","expected":false},
+  {"text":"my revive skill is 8","channelType":"global","expected":false},
+  {"text":"revive service recruiting","channelType":"global","expected":false},
+  {"text":"rev?","channelType":"global","expected":false},
+  {"text":"I can revive people if needed","channelType":"hospital","expected":false},
+  {"text":"our faction has a revive contract","channelType":"global","expected":false},
+  {"text":"revive skill training discussion","channelType":"trade","expected":false}
+]
