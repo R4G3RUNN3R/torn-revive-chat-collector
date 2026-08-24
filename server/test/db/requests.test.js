@@ -58,6 +58,112 @@ test('concurrent creates for one requester return one active request', async t =
   assert.equal(active.id, a.request.id);
 });
 
+test('resubmitting an AVAILABLE request updates its terms in place', async t => {
+  const { pool, requesterId } = await setup(t);
+
+  const first = await createRequest(pool, {
+    requesterId,
+    paymentMethod: 'cash',
+    offerAmount: 500000,
+    comment: 'Old terms'
+  });
+
+  const second = await createRequest(pool, {
+    requesterId,
+    paymentMethod: 'xanax',
+    offerAmount: 2,
+    comment: 'New terms'
+  });
+
+  assert.equal(first.created, true);
+  assert.equal(second.created, false);
+  assert.equal(second.updated, true);
+  assert.equal(second.request.id, first.request.id);
+  assert.equal(second.request.paymentMethod, 'xanax');
+  assert.equal(second.request.offerAmount, 2);
+  assert.equal(second.request.comment, 'New terms');
+
+  const rows = await pool.query(`
+    SELECT id, payment_method, offer_amount, comment, state
+    FROM revive_requests
+    WHERE requester_id = $1 AND closed_at IS NULL
+  `, [requesterId]);
+  assert.equal(rows.rowCount, 1);
+  assert.equal(rows.rows[0].id, first.request.id);
+  assert.equal(rows.rows[0].payment_method, 'xanax');
+  assert.equal(Number(rows.rows[0].offer_amount), 2);
+  assert.equal(rows.rows[0].comment, 'New terms');
+  assert.equal(rows.rows[0].state, 'AVAILABLE');
+
+  const audit = await pool.query(`
+    SELECT action, details
+    FROM audit_events
+    WHERE entity_id = $1
+    ORDER BY created_at ASC, action ASC
+  `, [first.request.id]);
+  assert.deepEqual(audit.rows.map(row => row.action).sort(), [
+    'request.created',
+    'request.updated'
+  ]);
+  const updatedAudit = audit.rows.find(row => row.action === 'request.updated');
+  assert.deepEqual(updatedAudit.details, {
+    paymentMethod: 'xanax',
+    offerAmount: 2
+  });
+});
+
+test('resubmitting a committed request does not silently change the accepted contract', async t => {
+  const { pool, requesterId } = await setup(t);
+  const reviver = await pool.query(`
+    INSERT INTO users (torn_id, current_name)
+    VALUES (777777, 'Committed Reviver')
+    RETURNING id
+  `);
+
+  const first = await createRequest(pool, {
+    requesterId,
+    paymentMethod: 'cash',
+    offerAmount: 750000,
+    comment: 'Accepted terms'
+  });
+
+  await pool.query(`
+    UPDATE revive_requests
+    SET state = 'WAITING_FOR_PAYMENT'
+    WHERE id = $1
+  `, [first.request.id]);
+  await pool.query(`
+    INSERT INTO transactions
+      (request_id, requester_id, reviver_id, state, accepted_at, payment_deadline)
+    VALUES ($1, $2, $3, 'WAITING_FOR_PAYMENT', now(), now() + interval '3 minutes')
+  `, [first.request.id, requesterId, reviver.rows[0].id]);
+
+  const second = await createRequest(pool, {
+    requesterId,
+    paymentMethod: 'xanax',
+    offerAmount: 3,
+    comment: 'Attempted replacement'
+  });
+
+  assert.equal(second.created, false);
+  assert.equal(second.updated, false);
+  assert.equal(second.reason, 'REQUEST_COMMITTED');
+  assert.equal(second.request.id, first.request.id);
+  assert.equal(second.request.paymentMethod, 'cash');
+  assert.equal(second.request.offerAmount, 750000);
+  assert.equal(second.request.comment, 'Accepted terms');
+
+  const row = await pool.query(`
+    SELECT payment_method, offer_amount, comment, state
+    FROM revive_requests
+    WHERE id = $1
+  `, [first.request.id]);
+  assert.equal(row.rows[0].payment_method, 'cash');
+  assert.equal(Number(row.rows[0].offer_amount), 750000);
+  assert.equal(row.rows[0].comment, 'Accepted terms');
+  assert.equal(row.rows[0].state, 'WAITING_FOR_PAYMENT');
+});
+
 test('cancellation closes an unaccepted request and removes it from active lookup', async t => {
   const { pool, requesterId } = await setup(t);
   const created = await createRequest(pool, {
