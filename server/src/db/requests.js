@@ -18,15 +18,39 @@ function rowToRequest(row) {
 
 async function createRequest(pool, input) {
   const result = await pool.query(`
-    INSERT INTO revive_requests (
-      requester_id,
-      payment_method,
-      offer_amount,
-      comment,
-      state
-    ) VALUES ($1, $2, $3, $4, 'AVAILABLE')
-    ON CONFLICT (requester_id) WHERE closed_at IS NULL DO NOTHING
-    RETURNING *
+    WITH inserted AS (
+      INSERT INTO revive_requests (
+        requester_id,
+        payment_method,
+        offer_amount,
+        comment,
+        state
+      ) VALUES ($1, $2, $3, $4, 'AVAILABLE')
+      ON CONFLICT (requester_id) WHERE closed_at IS NULL DO NOTHING
+      RETURNING *
+    ), audited AS (
+      INSERT INTO audit_events (
+        actor_type,
+        actor_id,
+        entity_type,
+        entity_id,
+        action,
+        details
+      )
+      SELECT
+        'user',
+        requester_id,
+        'revive_request',
+        id,
+        'request.created',
+        jsonb_build_object(
+          'paymentMethod', payment_method,
+          'offerAmount', offer_amount::bigint
+        )
+      FROM inserted
+      RETURNING id
+    )
+    SELECT * FROM inserted
   `, [
     input.requesterId,
     input.paymentMethod,
@@ -97,6 +121,8 @@ async function cancelRequest(pool, { requestId, requesterId, now = new Date() })
       FOR UPDATE
     `, [requestId]);
 
+    let transactionId = null;
+
     if (transactionResult.rowCount === 0) {
       if (request.state !== 'AVAILABLE') {
         await client.query('ROLLBACK');
@@ -108,6 +134,7 @@ async function cancelRequest(pool, { requestId, requesterId, now = new Date() })
       }
     } else {
       const transaction = transactionResult.rows[0];
+      transactionId = transaction.id;
       const cancellationState = canTransition(transaction.state, 'requester_cancel');
 
       if (request.state !== 'WAITING_FOR_PAYMENT' ||
@@ -154,6 +181,29 @@ async function cancelRequest(pool, { requestId, requesterId, now = new Date() })
         AND requester_id = $2
       RETURNING *
     `, [requestId, requesterId, now]);
+
+    await client.query(`
+      INSERT INTO audit_events (
+        actor_type,
+        actor_id,
+        entity_type,
+        entity_id,
+        action,
+        details,
+        created_at
+      ) VALUES (
+        'user',
+        $1,
+        'revive_request',
+        $2,
+        'request.cancelled',
+        jsonb_build_object(
+          'previousState', $3::text,
+          'transactionId', $4::text
+        ),
+        $5
+      )
+    `, [requesterId, requestId, request.state, transactionId, now]);
 
     await client.query('COMMIT');
     return {
