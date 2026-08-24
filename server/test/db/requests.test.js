@@ -79,7 +79,7 @@ test('cancellation closes an unaccepted request and removes it from active looku
   assert.equal(await getActiveRequest(pool, requesterId), null);
 });
 
-test('requester cannot cancel after a transaction has been committed', async t => {
+test('requester can cancel an accepted request during the pre-payment window', async t => {
   const { pool, requesterId } = await setup(t);
   const reviver = await pool.query(`
     INSERT INTO users (torn_id, current_name)
@@ -96,10 +96,54 @@ test('requester cannot cancel after a transaction has been committed', async t =
   await pool.query(`
     UPDATE revive_requests SET state = 'WAITING_FOR_PAYMENT' WHERE id = $1
   `, [created.request.id]);
-  await pool.query(`
+  const transaction = await pool.query(`
     INSERT INTO transactions
       (request_id, requester_id, reviver_id, state, accepted_at, payment_deadline)
     VALUES ($1, $2, $3, 'WAITING_FOR_PAYMENT', now(), now() + interval '3 minutes')
+    RETURNING id
+  `, [created.request.id, requesterId, reviver.rows[0].id]);
+
+  const now = new Date('2026-08-24T00:00:00Z');
+  const result = await cancelRequest(pool, {
+    requestId: created.request.id,
+    requesterId,
+    now
+  });
+
+  assert.equal(result.cancelled, true);
+  assert.equal(result.request.state, 'CANCELLED');
+  assert.equal(await getActiveRequest(pool, requesterId), null);
+
+  const tx = await pool.query(`
+    SELECT state, closed_at
+    FROM transactions
+    WHERE id = $1
+  `, [transaction.rows[0].id]);
+  assert.equal(tx.rows[0].state, 'CANCELLED_BY_REQUESTER');
+  assert.equal(new Date(tx.rows[0].closed_at).getTime(), now.getTime());
+});
+
+test('requester cannot cancel after payment has been verified', async t => {
+  const { pool, requesterId } = await setup(t);
+  const reviver = await pool.query(`
+    INSERT INTO users (torn_id, current_name)
+    VALUES (654322, 'Reviver Paid')
+    RETURNING id
+  `);
+  const created = await createRequest(pool, {
+    requesterId,
+    paymentMethod: 'cash',
+    offerAmount: 750000,
+    comment: null
+  });
+
+  await pool.query(`
+    UPDATE revive_requests SET state = 'WAITING_FOR_REVIVE' WHERE id = $1
+  `, [created.request.id]);
+  await pool.query(`
+    INSERT INTO transactions
+      (request_id, requester_id, reviver_id, state, accepted_at, payment_deadline, payment_verified_at, revive_deadline)
+    VALUES ($1, $2, $3, 'WAITING_FOR_REVIVE', now(), now() + interval '3 minutes', now(), now() + interval '5 minutes')
   `, [created.request.id, requesterId, reviver.rows[0].id]);
 
   const result = await cancelRequest(pool, {
@@ -109,5 +153,5 @@ test('requester cannot cancel after a transaction has been committed', async t =
   });
 
   assert.equal(result.cancelled, false);
-  assert.equal(result.reason, 'REQUEST_COMMITTED');
+  assert.equal(result.reason, 'PAYMENT_COMMITTED');
 });
