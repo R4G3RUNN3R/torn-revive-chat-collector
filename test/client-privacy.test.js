@@ -52,8 +52,16 @@ test('installable userscript declares and uses the shared public-channel policy'
   assert.match(source, /findChatContexts\(document,\s*\{[\s\S]*acceptChat/);
 });
 
-test('build verifies the userscript public-policy support modules exist', () => {
+test('install artifact declares the ReviveRelay API client without wildcard network permission', () => {
+  const source = fs.readFileSync(path.resolve(__dirname, '..', 'torn-revive-chat-collector.user.js'), 'utf8');
+  assert.match(source, /@require\s+https:\/\/raw\.githubusercontent\.com\/R4G3RUNN3R\/torn-revive-chat-collector\/main\/src\/api-client\.js/);
+  assert.match(source, /ReviveRelayApiClient/);
+  assert.doesNotMatch(source, /@connect\s+\*/);
+});
+
+test('build verifies the userscript support modules exist', () => {
   const source = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'build.js'), 'utf8');
   assert.match(source, /public-channels\.js/);
   assert.match(source, /client-chat-policy\.js/);
+  assert.match(source, /api-client\.js/);
 });
