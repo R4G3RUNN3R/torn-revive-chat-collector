@@ -70,7 +70,7 @@ CREATE TABLE revive_requests (
   payment_method text NOT NULL,
   offer_amount numeric(20,0) NOT NULL,
   comment text,
-  state text NOT NULL DEFAULT 'available',
+  state text NOT NULL DEFAULT 'AVAILABLE',
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   cancelled_at timestamptz,
