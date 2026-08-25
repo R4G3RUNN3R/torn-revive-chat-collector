@@ -1,104 +1,93 @@
-# Torn Revive Chat Collector
+# ReviveRelay
 
-Research userscript for studying how Torn players ask for revives.
+ReviveRelay is a Torn userscript plus an isolated server backend for public revive-candidate discovery and direct revive requests.
 
-## What v0.2 does
+Current repository stage: **Stage 2 client complete / Stage 3 marketplace verification not yet active**.
 
-- Discovers **every chat Torn has currently instantiated/loaded in the active page**, rather than relying on one old message class.
-- Supports both older Chat 2.0 class patterns and the current 2026 virtualized chat layout (`scrollWrapper__`, `box__`, `virtualItem__`, `senderContainer__`, `body__`).
-- Uses the stable Torn chat textarea (`textarea[placeholder="Type your message here..."]`) as an additional discovery anchor.
-- Attaches a dedicated `MutationObserver` to each discovered chat/message container.
-- Scans messages already rendered when a chat is discovered and rescans when React virtualizes or rerenders the list.
-- Collects raw chat messages without applying revive keywords yet.
-- Stores captured messages locally in IndexedDB and deduplicates them with deterministic fingerprints.
-- Records chat/channel, player name, player ID when available, exact message text, timestamps, page URL, and abroad location when the conversation label identifies a Torn travel country.
-- Optionally batches unsynced messages to a Google Sheet through a bound Google Apps Script Web App.
-- Includes JSON and CSV export as a fallback.
-- Shows diagnostics for instantiated chats, chat-list items, captured conversations, and coverage state.
-- Captures/syncs only while the Torn page is visible, focused, and has recent direct user interaction.
+## What the Stage 2 client does
 
-This version deliberately does **not** send messages, perform revives, call the Torn API, auto-open chats, or hook Torn/Sendbird WebSockets.
+- positively identifies only explicitly allowlisted public Torn chats;
+- rejects Faction, Company, one-to-one/private/group-private, competition, poker, and unknown channels before message parsing;
+- processes public messages only while Torn is visible, focused, and recently interacted with;
+- classifies revive-request language locally with a deterministic versioned classifier;
+- uploads **only likely revive candidates**, never the complete public-chat stream;
+- deduplicates pooled candidates server-side;
+- provides a bounded local **Live Capture** monitor for classifier decisions;
+- verifies Torn identity through `POST /v1/auth/bind` and stores only the returned opaque ReviveRelay session locally;
+- discards the identity-binding Torn API key after the verification request rather than persisting it;
+- lets a connected requester create one active Cash or Xanax revive request, inspect its state, and cancel it while the server still considers it cancellable.
 
-## What "all chats" means
+The installable userscript does not send raw chat batches to Google Sheets. The legacy `google-apps-script/` directory is retained only as historical research material and is not part of the ReviveRelay runtime.
 
-The collector attempts to discover every chat Torn has instantiated in the current page, including multiple simultaneous private/group chats and normal channel chats. It watches the page for chats created later and attaches to them automatically.
+## Privacy boundary
 
-A DOM-only userscript cannot guarantee every individual message from a conversation Torn has never loaded into the page. Closed/unloaded conversations may expose only chat-list or unread state until Torn loads the conversation itself. v0.2 therefore reports its current coverage rather than claiming an invisible background stream exists.
+ReviveRelay uses an **allowlist**, not a blocklist. A chat must be positively recognized as an approved public channel before the client parser can process it. The backend independently applies the same public-channel boundary, so a modified client cannot upload Faction, Company, private, or unknown channels through the candidate endpoint.
 
-The script does not programmatically open closed chats and does not hook the underlying Sendbird/WebSocket transport.
+Non-candidate public messages are local-only and are not submitted to the VPS. Live Capture keeps at most 50 recent local events in memory.
 
-## Files
+## Identity and credentials
 
-- `torn-revive-chat-collector.user.js` - installable Tampermonkey userscript.
-- `src/core.js` - tested normalization, fingerprinting, chat classification, and Sheet-record helpers.
-- `src/chat-dom.js` - tested resilient chat discovery/virtualized-DOM adapter.
-- `google-apps-script/Code.gs` - Google Sheets receiver.
-- `test/core.test.js` - Node tests for the data model.
-- `test/chat-dom.test.js` - Node tests for chat discovery and current/legacy selector coverage.
+The Stage 2 identity flow uses a minimally scoped Torn custom API key only to resolve the player's Torn identity. The backend verifies it with Torn, creates/updates the ReviveRelay user, issues an opaque ReviveRelay session token, and discards the supplied identity key.
 
-## 1. Install the userscript
+The `api_credentials` table remains reserved for the separate Stage 3 **transaction-verification credential** flow. That future credential will be minimally scoped to the evidence needed for protected payment, revive-attempt, and refund verification and will be encrypted independently of the identity flow.
 
-Open the raw version of `torn-revive-chat-collector.user.js` in GitHub and install/update it with Tampermonkey.
+## Direct Request Revive
 
-The userscript loads `src/core.js` and `src/chat-dom.js` from this repository through `@require`, so the repository must remain accessible to the browser.
+Requester access is free. The server currently enforces:
 
-## 2. Create the Google Sheet
+- Cash offers: whole Torn-dollar amounts, minimum **$500,000**;
+- Xanax offers: whole quantities, minimum **1 Xanax**;
+- optional requester comment: maximum **500 characters**;
+- one active request per requester;
+- atomic reviver acceptance in the Stage 1 backend.
 
-Create a blank Google Sheet. A tab named `Raw Chat` will be created automatically by the receiver.
+Stage 3 will add the protected transaction engine: payment verification, the three-minute payment window, five-minute revive SLA, revive-attempt evidence, retry/refund outcomes, and the ten-minute refund workflow. Until that work is complete, the client explicitly labels protected transaction verification as not yet active.
 
-From the Sheet:
+## Server deployment
 
-1. Open **Extensions -> Apps Script**.
-2. Replace the default script with the contents of `google-apps-script/Code.gs`.
-3. Save the project.
-4. Run `setupCollectorSheet()` once and approve the requested spreadsheet permissions.
+Production-capable infrastructure lives on `new-voidsmith` under:
 
-The collector token is optional. Leaving it blank is supported for the initial research deployment. Never commit a token or deployed Web App URL to this repository.
+`/srv/voidsmith/torn-platform/reviverelay`
 
-## 3. Deploy the Sheet receiver
+The backend uses its own PostgreSQL 16 container, credentials, storage path, private DB network, migrations, backups, and restore procedure. The database exposes no host PostgreSQL port and shares no ReviveRelay database network with another Voidsmith product.
 
-In Apps Script:
+Detailed deployment/isolation instructions are in `deploy/README.md`.
 
-1. Choose **Deploy -> New deployment**.
-2. Select **Web app**.
-3. Execute as: **Me**.
-4. Choose the access setting required for the userscript to reach the endpoint from your browser.
-5. Deploy and copy the generated Web App `/exec` URL.
-6. Paste that URL into **Google Apps Script Web App URL** in the Torn collector panel and click **Save settings**.
+The API origin is currently internal-only on `127.0.0.1:18730`. Public DNS/Caddy exposure is deliberately deferred until the remaining launch gates are complete.
 
-## Sheet columns
+## Important source files
 
-| Column | Purpose |
-| --- | --- |
-| Date | Message date derived from Torn timestamp when available |
-| Time | Message time derived from Torn timestamp when available |
-| Chat / Channel | Conversation title seen in Torn |
-| Chat Type | global, trade, hospital, jail, faction, company, travel, private, etc. |
-| Abroad Location | Recognized Torn travel country when applicable |
-| Player | Sender name |
-| Player ID | Sender Torn ID when exposed by the rendered chat DOM |
-| Message | Exact captured message text |
-| Message Timestamp | Timestamp exposed by Torn when available |
-| Captured At | Local collection timestamp |
-| Page URL | Torn page active when captured |
-| Conversation ID | DOM conversation identifier or stable name fallback |
-| Source Message ID | Torn DOM message identifier when exposed |
-| Fingerprint | Deduplication identifier |
-
-## How collection works
-
-The userscript repeatedly discovers chat contexts in the currently active Torn page. It combines stable input discovery with legacy wrappers and current 2026 virtualized chat roots. For every loaded chat it locates the message scroll/list container, scans rendered message items, and attaches a dedicated observer so subsequent renders are processed as well.
-
-Google sync runs in small batches. A message is marked synced locally only after the Apps Script endpoint responds successfully. The Apps Script also deduplicates by fingerprint, protecting against retries where Google accepted a batch but the browser missed the response.
+- `torn-revive-chat-collector.user.js` - installable ReviveRelay userscript.
+- `src/chat-dom.js` - Torn chat discovery and virtualized-DOM adapter.
+- `src/public-channels.js` - canonical public-channel allowlist.
+- `src/client-chat-policy.js` - fail-closed client privacy policy.
+- `src/revive-classifier.js` - deterministic local revive classifier.
+- `src/candidate-pipeline.js` - local classification and candidate-only upload shaping.
+- `src/api-client.js` - typed userscript API client and retrying candidate outbox primitives.
+- `server/` - isolated Fastify/PostgreSQL backend and worker.
+- `docs/superpowers/specs/2026-08-23-reviverelay-phase2-design.md` - product/architecture design.
 
 ## Development
 
-Requires Node.js 20+.
+Requires Node.js 20+ and PostgreSQL 16 for database-backed server tests.
+
+Client tests:
 
 ```bash
-npm test
+npm run test:client
 ```
 
-CI also syntax-checks the userscript, `src/core.js`, and `src/chat-dom.js`.
+Server tests require `TEST_DATABASE_URL` pointing to a disposable PostgreSQL test database:
 
-The repository intentionally contains no Sheet URL, API key, collector token, or collected chat data.
+```bash
+TEST_DATABASE_URL=postgres://... npm --prefix server test
+```
+
+Build and syntax-check the userscript:
+
+```bash
+npm run build
+node --check dist/torn-revive-chat-collector.user.js
+```
+
+No production API key, session token, database password, encryption key, or collected Torn content belongs in this repository.

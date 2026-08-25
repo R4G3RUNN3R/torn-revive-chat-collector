@@ -38,6 +38,7 @@ test('valid active reviver session authenticates with requester and reviver role
     sessionId: 'session-1',
     userId: 'user-1',
     tornId: 24680,
+    name: null,
     roles: ['requester', 'reviver'],
     reviverStanding: 'active'
   });

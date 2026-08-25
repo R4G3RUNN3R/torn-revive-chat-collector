@@ -1,8 +1,8 @@
 {
   "name": "torn-revive-chat-collector",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
-  "description": "Research collector for Torn chat messages rendered in actively used chat surfaces, with resilient chat discovery, local buffering, and optional Google Sheets sync.",
+  "description": "ReviveRelay public revive-candidate client and isolated direct-request backend for Torn.",
   "scripts": {
     "test": "npm run test:client && npm run test:server",
     "test:client": "node --test test",

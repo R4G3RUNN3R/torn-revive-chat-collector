@@ -1,5 +1,4 @@
 const { z } = require('zod');
-const { encryptSecret } = require('../security/crypto');
 const { RATE_LIMITS } = require('../security/rate-limits');
 const { newSessionToken, hashSessionToken } = require('../security/sessions');
 const { TornApiError } = require('../torn/client');
@@ -44,15 +43,10 @@ async function registerAuthRoute(app, {
 
     const token = newSessionToken();
     const tokenHash = hashSessionToken(token, config.SESSION_TOKEN_PEPPER);
-    const encryptedCredential = encryptSecret(
-      apiKey,
-      config.API_KEY_ENCRYPTION_KEY
-    );
 
     await identityRepository.bindIdentity({
       tornId: identity.tornId,
       name: identity.name,
-      encryptedCredential,
       access: identity.access,
       tokenHash,
       clientVersion
