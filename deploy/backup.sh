@@ -3,11 +3,12 @@ set -eu
 
 umask 077
 
-PROJECT_DIR=${REVIVERELAY_PROJECT_DIR:-/srv/voidsmith/reviverelay}
+PROJECT_DIR=${REVIVERELAY_PROJECT_DIR:-/srv/voidsmith/torn-platform/reviverelay}
 APP_DIR=${REVIVERELAY_APP_DIR:-$PROJECT_DIR/app}
-BACKUP_DIR=${REVIVERELAY_BACKUP_DIR:-$PROJECT_DIR/backups}
-ENV_FILE=${REVIVERELAY_ENV_FILE:-$PROJECT_DIR/config/.env}
+BACKUP_DIR=${REVIVERELAY_BACKUP_DIR:-$PROJECT_DIR/backups/postgres}
+ENV_FILE=${REVIVERELAY_ENV_FILE:-/srv/voidsmith/shared/secrets/reviverelay/runtime.env}
 COMPOSE_FILE=${REVIVERELAY_COMPOSE_FILE:-$APP_DIR/deploy/docker-compose.yml}
+COMPOSE_PROJECT=${REVIVERELAY_COMPOSE_PROJECT:-reviverelay}
 
 if [ ! -f "$COMPOSE_FILE" ]; then
   echo "ReviveRelay compose file not found: $COMPOSE_FILE" >&2
@@ -30,6 +31,7 @@ cleanup() {
 trap cleanup EXIT HUP INT TERM
 
 docker compose \
+  -p "$COMPOSE_PROJECT" \
   --env-file "$ENV_FILE" \
   -f "$COMPOSE_FILE" \
   exec -T reviverelay-db \

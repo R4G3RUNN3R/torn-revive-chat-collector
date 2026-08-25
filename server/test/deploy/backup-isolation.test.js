@@ -13,17 +13,19 @@ function readScript(filePath) {
   return fs.readFileSync(filePath, 'utf8');
 }
 
-test('backup and restore scripts are isolated to ReviveRelay resources', () => {
+test('backup and restore scripts target only the Torn-platform ReviveRelay resources', () => {
   const backup = readScript(backupPath);
   const restore = readScript(restorePath);
 
   for (const [name, script] of [['backup', backup], ['restore', restore]]) {
     assert.match(script, /reviverelay-db/i, `${name} must target reviverelay-db`);
-    assert.match(script, /\/srv\/voidsmith\/reviverelay/i, `${name} must use the ReviveRelay project path`);
-    assert.doesNotMatch(script, /dungeonmaster/i, `${name} must not reference DungeonMasterOS`);
-    assert.doesNotMatch(script, /nexis/i, `${name} must not reference Nexis`);
+    assert.match(script, /\/srv\/voidsmith\/torn-platform\/reviverelay/i, `${name} must use the isolated Torn-platform ReviveRelay path`);
+    assert.match(script, /\/srv\/voidsmith\/shared\/secrets\/reviverelay\/runtime\.env/i, `${name} must use the dedicated ReviveRelay secret file`);
+    assert.match(script, /COMPOSE_PROJECT.*reviverelay/i, `${name} must pin the Compose project`);
+    assert.doesNotMatch(script, /dungeonmaster|nexis|ciel|guacamole/i, `${name} must not reference another project`);
   }
 
+  assert.match(backup, /backups\/postgres/);
   assert.match(backup, /pg_dump/);
   assert.match(backup, /gzip/);
   assert.match(restore, /gunzip/);

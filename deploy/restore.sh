@@ -2,15 +2,16 @@
 set -eu
 
 if [ "$#" -ne 1 ]; then
-  echo "Usage: sh deploy/restore.sh /srv/voidsmith/reviverelay/backups/reviverelay-YYYYmmdd-HHMMSS.sql.gz" >&2
+  echo "Usage: sh deploy/restore.sh /srv/voidsmith/torn-platform/reviverelay/backups/postgres/reviverelay-YYYYmmdd-HHMMSS.sql.gz" >&2
   exit 64
 fi
 
 BACKUP_PATH=$1
-PROJECT_DIR=${REVIVERELAY_PROJECT_DIR:-/srv/voidsmith/reviverelay}
+PROJECT_DIR=${REVIVERELAY_PROJECT_DIR:-/srv/voidsmith/torn-platform/reviverelay}
 APP_DIR=${REVIVERELAY_APP_DIR:-$PROJECT_DIR/app}
-ENV_FILE=${REVIVERELAY_ENV_FILE:-$PROJECT_DIR/config/.env}
+ENV_FILE=${REVIVERELAY_ENV_FILE:-/srv/voidsmith/shared/secrets/reviverelay/runtime.env}
 COMPOSE_FILE=${REVIVERELAY_COMPOSE_FILE:-$APP_DIR/deploy/docker-compose.yml}
+COMPOSE_PROJECT=${REVIVERELAY_COMPOSE_PROJECT:-reviverelay}
 
 if [ ! -r "$BACKUP_PATH" ]; then
   echo "ReviveRelay backup is not readable: $BACKUP_PATH" >&2
@@ -37,6 +38,7 @@ esac
 
 gunzip -c "$BACKUP_PATH" \
   | docker compose \
+      -p "$COMPOSE_PROJECT" \
       --env-file "$ENV_FILE" \
       -f "$COMPOSE_FILE" \
       exec -T reviverelay-db \

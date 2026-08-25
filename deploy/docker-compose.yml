@@ -7,9 +7,9 @@ services:
       POSTGRES_USER: ${REVIVERELAY_DB_USER:-reviverelay_app}
       POSTGRES_PASSWORD: ${REVIVERELAY_DB_PASSWORD}
     volumes:
-      - ${REVIVERELAY_DATA_DIR:-/srv/voidsmith/reviverelay/data/postgres}:/var/lib/postgresql/data
+      - ${REVIVERELAY_DATA_DIR:-/srv/voidsmith/torn-platform/reviverelay/data/postgres}:/var/lib/postgresql/data
     networks:
-      - reviverelay_internal
+      - reviverelay_db_internal
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${REVIVERELAY_DB_USER:-reviverelay_app} -d ${REVIVERELAY_DB_NAME:-reviverelay}"]
       interval: 10s
@@ -22,19 +22,20 @@ services:
     working_dir: /app/server
     command: ["node", "src/server.js"]
     env_file:
-      - ${REVIVERELAY_ENV_FILE:-/srv/voidsmith/reviverelay/config/.env}
+      - ${REVIVERELAY_ENV_FILE:-/srv/voidsmith/shared/secrets/reviverelay/runtime.env}
     environment:
       PORT: 3100
       DATABASE_URL: postgres://${REVIVERELAY_DB_USER:-reviverelay_app}:${REVIVERELAY_DB_PASSWORD}@reviverelay-db:5432/${REVIVERELAY_DB_NAME:-reviverelay}
     volumes:
-      - ${REVIVERELAY_APP_DIR:-/srv/voidsmith/reviverelay/app}:/app:ro
+      - ${REVIVERELAY_APP_DIR:-/srv/voidsmith/torn-platform/reviverelay/app}:/app:ro
     ports:
-      - "127.0.0.1:${REVIVERELAY_API_PORT:-3100}:3100"
+      - "127.0.0.1:18730:3100"
     depends_on:
       reviverelay-db:
         condition: service_healthy
     networks:
-      - reviverelay_internal
+      - reviverelay_db_internal
+      - reviverelay_egress
 
   reviverelay-worker:
     image: node:20-alpine
@@ -42,18 +43,21 @@ services:
     working_dir: /app/server
     command: ["node", "src/worker.js"]
     env_file:
-      - ${REVIVERELAY_ENV_FILE:-/srv/voidsmith/reviverelay/config/.env}
+      - ${REVIVERELAY_ENV_FILE:-/srv/voidsmith/shared/secrets/reviverelay/runtime.env}
     environment:
       DATABASE_URL: postgres://${REVIVERELAY_DB_USER:-reviverelay_app}:${REVIVERELAY_DB_PASSWORD}@reviverelay-db:5432/${REVIVERELAY_DB_NAME:-reviverelay}
     volumes:
-      - ${REVIVERELAY_APP_DIR:-/srv/voidsmith/reviverelay/app}:/app:ro
+      - ${REVIVERELAY_APP_DIR:-/srv/voidsmith/torn-platform/reviverelay/app}:/app:ro
     depends_on:
       reviverelay-db:
         condition: service_healthy
     networks:
-      - reviverelay_internal
+      - reviverelay_db_internal
+      - reviverelay_egress
 
 networks:
-  reviverelay_internal:
-    name: reviverelay_internal
+  reviverelay_db_internal:
+    name: reviverelay_db_internal
     internal: true
+  reviverelay_egress:
+    name: reviverelay_egress
