@@ -42,6 +42,7 @@ function createAuthenticateRequest({ sessionRepository, pepper, now = () => new 
       sessionId: record.sessionId,
       userId: record.userId,
       tornId: record.tornId,
+      name: record.name || null,
       roles,
       reviverStanding: record.reviverStanding || null
     };

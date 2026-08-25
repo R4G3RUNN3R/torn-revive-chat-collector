@@ -4,6 +4,7 @@ const { registerAuthRoute } = require('./routes/auth');
 const { registerCandidateRoutes } = require('./routes/candidates');
 const { registerRequestRoutes } = require('./routes/requests');
 const { registerReviverQueueRoutes } = require('./routes/reviver-queue');
+const { registerMeRoute } = require('./routes/me');
 const { installAuthentication } = require('./security/authenticate');
 
 function buildApp({
@@ -33,6 +34,9 @@ function buildApp({
     installAuthentication(app, {
       sessionRepository,
       pepper: config.SESSION_TOKEN_PEPPER
+    });
+    app.register(async instance => {
+      await registerMeRoute(instance);
     });
   }
 

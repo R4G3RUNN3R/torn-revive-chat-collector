@@ -1,8 +1,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const { buildApp } = require('../../src/app');
 
-test('POST /v1/auth/bind stores encrypted key material and returns an opaque session token', async t => {
+test('POST /v1/auth/bind verifies Torn identity, stores no API-key material, and returns an opaque session token', async t => {
   const stored = [];
   const app = buildApp({
     config: {
@@ -50,11 +52,14 @@ test('POST /v1/auth/bind stores encrypted key material and returns an opaque ses
   assert.equal(stored[0].tornId, 24680);
   assert.equal(stored[0].name, 'TestReviver');
   assert.equal(stored[0].clientVersion, '0.3.0');
-  assert.equal(stored[0].encryptedCredential.ciphertext.includes('very-secret-torn-key'), false);
-  assert.equal(stored[0].encryptedCredential.iv.length > 0, true);
-  assert.equal(stored[0].encryptedCredential.tag.length > 0, true);
+  assert.deepEqual(stored[0].access, { level: 2, type: 'Limited Access' });
   assert.match(stored[0].tokenHash, /^[0-9a-f]{64}$/);
   assert.notEqual(stored[0].tokenHash, body.token);
+  assert.equal('encryptedCredential' in stored[0], false);
+  assert.equal('apiKey' in stored[0], false);
+
+  const authSource = fs.readFileSync(path.resolve(__dirname, '../../src/routes/auth.js'), 'utf8');
+  assert.doesNotMatch(authSource, /encryptSecret/);
 });
 
 test('POST /v1/auth/bind rejects malformed input before calling Torn', async t => {

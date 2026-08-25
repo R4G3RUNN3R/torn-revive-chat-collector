@@ -562,7 +562,9 @@ ReviveRelay must not trust a Torn player ID supplied only by modified client Jav
 
 Registration/identity binding uses a minimally scoped Torn custom API key submitted over TLS to the backend for verification through Torn's `key/info` data.
 
-After successful verification, the backend issues its own ReviveRelay session/installation credential bound to that Torn ID.
+After successful verification, the backend issues its own ReviveRelay session/installation credential bound to that Torn ID. The identity-binding key is used only for that verification request and is discarded when the request completes; it is not stored in PostgreSQL or retained as a reusable ReviveRelay credential.
+
+Protected transaction verification uses a separate credential-binding flow. When a requester or reviver needs background payment/revive/refund evidence checks, they provide a separately bound minimally scoped verification credential for only those required Torn selections.
 
 ### 15.2 Requester verification scope
 
@@ -592,10 +594,12 @@ Where Torn custom log-category restrictions are available, keys must be limited 
 
 - API keys are never written to Google Sheets
 - API keys are never logged
-- server-stored keys are encrypted at rest using an application encryption key held outside PostgreSQL
-- only backend verification services may decrypt them
-- users can revoke/rebind their key
-- key access is audited without logging the key value
+- identity-binding keys are never persisted; they are discarded after successful or failed identity verification
+- only separately bound transaction-verification credentials may be stored server-side
+- stored transaction-verification credentials are encrypted at rest using an application encryption key held outside PostgreSQL
+- only backend verification services may decrypt stored transaction-verification credentials
+- users can revoke/rebind their transaction-verification credential
+- credential access is audited without logging the credential value
 
 ## 16. Backend technology
 
@@ -990,6 +994,7 @@ Implementation follows TDD and requires automated coverage for the high-risk rul
 
 ### Stage 3: Marketplace verification
 
+- separate minimally scoped requester/reviver transaction-verification credential binding
 - reviver queue
 - atomic Accept
 - 3-minute payment window
