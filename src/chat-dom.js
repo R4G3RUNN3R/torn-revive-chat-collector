@@ -94,8 +94,12 @@
       || textarea.closest(SELECTORS.chatFallbackWrapper);
   }
 
-  function findChatContexts(root) {
+  function findChatContexts(root, options = {}) {
     if (!root?.querySelectorAll) return [];
+
+    const acceptChat = typeof options.acceptChat === 'function'
+      ? options.acceptChat
+      : () => true;
 
     const candidates = [];
     candidates.push(...root.querySelectorAll(SELECTORS.chatWrapper));
@@ -107,6 +111,7 @@
     }
 
     return unique(candidates)
+      .filter((chat) => acceptChat(chat))
       .map((chat) => ({ chat, body: findBody(chat) }))
       .filter((context) => context.body);
   }
@@ -131,12 +136,25 @@
     return now - lastInteractionAt <= windowMs;
   }
 
+  async function processMessageNode({ node, chat, seenNodes, parseMessage, save }) {
+    if (!node || !seenNodes || typeof parseMessage !== 'function' || typeof save !== 'function') return false;
+    if (seenNodes.has(node)) return false;
+
+    const record = parseMessage(node, chat);
+    if (!record) return false;
+
+    seenNodes.add(node);
+    await save(record);
+    return true;
+  }
+
   return {
     SELECTORS,
     findChatContexts,
     findMessageContainer,
     messageCandidates,
     isRecentlyInteracted,
-    conversationNameFromId
+    conversationNameFromId,
+    processMessageNode
   };
 });

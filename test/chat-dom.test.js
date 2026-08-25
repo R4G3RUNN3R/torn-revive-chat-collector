@@ -6,7 +6,8 @@ const {
   findChatContexts,
   findMessageContainer,
   isRecentlyInteracted,
-  conversationNameFromId
+  conversationNameFromId,
+  processMessageNode
 } = require('../src/chat-dom');
 
 function makeElement({ name = '', matches = {}, queries = {}, closest = {} } = {}) {
@@ -121,4 +122,58 @@ test('isRecentlyInteracted accepts only interaction inside the configured activi
   assert.equal(isRecentlyInteracted(10_000, 15_000, 10_000), true);
   assert.equal(isRecentlyInteracted(10_000, 20_001, 10_000), false);
   assert.equal(isRecentlyInteracted(0, 15_000, 10_000), false);
+});
+
+test('processMessageNode leaves a transiently unparseable React node eligible for a later pass', async () => {
+  assert.equal(typeof processMessageNode, 'function', 'chat DOM helper must expose processMessageNode');
+
+  const seenNodes = new WeakSet();
+  const node = {};
+  const saved = [];
+  let parseable = false;
+
+  const parseMessage = () => parseable ? { text: 'need a revive please' } : null;
+  const save = async (record) => saved.push(record);
+
+  const first = await processMessageNode({ node, chat: {}, seenNodes, parseMessage, save });
+  assert.equal(first, false);
+  assert.equal(seenNodes.has(node), false);
+  assert.equal(saved.length, 0);
+
+  parseable = true;
+  const second = await processMessageNode({ node, chat: {}, seenNodes, parseMessage, save });
+  assert.equal(second, true);
+  assert.equal(seenNodes.has(node), true);
+  assert.equal(saved.length, 1);
+
+  const third = await processMessageNode({ node, chat: {}, seenNodes, parseMessage, save });
+  assert.equal(third, false);
+  assert.equal(saved.length, 1);
+});
+
+test('findChatContexts applies acceptChat before returning attachable contexts', () => {
+  const publicBody = makeElement({ name: 'publicBody' });
+  const factionBody = makeElement({ name: 'factionBody' });
+  const privateBody = makeElement({ name: 'privateBody' });
+
+  const publicChat = makeElement({ name: 'publicChat', queries: { [SELECTORS.chatBody]: publicBody } });
+  publicChat.id = 'public_global';
+  const factionChat = makeElement({ name: 'factionChat', queries: { [SELECTORS.chatBody]: factionBody } });
+  factionChat.id = 'faction-123';
+  const privateChat = makeElement({ name: 'privateChat', queries: { [SELECTORS.chatBody]: privateBody } });
+  privateChat.id = 'private-456';
+
+  const root = makeElement({
+    queries: {
+      [SELECTORS.chatWrapper]: [publicChat, factionChat, privateChat],
+      [SELECTORS.chatRootWrapper]: [],
+      [SELECTORS.chatTextarea]: []
+    }
+  });
+
+  const contexts = findChatContexts(root, {
+    acceptChat: (chat) => String(chat.id || '').startsWith('public_')
+  });
+
+  assert.deepEqual(contexts.map((context) => context.chat), [publicChat]);
 });

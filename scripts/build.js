@@ -5,9 +5,22 @@ const root = path.resolve(__dirname, '..');
 const source = path.join(root, 'torn-revive-chat-collector.user.js');
 const outDir = path.join(root, 'dist');
 const output = path.join(outDir, 'torn-revive-chat-collector.user.js');
+const requiredSupportModules = [
+  'src/core.js',
+  'src/chat-dom.js',
+  'src/public-channels.js',
+  'src/client-chat-policy.js',
+  'src/api-client.js'
+];
 
 if (!fs.existsSync(source)) {
   throw new Error('Installable userscript not found.');
+}
+
+for (const relativePath of requiredSupportModules) {
+  if (!fs.existsSync(path.join(root, relativePath))) {
+    throw new Error(`Required userscript support module not found: ${relativePath}`);
+  }
 }
 
 fs.mkdirSync(outDir, { recursive: true });
