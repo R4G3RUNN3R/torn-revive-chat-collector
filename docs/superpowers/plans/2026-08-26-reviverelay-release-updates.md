@@ -19,16 +19,16 @@
 - Client version manifest check occurs at most once every 24 hours during active Torn use unless the user explicitly presses `Check now`.
 - Manifest is JSON/data only and never executable code.
 - Release artifacts are built only from a committed, fully verified tree.
-- Each release records version, release timestamp, Git commit SHA, SHA-256, notes, latest version and minimum supported version.
+- Each release records version, release timestamp, Git commit SHA, SHA-256, release notes, latest version and minimum supported version.
 - Protected marketplace actions are server-blocked below `minimumVersion`; informational/read-only routes remain available where safe.
-- Error telemetry, health, authentication needed to update, and version-manifest endpoints must remain usable by outdated clients.
+- Error telemetry, health, authentication needed to update, and version-manifest endpoints remain usable by outdated clients.
 - Greasy Fork installations follow Greasy Fork/Tampermonkey update behavior and do not use a remote-code workaround.
 - ReviveRelay DB/network isolation remains unchanged.
 - Completed and verified work is merged to `main`.
 
 ---
 
-### Task 1: Add Pure Semantic Version Comparison and Manifest Validation
+### Task 1: Add Pure Version Comparison and Manifest Validation
 
 **Files:**
 - Create: `src/versioning.js`
@@ -37,26 +37,27 @@
 - Create: `server/test/domain/client-version.test.js`
 
 **Interfaces:**
-- Produces: client `compareVersions(a,b)`, `isNewer(latest,current)` and server `parseClientVersion(value)`, `meetsMinimum(current,minimum)`, `validateReleaseManifest(manifest)`.
+- Produces client `compareVersions(a,b)`, `isNewer(latest,current)` and server `parseClientVersion(value)`, `compareClientVersions(a,b)`, `meetsMinimum(current,minimum)`, `validateReleaseManifest(manifest)`.
 
-- [ ] **Step 1: Write RED client version tests**
+- [ ] **Step 1: Write RED client/server tests**
 
 ```js
-const { compareVersions, isNewer } = require('../src/versioning');
-assert.equal(compareVersions('0.4.0', '0.4.0'), 0);
-assert.equal(compareVersions('0.4.10', '0.4.9'), 1);
-assert.equal(compareVersions('1.0.0', '0.99.99'), 1);
-assert.equal(isNewer('0.5.0', '0.4.9'), true);
-assert.throws(() => compareVersions('latest', '0.4.0'), /version/i);
+assert.equal(compareVersions('0.4.0','0.4.0'),0);
+assert.equal(compareVersions('0.4.10','0.4.9'),1);
+assert.equal(compareVersions('1.0.0','0.99.99'),1);
+assert.equal(isNewer('0.5.0','0.4.9'),true);
+assert.throws(() => compareVersions('latest','0.4.0'), /version/i);
+assert.equal(meetsMinimum('0.4.0','0.4.0'),true);
+assert.equal(meetsMinimum('0.3.9','0.4.0'),false);
 ```
 
 - [ ] **Step 2: Run RED tests**
 
 Run: `node --test test/versioning.test.js server/test/domain/client-version.test.js`
 
-Expected: FAIL because versioning modules are absent.
+Expected: FAIL.
 
-- [ ] **Step 3: Implement strict numeric three-part versions**
+- [ ] **Step 3: Implement strict numeric `MAJOR.MINOR.PATCH` parsing**
 
 ```js
 function parse(value) {
@@ -66,35 +67,33 @@ function parse(value) {
 }
 ```
 
-Do not introduce a dependency for version parsing unless prerelease semantics become a real requirement; Stage 3 releases use `MAJOR.MINOR.PATCH` only.
+No semver dependency is added because Stage 3 releases deliberately exclude prerelease/build suffixes.
 
-- [ ] **Step 4: Implement manifest validation** requiring:
+- [ ] **Step 4: Implement manifest validation** requiring exactly these public fields:
 
 ```js
 {
-  latestVersion: '0.4.0',
-  minimumVersion: '0.3.0',
-  releasedAt: 'ISO-8601',
-  releaseNotes: 'bounded text',
-  gitCommit: '40-char SHA-1',
-  automatic: { installUrl, metaUrl, sha256 },
-  manual: { installUrl, sha256 },
-  mandatory: false
+  latestVersion:'0.4.0',
+  minimumVersion:'0.3.0',
+  releasedAt:'2026-08-26T12:00:00.000Z',
+  releaseNotes:'Payment verification improvements.',
+  gitCommit:'0123456789012345678901234567890123456789',
+  automatic:{ installUrl:'https://reviverelay.voidsmithindustries.com/install/reviverelay-auto.user.js', metaUrl:'https://reviverelay.voidsmithindustries.com/install/reviverelay-auto.meta.js', sha256:'64-lowercase-hex' },
+  manual:{ installUrl:'https://reviverelay.voidsmithindustries.com/install/reviverelay-manual.user.js', sha256:'64-lowercase-hex' },
+  mandatory:false
 }
 ```
 
-Validate SHA-256 as 64 lowercase hex chars and require `minimumVersion <= latestVersion`.
+Validate SHA-256 format, ISO timestamp, bounded notes <=4000 chars, 40-hex Git commit and `minimumVersion <= latestVersion`.
 
-- [ ] **Step 5: Run tests until green**
-
-- [ ] **Step 6: Commit**
+- [ ] **Step 5: Run tests and commit**
 
 ```bash
 git add src/versioning.js server/src/domain/client-version.js test/versioning.test.js server/test/domain/client-version.test.js
 git commit -m "feat: add ReviveRelay client version semantics"
 ```
 
-### Task 2: Build Automatic and Manual Userscript Release Variants
+### Task 2: Build Automatic and Manual Userscript Variants plus a Deterministic Release Manifest
 
 **Files:**
 - Modify: `torn-revive-chat-collector.user.js`
@@ -102,11 +101,12 @@ git commit -m "feat: add ReviveRelay client version semantics"
 - Create: `scripts/release-client.js`
 - Modify: `package.json`
 - Create: `test/release-build.test.js`
+- Create: `test/release-client.test.js`
 
 **Interfaces:**
-- Produces: `dist/reviverelay-auto.user.js`, `dist/reviverelay-auto.meta.js`, `dist/reviverelay-manual.user.js`, and release metadata JSON/checksums.
+- Produces: `dist/reviverelay-auto.user.js`, `dist/reviverelay-auto.meta.js`, `dist/reviverelay-manual.user.js`, `dist/release-manifest.json`.
 
-- [ ] **Step 1: Write RED release-build tests**
+- [ ] **Step 1: Write RED build tests**
 
 ```js
 const auto = fs.readFileSync('dist/reviverelay-auto.user.js','utf8');
@@ -119,34 +119,27 @@ assert.match(auto, /const UPDATE_CHANNEL = 'automatic'/);
 assert.match(manual, /const UPDATE_CHANNEL = 'manual'/);
 ```
 
-Also assert both variants contain the exact same `@version` and application body apart from controlled build-time metadata/channel injection.
+Also assert same `@version` and same application body except the controlled metadata/channel substitutions.
 
 - [ ] **Step 2: Run RED build test**
 
 Run: `npm run build && node --test test/release-build.test.js`
 
-Expected: FAIL because variant files are absent.
+Expected: FAIL because variants are absent.
 
 - [ ] **Step 3: Make source metadata build-neutral**
-
-Introduce explicit build markers that are not valid remote URLs, for example:
 
 ```js
 // @updateURL    __REVIVERELAY_UPDATE_URL__
 // @downloadURL  __REVIVERELAY_DOWNLOAD_URL__
-```
-
-and:
-
-```js
 const UPDATE_CHANNEL = '__REVIVERELAY_UPDATE_CHANNEL__';
 ```
 
-The normal build script must replace all markers; a marker surviving into `dist/` is a build failure.
+Build fails if any marker remains in `dist/`.
 
-- [ ] **Step 4: Implement `scripts/build.js` variant generation**
+- [ ] **Step 4: Generate channel variants**
 
-Automatic metadata:
+Automatic:
 
 ```text
 @updateURL   https://reviverelay.voidsmithindustries.com/install/reviverelay-auto.meta.js
@@ -154,7 +147,7 @@ Automatic metadata:
 UPDATE_CHANNEL='automatic'
 ```
 
-Manual metadata:
+Manual:
 
 ```text
 @updateURL   none
@@ -162,33 +155,56 @@ Manual metadata:
 UPDATE_CHANNEL='manual'
 ```
 
-`reviverelay-auto.meta.js` contains only userscript metadata header, not executable body.
+`reviverelay-auto.meta.js` is metadata header only.
 
-- [ ] **Step 5: Implement `scripts/release-client.js`**
+- [ ] **Step 5: Write RED release-script tests**
 
-The script must refuse a dirty Git tree, read version from root `package.json`, compute SHA-256 for both user artifacts, read current commit via `git rev-parse HEAD`, and write `dist/release-manifest.json` containing artifact paths/hashes/commit/version. It must not publish files itself.
+The test invokes the module-level manifest builder without writing a real release and asserts explicit options become manifest fields:
 
-- [ ] **Step 6: Add package scripts**
-
-```json
-"build": "node scripts/build.js",
-"release:client": "npm run check && node scripts/release-client.js"
+```js
+const manifest = buildReleaseManifest({
+  version:'0.4.0', minimumVersion:'0.3.0', mandatory:false,
+  releaseNotes:'Payment verification improvements.', releasedAt:'2026-08-26T12:00:00.000Z',
+  gitCommit:'0123456789012345678901234567890123456789',
+  autoSha256:'a'.repeat(64), manualSha256:'b'.repeat(64)
+});
+assert.equal(manifest.latestVersion,'0.4.0');
+assert.equal(manifest.minimumVersion,'0.3.0');
 ```
 
-- [ ] **Step 7: Run release build tests and syntax checks**
+- [ ] **Step 6: Implement `scripts/release-client.js`**
 
-Run: `npm run build && node --test test/release-build.test.js && node --check dist/reviverelay-auto.user.js && node --check dist/reviverelay-manual.user.js`
+CLI contract:
+
+```text
+node scripts/release-client.js --minimum 0.3.0 --notes-file /path/to/release-notes.txt [--mandatory]
+```
+
+It refuses a dirty Git tree, reads `latestVersion` from root `package.json`, requires `--minimum`, requires an existing UTF-8 notes file <=4000 chars, sets `releasedAt` to current UTC ISO, reads current commit with `git rev-parse HEAD`, computes both artifact SHA-256 values, validates the resulting manifest, then writes `dist/release-manifest.json`. It does not publish.
+
+- [ ] **Step 7: Add package scripts**
+
+```json
+"build":"node scripts/build.js",
+"release:client":"npm run check && node scripts/release-client.js"
+```
+
+The operator supplies required CLI args after `--`, for example `npm run release:client -- --minimum 0.3.0 --notes-file /tmp/reviverelay-notes.txt`.
+
+- [ ] **Step 8: Run build/release unit tests and syntax checks**
+
+Run: `npm run build && node --test test/release-build.test.js test/release-client.test.js && node --check dist/reviverelay-auto.user.js && node --check dist/reviverelay-manual.user.js`
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
-git add torn-revive-chat-collector.user.js scripts/build.js scripts/release-client.js package.json test/release-build.test.js
+git add torn-revive-chat-collector.user.js scripts/build.js scripts/release-client.js package.json test/release-build.test.js test/release-client.test.js
 git commit -m "feat: build automatic and manual ReviveRelay channels"
 ```
 
-### Task 3: Add Server Release Registry and Public JSON Manifest Endpoint
+### Task 3: Add Server Release Registry and JSON Manifest Endpoint
 
 **Files:**
 - Create: `server/src/release/registry.js`
@@ -203,44 +219,31 @@ git commit -m "feat: build automatic and manual ReviveRelay channels"
 **Interfaces:**
 - Produces: `loadReleaseManifest(path)`, `GET /v1/client/version`.
 
-- [ ] **Step 1: Write RED registry tests**
+- [ ] **Step 1: Write RED registry/route tests**
 
 ```js
 const registry = loadReleaseManifest('/tmp/manifest.json');
-assert.equal(registry.latestVersion, '0.4.0');
-assert.equal(registry.minimumVersion, '0.3.0');
-assert.equal(Object.isFrozen(registry), true);
-```
-
-Test missing/invalid manifest fails startup when release registry is enabled rather than serving malformed data.
-
-- [ ] **Step 2: Write RED route test**
-
-```js
+assert.equal(registry.latestVersion,'0.4.0');
+assert.equal(Object.isFrozen(registry),true);
 const response = await app.inject({ method:'GET', url:'/v1/client/version' });
-assert.equal(response.statusCode, 200);
-assert.deepEqual(response.json(), manifest);
-assert.equal(response.headers['cache-control'], 'public, max-age=300');
+assert.equal(response.statusCode,200);
+assert.equal(response.headers['cache-control'],'public, max-age=300');
 ```
 
-- [ ] **Step 3: Implement immutable manifest loader**
+Missing/invalid enabled manifest must fail startup instead of serving malformed data.
 
-Read `REVIVERELAY_RELEASE_MANIFEST_FILE`, parse once at process startup, validate with `validateReleaseManifest`, deep-freeze safe JSON. No endpoint writes release state.
+- [ ] **Step 2: Implement immutable loader** from `REVIVERELAY_RELEASE_MANIFEST_FILE`, validate once at startup, deep-freeze the safe object.
 
-- [ ] **Step 4: Implement public version route**
+- [ ] **Step 3: Implement unauthenticated JSON route** returning only the validated manifest with five-minute HTTP cache.
 
-Return only the validated safe manifest. No authentication required. Add a conservative five-minute HTTP cache header while client logic itself checks at most daily.
-
-- [ ] **Step 5: Register/configure and run tests**
-
-- [ ] **Step 6: Commit**
+- [ ] **Step 4: Register/configure, run tests, commit**
 
 ```bash
 git add server/src/release/registry.js server/src/routes/client-version.js server/src/config.js server/src/app.js server/src/server.js server/test/release/registry.test.js server/test/routes/client-version.test.js server/test/config.test.js
 git commit -m "feat: expose ReviveRelay release manifest"
 ```
 
-### Task 4: Enforce Minimum Client Version on Protected API Actions
+### Task 4: Enforce Minimum Version on Protected Marketplace Actions
 
 **Files:**
 - Create: `server/src/security/client-version.js`
@@ -253,48 +256,35 @@ git commit -m "feat: expose ReviveRelay release manifest"
 - Modify: `test/api-client.test.js`
 
 **Interfaces:**
-- Produces: `installClientVersionGate(app,{ releaseRegistry })`; API client sends `X-ReviveRelay-Version` and `X-ReviveRelay-Channel` on every call.
+- Produces: `checkClientVersion({ current, minimum })`, `createClientVersionPreHandler({ releaseRegistry })`; API client sends `X-ReviveRelay-Version` and `X-ReviveRelay-Channel` on every call.
 
-- [ ] **Step 1: Write RED middleware tests**
+- [ ] **Step 1: Write RED version-gate tests**
 
 ```js
-assert.equal(checkClientVersion({ current:'0.3.9', minimum:'0.4.0' }).allowed, false);
-assert.equal(checkClientVersion({ current:'0.4.0', minimum:'0.4.0' }).allowed, true);
+assert.equal(checkClientVersion({ current:'0.3.9', minimum:'0.4.0' }).allowed,false);
+assert.equal(checkClientVersion({ current:'0.4.0', minimum:'0.4.0' }).allowed,true);
 ```
 
-- [ ] **Step 2: Add RED route tests** proving outdated clients receive HTTP `426` with:
+Protected route from old client receives HTTP 426:
 
 ```json
-{
-  "error": "CLIENT_UPDATE_REQUIRED",
-  "latestVersion": "0.4.2",
-  "minimumVersion": "0.4.1",
-  "installUrl": "https://reviverelay.voidsmithindustries.com/install/"
-}
+{"error":"CLIENT_UPDATE_REQUIRED","latestVersion":"0.4.2","minimumVersion":"0.4.1","installUrl":"https://reviverelay.voidsmithindustries.com/install/"}
 ```
 
-for request creation, queue/accept and transaction-mutating actions, while `/health`, `/v1/client/version`, `/v1/auth/bind`, `/v1/me`, and `/v1/telemetry/errors` remain available.
+Health, client-version manifest, identity auth, `/v1/me`, and telemetry remain accessible.
 
-- [ ] **Step 3: Extend API client headers**
+- [ ] **Step 2: Extend API client** so constructor receives `clientVersion` and `releaseChannel` and adds both headers. Never put version, session, or Torn key into query strings merely for this gate.
 
-`createApiClient` receives `clientVersion` and `releaseChannel`; each request includes both headers. Tests assert no Torn API key or session token is placed in URL/query parameters.
+- [ ] **Step 3: Implement route preHandler** on protected request/queue/accept/transaction-mutating routes only. Missing/invalid version is unsupported for protected actions.
 
-- [ ] **Step 4: Implement protected-route gate**
-
-Use Fastify preHandler only on protected marketplace routes, not as a global hook. Missing/invalid version is rejected with `CLIENT_UPDATE_REQUIRED` for protected actions.
-
-- [ ] **Step 5: Run server/client version-gate tests**
-
-Expected: PASS.
-
-- [ ] **Step 6: Commit**
+- [ ] **Step 4: Run tests and commit**
 
 ```bash
 git add server/src/security/client-version.js server/src/app.js src/api-client.js server/test/routes server/test/security/client-version.test.js test/api-client.test.js
 git commit -m "feat: require supported ReviveRelay clients"
 ```
 
-### Task 5: Add Once-Daily Client Manifest Checks and Update UX
+### Task 5: Add Once-Daily Manifest Checks and Update UX
 
 **Files:**
 - Create: `src/update-manager.js`
@@ -305,74 +295,44 @@ git commit -m "feat: require supported ReviveRelay clients"
 - Create: `test/update-ui.test.js`
 
 **Interfaces:**
-- Produces: `createUpdateManager({ currentVersion, channel, fetchManifest, getState, saveState, now, openUrl })` with `check({ force })`, `dismiss(version)`, and `switchChannel(target)`.
+- Produces: `createUpdateManager({ currentVersion, channel, fetchManifest, getState, saveState, now, openUrl })` with `check({ force })`, `dismiss(version)`, `switchChannel(target)`.
 
-- [ ] **Step 1: Write RED update-manager tests**
+- [ ] **Step 1: Write RED manager tests**
 
 ```js
-const manager = createUpdateManager({
-  currentVersion:'0.4.0', channel:'manual', fetchManifest:async()=>manifest,
-  getState:()=>({ lastCheckedAt:0 }), saveState:s=>saved=s, now:()=>86_400_001,
-  openUrl:url=>opened=url
-});
+const manager = createUpdateManager({ currentVersion:'0.4.0', channel:'manual', fetchManifest:async()=>manifest, getState:()=>({ lastCheckedAt:0 }), saveState:s=>{ saved=s; }, now:()=>86_400_001, openUrl:url=>{ opened=url; } });
 const result = await manager.check({ force:false });
-assert.equal(result.updateAvailable, true);
-assert.equal(result.mandatory, false);
+assert.equal(result.updateAvailable,true);
 ```
 
-Also test no network call before 24 hours, force check bypasses interval, dismissed optional release stays dismissed only for that version, a newer version clears dismissal, mandatory release cannot be permanently dismissed, malformed manifest does not break gameplay, and automatic/manual channel target URLs differ.
+Test no fetch before 24h, forced check, optional dismissal scoped to one version, newer version clearing dismissal, mandatory release not permanently dismissible, malformed manifest not breaking gameplay, channel-specific install URLs.
 
-- [ ] **Step 2: Run RED update-manager tests**
-
-Expected: FAIL.
-
-- [ ] **Step 3: Implement manager state**
-
-Persist only:
+- [ ] **Step 2: Implement manager state**
 
 ```js
-{
-  lastCheckedAt: 0,
-  lastManifest: null,
-  dismissedVersion: null
-}
+{ lastCheckedAt:0, lastManifest:null, dismissedVersion:null }
 ```
 
-Do not persist executable code. `check({force:false})` skips fetch until `now-lastCheckedAt >= 86_400_000`.
+No executable code is persisted. Normal check skips fetch until `now-lastCheckedAt >= 86_400_000`.
 
-- [ ] **Step 4: Extend API client** with unauthenticated `getClientVersionManifest()`.
+- [ ] **Step 3: Add API client `getClientVersionManifest()`**.
 
-- [ ] **Step 5: Write RED UI tests** for Options update section:
+- [ ] **Step 4: Write RED UI tests** for Current Version, Automatic/Manual channel, Latest Version, Last Checked, Check Now, Switch Channel, optional update banner and mandatory update banner.
 
-```text
-Current version
-Release channel: Automatic | Manual
-Latest version
-Last checked
-Check now
-Switch to Automatic / Switch to Manual
-```
+- [ ] **Step 5: Implement UI**: automatic explains native Tampermonkey behavior; manual opens `manifest.manual.installUrl`; channel switch opens counterpart installer once; script never claims to rewrite its own metadata.
 
-Manual update banner shows `Update ReviveRelay` and `Remind me later`; mandatory banner does not offer a permanent dismissal and protected-action buttons are disabled if current version < minimum.
+- [ ] **Step 6: Disable protected-action buttons locally when current < minimum**, while server remains authoritative.
 
-- [ ] **Step 6: Implement UI**
-
-Automatic channel explains that Tampermonkey performs actual replacement according to its settings. Manual channel update button opens `manifest.manual.installUrl`. Channel switching opens the counterpart installer once; the running script does not pretend it changed its metadata itself.
-
-- [ ] **Step 7: Run client tests/build**
+- [ ] **Step 7: Run client tests/build and commit**
 
 Run: `npm run test:client && npm run build && node --check dist/reviverelay-auto.user.js && node --check dist/reviverelay-manual.user.js`
-
-Expected: PASS.
-
-- [ ] **Step 8: Commit**
 
 ```bash
 git add src/update-manager.js src/api-client.js torn-revive-chat-collector.user.js scripts/build.js test/update-manager.test.js test/update-ui.test.js
 git commit -m "feat: add ReviveRelay update notifications"
 ```
 
-### Task 6: Add Immutable VPS Release Publishing
+### Task 6: Publish Immutable VPS Client Releases
 
 **Files:**
 - Create: `deploy/publish-client-release.sh`
@@ -380,13 +340,11 @@ git commit -m "feat: add ReviveRelay update notifications"
 - Modify: `deploy/README.md`
 
 **Interfaces:**
-- Produces immutable release layout under `/srv/voidsmith/torn-platform/reviverelay/releases/client/<version>/` and stable internal install/current manifest paths without touching other Voidsmith projects.
+- Produces immutable `/srv/voidsmith/torn-platform/reviverelay/releases/client/<version>/` releases and stable internal current/manifest paths.
 
-- [ ] **Step 1: Write RED deploy test** that inspects the shell script contract and verifies it refuses dirty/unverified source, creates a version directory, verifies hashes, refuses overwrite of an existing version, writes manifest atomically, and only then updates stable symlinks.
+- [ ] **Step 1: Write RED deploy contract test** proving the script refuses dirty source, refuses overwrite of an existing version, verifies SHA-256, stages into a temp directory, atomically renames, and only then changes `current`/manifest.
 
-- [ ] **Step 2: Implement `publish-client-release.sh`**
-
-Required layout:
+- [ ] **Step 2: Implement release layout**
 
 ```text
 /srv/voidsmith/torn-platform/reviverelay/releases/client/0.4.0/
@@ -394,16 +352,13 @@ Required layout:
   reviverelay-auto.meta.js
   reviverelay-manual.user.js
   release-manifest.json
-
 /srv/voidsmith/torn-platform/reviverelay/releases/client/current -> 0.4.0/
 /srv/voidsmith/torn-platform/reviverelay/releases/client/manifest.json
 ```
 
-The script must copy only verified `dist/` artifacts, compare each SHA-256 with release metadata using `sha256sum -c`, create via temporary directory then atomic rename, and never delete earlier release directories automatically.
+Use `sha256sum -c`, temp dir + atomic rename, and never automatically delete old versions.
 
-- [ ] **Step 3: Add stable install-path mapping documentation**
-
-At public Caddy cutover later:
+- [ ] **Step 3: Document later public mapping**
 
 ```text
 /install/reviverelay-auto.user.js -> releases/client/current/reviverelay-auto.user.js
@@ -412,20 +367,16 @@ At public Caddy cutover later:
 /v1/client/version -> API validated manifest
 ```
 
-- [ ] **Step 4: Run deploy tests/shell syntax**
+- [ ] **Step 4: Run deploy test + shell syntax and commit**
 
 Run: `node --test server/test/deploy/client-release.test.js && bash -n deploy/publish-client-release.sh`
-
-Expected: PASS.
-
-- [ ] **Step 5: Commit**
 
 ```bash
 git add deploy/publish-client-release.sh server/test/deploy/client-release.test.js deploy/README.md
 git commit -m "feat: publish immutable ReviveRelay client releases"
 ```
 
-### Task 7: Release-System Verification, Internal Publish, and Merge
+### Task 7: Verify, Publish Internally, and Merge
 
 **Files:**
 - Modify: `README.md`
@@ -434,29 +385,30 @@ git commit -m "feat: publish immutable ReviveRelay client releases"
 **Interfaces:**
 - Produces a tested internal release/update system ready for later public DNS/Caddy cutover.
 
-- [ ] **Step 1: Bump the next internal test version consistently** across root package/userscript release metadata through the release process, not by hand-editing generated artifacts.
+- [ ] **Step 1: Choose the next internal `MAJOR.MINOR.PATCH` version and update source/package metadata through one source-of-version path; generated artifacts are never hand-edited.**
 
 - [ ] **Step 2: Run full repository verification**
 
-Run: `npm test && npm run build`
-
-Then: `node --check dist/reviverelay-auto.user.js && node --check dist/reviverelay-manual.user.js`
+Run: `npm test && npm run build && node --check dist/reviverelay-auto.user.js && node --check dist/reviverelay-manual.user.js`
 
 Expected: PASS.
 
-- [ ] **Step 3: Run `npm run release:client` on a clean committed tree** and verify generated release manifest commit SHA equals `git rev-parse HEAD` and artifact SHA-256 values match `sha256sum`.
+- [ ] **Step 3: Create a short release-notes file outside Git and run on clean committed tree**
 
-- [ ] **Step 4: Publish one internal release** with `deploy/publish-client-release.sh`. Confirm prior release directories remain immutable and `current` points to the new release only after verification.
+Example: `printf '%s\n' 'Stage 3 internal release.' > /tmp/reviverelay-release-notes.txt`
 
-- [ ] **Step 5: Start/restart only ReviveRelay API as required and query `http://127.0.0.1:18730/v1/client/version`**; assert manifest matches the published release metadata.
+Run: `npm run release:client -- --minimum <current-minimum-version> --notes-file /tmp/reviverelay-release-notes.txt`
 
-- [ ] **Step 6: Verify minimum-version behavior internally** using Fastify tests/local HTTP requests: an older version can reach health/version/auth/telemetry but receives `426 CLIENT_UPDATE_REQUIRED` on protected marketplace mutation.
+Before execution replace `<current-minimum-version>` with the exact tested minimum chosen for that release; do not commit the notes temp file.
 
-- [ ] **Step 7: Re-run deployment/database isolation gates**; release files are under ReviveRelay only and no database/network exposure changes occurred.
+- [ ] **Step 4: Verify manifest commit SHA equals `git rev-parse HEAD` and hashes equal `sha256sum` output.**
 
-- [ ] **Step 8: Update README**, commit, merge completed updater branch to `main`, rerun full tests on merged `main`, synchronize GitHub `main`, verify tree equality, remove completed worktree/branch, and update the Voidsmith Source of Truth with verified release paths/version state and no secrets.
+- [ ] **Step 5: Publish one internal release** and prove old directories remain immutable and `current` changes only after verification.
 
-```bash
-git add README.md
-git commit -m "docs: document ReviveRelay release channels"
-```
+- [ ] **Step 6: Query `http://127.0.0.1:18730/v1/client/version`** and assert it matches the published manifest.
+
+- [ ] **Step 7: Verify an older client can reach health/version/auth/telemetry but receives `426 CLIENT_UPDATE_REQUIRED` on protected marketplace mutation.**
+
+- [ ] **Step 8: Re-run DB/network isolation gates** and confirm release serving changed no database exposure.
+
+- [ ] **Step 9: Update README, commit, merge completed updater branch to local `main`, rerun full tests, synchronize GitHub `main`, verify tree equality, remove completed worktree/branch, and update the Voidsmith Source of Truth with verified release facts only.**
