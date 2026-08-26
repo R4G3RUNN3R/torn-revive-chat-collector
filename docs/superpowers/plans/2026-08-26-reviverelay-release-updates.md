@@ -159,8 +159,6 @@ UPDATE_CHANNEL='manual'
 
 - [ ] **Step 5: Write RED release-script tests**
 
-The test invokes the module-level manifest builder without writing a real release and asserts explicit options become manifest fields:
-
 ```js
 const manifest = buildReleaseManifest({
   version:'0.4.0', minimumVersion:'0.3.0', mandatory:false,
@@ -376,16 +374,16 @@ git add deploy/publish-client-release.sh server/test/deploy/client-release.test.
 git commit -m "feat: publish immutable ReviveRelay client releases"
 ```
 
-### Task 7: Verify, Publish Internally, and Merge
+### Task 7: Verify, Publish Initial 0.4.0 Internally, and Merge
 
 **Files:**
 - Modify: `README.md`
 - Runtime: `/srv/voidsmith/torn-platform/reviverelay/releases/client/`
 
 **Interfaces:**
-- Produces a tested internal release/update system ready for later public DNS/Caddy cutover.
+- Produces the first Stage 3 internal release `0.4.0`, with minimum supported client `0.3.0`, ready for later public DNS/Caddy cutover.
 
-- [ ] **Step 1: Choose the next internal `MAJOR.MINOR.PATCH` version and update source/package metadata through one source-of-version path; generated artifacts are never hand-edited.**
+- [ ] **Step 1: Set the single source version to `0.4.0`** and regenerate artifacts; never hand-edit generated `dist/` versions.
 
 - [ ] **Step 2: Run full repository verification**
 
@@ -393,22 +391,23 @@ Run: `npm test && npm run build && node --check dist/reviverelay-auto.user.js &&
 
 Expected: PASS.
 
-- [ ] **Step 3: Create a short release-notes file outside Git and run on clean committed tree**
+- [ ] **Step 3: Create release notes outside Git and build the manifest on a clean committed tree**
 
-Example: `printf '%s\n' 'Stage 3 internal release.' > /tmp/reviverelay-release-notes.txt`
+Run:
 
-Run: `npm run release:client -- --minimum <current-minimum-version> --notes-file /tmp/reviverelay-release-notes.txt`
+```bash
+printf '%s\n' 'Stage 3 protected marketplace, telemetry, and update-channel foundation.' > /tmp/reviverelay-release-notes.txt
+npm run release:client -- --minimum 0.3.0 --notes-file /tmp/reviverelay-release-notes.txt
+```
 
-Before execution replace `<current-minimum-version>` with the exact tested minimum chosen for that release; do not commit the notes temp file.
+- [ ] **Step 4: Verify manifest version is `0.4.0`, minimum is `0.3.0`, commit SHA equals `git rev-parse HEAD`, and artifact hashes equal `sha256sum` output.**
 
-- [ ] **Step 4: Verify manifest commit SHA equals `git rev-parse HEAD` and hashes equal `sha256sum` output.**
+- [ ] **Step 5: Publish `0.4.0` internally** and prove old release directories remain immutable and `current` changes only after verification.
 
-- [ ] **Step 5: Publish one internal release** and prove old directories remain immutable and `current` changes only after verification.
+- [ ] **Step 6: Query `http://127.0.0.1:18730/v1/client/version`** and assert it exactly matches the published manifest.
 
-- [ ] **Step 6: Query `http://127.0.0.1:18730/v1/client/version`** and assert it matches the published manifest.
-
-- [ ] **Step 7: Verify an older client can reach health/version/auth/telemetry but receives `426 CLIENT_UPDATE_REQUIRED` on protected marketplace mutation.**
+- [ ] **Step 7: Verify a `0.2.9` client can reach health/version/auth/telemetry but receives `426 CLIENT_UPDATE_REQUIRED` on protected marketplace mutation; `0.3.0` remains accepted.**
 
 - [ ] **Step 8: Re-run DB/network isolation gates** and confirm release serving changed no database exposure.
 
-- [ ] **Step 9: Update README, commit, merge completed updater branch to local `main`, rerun full tests, synchronize GitHub `main`, verify tree equality, remove completed worktree/branch, and update the Voidsmith Source of Truth with verified release facts only.**
+- [ ] **Step 9: Update README, commit, merge completed updater branch to local `main`, rerun full tests, synchronize GitHub `main`, verify tree equality, remove the completed worktree/branch, and update the Voidsmith Source of Truth with verified release facts only.**
