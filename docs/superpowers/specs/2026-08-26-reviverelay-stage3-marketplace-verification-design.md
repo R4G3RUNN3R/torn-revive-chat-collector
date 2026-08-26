@@ -10,30 +10,51 @@ Parent design: `docs/superpowers/specs/2026-08-23-reviverelay-phase2-design.md`
 
 Stage 3 turns ReviveRelay from a request/candidate client with an isolated backend into an evidence-backed paid-revive marketplace.
 
-The server becomes authoritative for transaction-verification credentials, reservation/payment/revive/refund timers and evidence, reportable no-attempt/missing-refund outcomes, operational error telemetry, and userscript version/release metadata.
+The server becomes authoritative for:
+
+- transaction-verification credential eligibility;
+- request reservation and acceptance;
+- the three-minute payment window;
+- Cash and Xanax payment verification;
+- the five-minute revive SLA;
+- revive-attempt verification;
+- retry/refund handling after a genuine failed attempt;
+- third-party revive, requester self-exit and natural hospital expiry outcomes;
+- the ten-minute refund window;
+- evidence-backed no-attempt and missing-refund outcomes;
+- sanitized operational error telemetry and Google Sheet triage mirroring;
+- userscript release/version metadata, update channels and minimum-supported-version enforcement.
 
 Stage 3 does not yet implement the full human dispute/reputation/admin workflow or Reviver Pro billing. Those remain Stages 4 and 5.
 
 ## 2. Non-negotiable constraints
 
 1. ReviveRelay PostgreSQL remains physically/logically isolated from every other Voidsmith product database.
-2. No DungeonMasterOS, Nexis, CIEL, website, Guacamole, or other database credentials are available to ReviveRelay.
+2. ReviveRelay receives no DungeonMasterOS, Nexis, CIEL, website, Guacamole or other project database credentials.
 3. Identity-only Torn API keys are verified and discarded. They are never persisted.
-4. Persistent Torn credentials are a separate transaction-verification credential, minimally scoped and encrypted at rest with a key held outside PostgreSQL.
-5. A paid protected transaction cannot begin unless both sides have the evidence access needed to adjudicate it.
-6. Browser/client claims are never proof of payment, revive, refund, or deadline compliance.
-7. Timers are server-derived from PostgreSQL timestamps.
-8. Torn API outages or ambiguous evidence pause/retry verification rather than declaring misconduct.
-9. Public chat privacy boundaries from Stages 1/2 remain unchanged.
-10. `PAID_TIER_ENABLED=false` remains in force through Stage 3 implementation/testing.
-11. Public DNS/Caddy exposure remains a launch gate; internal implementation must not expose PostgreSQL or bypass the existing localhost-only API architecture.
+4. Persistent Torn credentials are a separate `transaction_verification` credential, minimally scoped and encrypted at rest with an encryption key held outside PostgreSQL.
+5. A protected paid transaction cannot begin unless both sides have enough evidence access to adjudicate it.
+6. Browser/client claims are never proof of payment, revive, refund or deadline compliance.
+7. Contractual timers derive from PostgreSQL/server timestamps, never client clocks.
+8. Torn outages, revoked credentials or ambiguous evidence never create automatic misconduct findings.
+9. Public-chat privacy boundaries from Stages 1/2 remain unchanged.
+10. `PAID_TIER_ENABLED=false` remains in force throughout Stage 3 implementation and internal testing.
+11. Public DNS/Caddy exposure remains a separate launch gate. Stage 3 must not expose PostgreSQL or bypass the localhost-only API architecture.
 12. Completed and verified work is merged to `main`.
 
 ## 3. Current foundation this design extends
 
-Current `main` already contains the isolated PostgreSQL/API/worker deployment, a PostgreSQL job queue using row locking / `SKIP LOCKED`, the Stage 1 business tables, atomic request acceptance, public-candidate ingestion/deduplication, and the Stage 2 client/onboarding/requester workflow.
+Current `main` already contains:
 
-Current worker job names already reserve:
+- isolated PostgreSQL 16, API and worker containers;
+- a PostgreSQL job queue using row locking / `SKIP LOCKED`;
+- users, sessions, `api_credentials`, revivers, requests, transactions, payments, attempts, refunds, disputes, bans, subscriptions, audit events and jobs;
+- atomic request acceptance;
+- public-candidate ingestion/deduplication;
+- Stage 2 client onboarding, Live Capture, candidate-only submission and free requester UI;
+- identity binding that persists no Torn API credential.
+
+Existing worker job names reserve:
 
 - `payment.verify`
 - `revive.verify`
@@ -41,15 +62,20 @@ Current worker job names already reserve:
 - `subscription.scan`
 - `sheets.mirror`
 
-Stage 3 implements the first three. `subscription.scan` stays inactive until Stage 5. `sheets.mirror` is used only for the approved error-triage mirror in Stage 3; business/admin mirroring remains Stage 4.
+Stage 3 implements the first three. `subscription.scan` remains inactive until Stage 5. `sheets.mirror` is used in Stage 3 only for operational error triage; business/admin mirroring remains Stage 4.
 
 ## 4. Transaction-verification credential model
 
-### 4.1 Separate from identity verification
+### 4.1 Identity remains one-time verification
 
-`POST /v1/auth/bind` remains identity-only: verify Torn identity, issue an opaque ReviveRelay session, then discard the supplied key. No `api_credentials` row is created by identity binding.
+`POST /v1/auth/bind` remains identity-only:
 
-### 4.2 Credential endpoints
+1. verify Torn identity through current Torn key information;
+2. issue an opaque ReviveRelay session;
+3. discard the supplied identity key;
+4. create no `api_credentials` row.
+
+### 4.2 Separate persistent credential flow
 
 Stage 3 adds authenticated endpoints:
 
@@ -57,27 +83,44 @@ Stage 3 adds authenticated endpoints:
 - `POST /v1/verification-credential`
 - `DELETE /v1/verification-credential`
 
-`POST` accepts the plaintext key only for the duration of the request. The backend verifies ownership and exact access, rejects insufficient or unapproved scope, encrypts the validated key with AES-256-GCM using the application key outside PostgreSQL, atomically revokes any prior active transaction credential, stores only ciphertext/IV/auth tag/validated non-secret scope metadata, and writes a non-secret audit event.
+`POST` accepts plaintext only for the request lifetime. The backend:
 
-### 4.3 Credential purpose
+1. verifies that the key belongs to the authenticated Torn player;
+2. validates the exact selections/log categories Torn reports through current key metadata;
+3. rejects a key that is insufficient or grants unapproved unrelated access;
+4. derives whether it provides requester capability, reviver capability, or both;
+5. encrypts the key with AES-256-GCM using the application encryption key outside PostgreSQL;
+6. atomically revokes any previous active `transaction_verification` credential for that user;
+7. stores only ciphertext, IV, authentication tag and validated non-secret access metadata;
+8. records a non-secret audit event.
 
-`api_credentials` gains an explicit purpose, initially `transaction_verification`. Only one active credential of that purpose may exist per user.
+Plaintext credentials are never returned, logged, mirrored to Sheets or embedded in error telemetry.
 
-### 4.4 Requester capability
+### 4.3 Database credential purpose
 
-Before creating a protected direct request, the requester credential must be sufficient for the narrowest current Torn evidence needed for:
+`api_credentials` gains an explicit `purpose`, initially:
 
-- authenticated Torn identity;
+`transaction_verification`
+
+Only one active credential of that purpose may exist per user.
+
+The stored access metadata represents what ReviveRelay actually validated, not what the client says the key can do.
+
+### 4.4 Requester scope
+
+Requester capability uses the narrowest current Torn access needed to determine:
+
+- authenticated identity;
 - incoming revive evidence;
-- hospital/status evidence needed to distinguish third-party revive, self-exit and natural expiry;
-- outgoing payment evidence when useful for corroboration;
-- incoming refund evidence when useful for corroboration.
+- hospital/status evidence needed to distinguish third-party revive, requester self-exit and natural expiry.
 
-Unrelated stats, messages, inventory, faction/company data and private communications are forbidden.
+Payment receipt and refund sending are primarily proved from the assigned reviver's credential, so the requester is not forced to grant unrelated money/item access merely as a duplicate source.
 
-### 4.5 Reviver capability
+Unrelated battle stats, messages, inventory, faction data, company data and private communications are forbidden.
 
-Before registering/accepting, the reviver credential must be sufficient for:
+### 4.5 Reviver scope
+
+Reviver capability uses the narrowest current Torn access needed for:
 
 - outgoing revive evidence;
 - incoming Cash payment evidence;
@@ -85,38 +128,60 @@ Before registering/accepting, the reviver credential must be sufficient for:
 - outgoing Cash refund evidence;
 - outgoing item/Xanax refund evidence.
 
-Where Torn custom-key category restrictions are supported, ReviveRelay validates category-limited `user/log` access rather than accepting unrestricted log access.
+Where Torn custom-key category restrictions are available, ReviveRelay requires category-limited `user/log` access instead of unrestricted log access.
 
-### 4.6 Access drift/revocation
+### 4.6 Revoked/narrowed credentials during a live transaction
 
-If a stored credential is later revoked, narrowed or invalid, the server marks it unusable, stops hammering Torn with it, pauses affected verification without declaring misconduct, prompts rebind, and blocks new protected requests/acceptances until access is restored.
+Credential problems do **not** become a business transaction state and do not rewrite contractual deadlines.
 
-## 5. Paid-transaction eligibility gate
+Instead, transactions may carry a verification hold:
 
-A requester may create a protected request only with a valid requester-capable transaction credential.
+- `verification_hold_reason`
+- `verification_hold_started_at`
+- non-secret hold metadata
 
-A reviver may view/accept protected jobs only when authenticated, registered, active, not banned, and holding a valid reviver-capable transaction credential. Stage 5 later adds Reviver Pro entitlement; it is deliberately not active during Stage 3 testing.
+The underlying business state remains unchanged. The worker stops making misconduct/terminal evidence decisions while required access is unavailable, prompts rebind, and later reconciles recovered Torn evidence against the **original** payment/revive/refund deadlines.
+
+New protected requests/acceptances are blocked while a required credential is unusable. Repeated invalid-key calls are stopped/backed off so ReviveRelay does not hammer Torn.
+
+If evidence cannot be restored conclusively, Stage 3 records an unresolved evidence condition for Stage 4 review rather than guessing.
+
+## 5. Protected-transaction eligibility gate
+
+A requester may create a protected request only with a current requester-capable transaction-verification credential.
+
+A reviver may view/accept protected jobs only when all are true:
+
+- authenticated ReviveRelay session;
+- registered reviver record;
+- standing `active`;
+- no active ban;
+- current reviver-capable transaction-verification credential.
+
+Stage 5 later adds Reviver Pro entitlement. It is deliberately not active while Stage 3 is under internal development/testing.
 
 The server enforces these gates.
 
 ## 6. Repeat reservations must preserve history
 
-The current Stage 1 schema has `transactions.request_id UNIQUE`, which conflicts with returning an unpaid request to the queue.
+The Stage 1 schema currently has `transactions.request_id UNIQUE`. That cannot support returning an unpaid request to the queue.
 
-Stage 3 changes the model so:
+Stage 3 changes the model:
 
 - one revive request may have multiple historical reservation/transaction rows;
-- each acceptance creates a new immutable transaction row;
-- at most one transaction for a request is open at once;
-- expired unpaid reservations close rather than being overwritten;
-- the request returns to `AVAILABLE` only after the prior reservation is closed;
-- a later reviver acceptance creates a new transaction/deadlines.
+- every acceptance creates a new immutable transaction row;
+- at most one open transaction exists for a request at once;
+- an expired unpaid reservation closes instead of being overwritten;
+- the request returns to `AVAILABLE` only after that reservation is safely closed;
+- a later acceptance creates a new transaction with a new reviver and deadlines.
 
 A partial unique index enforces one open transaction per request.
 
-## 7. Server-authoritative states
+This preserves who accepted, the payment window, what evidence was seen and why each reservation closed.
 
-### Active
+## 7. Server-authoritative transaction states
+
+### 7.1 Active business states
 
 - `WAITING_FOR_PAYMENT`
 - `PAYMENT_RECONCILING`
@@ -125,9 +190,8 @@ A partial unique index enforces one open transaction per request.
 - `RETRY_OFFERED`
 - `REFUND_REQUIRED`
 - `REFUND_RECONCILING`
-- `CREDENTIAL_REQUIRED`
 
-### Terminal/non-active assignment
+### 7.2 Terminal/non-active assignment states
 
 - `PAYMENT_EXPIRED`
 - `COMPLETED`
@@ -138,93 +202,161 @@ A partial unique index enforces one open transaction per request.
 - `REPORTABLE_NO_ATTEMPT`
 - `REPORTABLE_MISSING_REFUND`
 
-Late payment after deadline uses the refund path and never silently becomes a new revive obligation. Prefer normalized `REFUND_REQUIRED` plus `refund_reason='late_payment'` rather than multiplying state names unless compatibility makes the separate existing state safer.
+Late payment is normalized as `REFUND_REQUIRED` with `refund_reason='late_payment'`. The older `REFUND_REQUIRED_LATE_PAYMENT` concept is superseded and is migrated/translated rather than kept as a competing permanent state.
 
-Stage 3 also adds append-only `transaction_state_history` with transaction ID, from/to state, event code, actor, server timestamp and non-secret metadata.
+### 7.3 State history
+
+Add append-only `transaction_state_history` containing:
+
+- transaction ID;
+- from/to state;
+- transition/event code;
+- actor type/user where applicable;
+- server timestamp;
+- non-secret metadata.
+
+`transactions.state` remains the current fast lookup; history is never rewritten to hide earlier assignments/outcomes.
 
 ## 8. Acceptance and three-minute payment window
 
-Acceptance remains atomic. On success the server creates a new transaction, records `accepted_at`, sets `payment_deadline = accepted_at + 3 minutes`, moves the request to `WAITING_FOR_PAYMENT`, records history/audit, and enqueues `payment.verify` immediately.
+Atomic acceptance continues to lock the request and produce exactly one winner.
 
-The worker polls boundedly during the payment window. Client `I paid` actions may request an earlier check but never constitute proof.
+On success the server:
 
-At `payment_deadline`, the transaction enters `PAYMENT_RECONCILING` for a short configured API propagation grace. The contractual payment deadline does not change.
+1. creates a new transaction;
+2. records `accepted_at = now()`;
+3. sets `payment_deadline = accepted_at + 3 minutes`;
+4. moves the request to `WAITING_FOR_PAYMENT`;
+5. appends history/audit;
+6. enqueues one deduplicated `payment.verify` job immediately.
+
+The worker polls boundedly during the window. A client `Check payment` action only expedites/enqueues the existing logical verification job; it never calls Torn directly and cannot create an unbounded pile of duplicate jobs.
+
+The job layer therefore gains a stable deduplication key/constraint for active logical verification work.
+
+At the payment deadline the transaction enters `PAYMENT_RECONCILING` for a short configured API-propagation grace period. The contractual three-minute deadline does not change.
 
 After reconciliation:
 
-- qualifying payment whose evidence timestamp is on/before deadline -> `WAITING_FOR_REVIVE`;
-- no qualifying payment -> close as `PAYMENT_EXPIRED`, return request to `AVAILABLE` if still eligible;
-- payment evidenced after deadline -> refund-required late-payment path.
+- qualifying evidence timestamped on/before the payment deadline -> payment verified;
+- no qualifying evidence -> close `PAYMENT_EXPIRED`, then return the request to `AVAILABLE` if the requester remains eligible;
+- qualifying evidence timestamped after the payment deadline -> `REFUND_REQUIRED` with reason `late_payment`.
 
-Unpaid expiry has no misconduct penalty.
+Unpaid expiry carries no misconduct penalty.
 
-## 9. Payment evidence
+## 9. Payment evidence model
 
-The assigned reviver's narrowly scoped incoming evidence is primary proof because the server must prove the assigned reviver received value from the requester. Requester outgoing evidence may corroborate.
+The assigned reviver's narrowly scoped **incoming** evidence is primary proof because ReviveRelay must prove the assigned reviver actually received value from the requester.
 
-Cash evidence matches requester Torn ID, assigned reviver, transfer type/category, transaction window and aggregate amount.
+### Cash
 
-Xanax evidence matches requester Torn ID, assigned reviver, Torn's canonical Xanax identity, transaction window and aggregate quantity.
+Qualifying evidence matches requester Torn ID, assigned reviver, relevant Cash-transfer category/type, transaction time window and amount.
 
-Split same-method transfers are supported. Stage 3 therefore normalizes payment storage into one aggregate payment plus child `payment_evidence` rows keyed by unique Torn evidence ID.
+### Xanax
 
-Repeated polling is idempotent. If the qualifying aggregate exceeds the offer, `verified_amount` stores the actual accepted evidence amount. Any later required refund is based on actual verified value so overpayment cannot disappear into an accounting crack.
+Qualifying evidence matches requester Torn ID, assigned reviver, Torn's canonical Xanax item identity, relevant item-transfer category/type, transaction time window and quantity.
+
+### Split transfers
+
+Multiple qualifying same-method transfers may aggregate until the agreed value is met.
+
+Stage 3 therefore uses:
+
+- one aggregate `payments` row per transaction;
+- child `payment_evidence` rows with globally unique Torn evidence IDs, values and evidence timestamps.
+
+Repeated polling is idempotent.
+
+If qualifying transfers exceed the offer, `verified_amount` stores the actual accepted evidence amount/quantity. Any later required refund is based on actual verified value so an accidental overpayment cannot vanish into a nominal-contract loophole.
 
 ## 10. Payment verification starts the five-minute SLA
 
-When payment is verified, in one DB transaction the server stores evidence, records `payment_verified_at`, sets `revive_deadline = payment_verified_at + 5 minutes`, moves transaction/request to `WAITING_FOR_REVIVE`, appends history/audit, and enqueues `revive.verify`.
+When payment becomes verified, one DB transaction:
 
-The five-minute timer begins only at server-verified payment, never at Accept and never from a client clock.
+1. stores aggregate payment/evidence;
+2. sets `payment_verified_at`;
+3. sets `revive_deadline = payment_verified_at + 5 minutes`;
+4. moves transaction/request to `WAITING_FOR_REVIVE`;
+5. appends history/audit;
+6. enqueues one deduplicated `revive.verify` job.
+
+The five-minute SLA begins only at server-verified payment, never at Accept and never from a client clock.
 
 ## 11. Revive-attempt verification
 
-The worker uses current Torn revive evidence, including incoming/outgoing direction where supported, plus narrowly scoped logs/status where needed.
+The worker uses current Torn revive evidence, including incoming/outgoing direction where supported, plus narrow hospital/log evidence only where necessary.
 
-Each genuine assigned-reviver attempt is stored immutably with unique Torn evidence ID, sequence number, timestamp and success/failure.
+Each genuine assigned-reviver attempt is immutable and stores:
+
+- unique Torn evidence ID;
+- sequence number;
+- attempt timestamp;
+- success/failure;
+- bounded non-secret evidence metadata required for later audit.
 
 Outcomes:
 
 - assigned success -> `COMPLETED`;
-- genuine assigned failure -> `FAILED_ATTEMPT_CHOICE`, explicitly not misconduct;
+- genuine assigned failure -> `FAILED_ATTEMPT_CHOICE`, explicitly **not misconduct**;
 - requester chooses retry -> `RETRY_OFFERED`;
-- reviver accepts retry -> new five-minute `WAITING_FOR_REVIVE` window and next sequence;
-- reviver declines/times out -> `REFUND_REQUIRED`;
+- reviver accepts retry -> new five-minute `WAITING_FOR_REVIVE` window and next attempt sequence;
+- reviver declines or the retry-response window expires -> `REFUND_REQUIRED`;
 - requester chooses refund after failure -> `REFUND_REQUIRED`.
 
-No additional payment is required for an approved retry.
+No second payment is required for an approved retry.
 
-## 12. Third-party revive, self-exit and natural expiry
+## 12. Third-party revive, requester self-exit and natural expiry
 
-If another player successfully revives the requester after verified payment and before assigned completion, service becomes impossible and the transaction moves to refund-required with reason `third_party_revive`.
+If a different player successfully revives the requester after verified payment and before assigned completion:
 
-If the requester leaves hospital through a self-directed action with no third-party revive, no refund is due and the transaction closes `CLOSED_REQUESTER_EXIT`.
+- assigned service becomes impossible;
+- transaction moves to `REFUND_REQUIRED` with reason `third_party_revive`.
 
-If hospital time naturally expires, no refund is due and the transaction closes `CLOSED_NATURAL_EXPIRY`.
+If the requester leaves hospital by a self-directed action with no incoming third-party revive:
 
-If evidence is ambiguous, ReviveRelay does not guess. It retries within a bounded reconciliation window and, if still unresolved, records an unresolved evidence condition for Stage 4 review rather than assigning misconduct.
+- no refund is due;
+- transaction closes `CLOSED_REQUESTER_EXIT`.
+
+If hospital time naturally expires:
+
+- no refund is due;
+- transaction closes `CLOSED_NATURAL_EXPIRY`.
+
+If evidence is ambiguous, ReviveRelay does not guess or penalize. It holds verification and retries within a bounded reconciliation window; unresolved cases become Stage 4 review material.
 
 ## 13. No-attempt deadline
 
-At the five-minute deadline the worker performs a final evidence reconciliation pass. API propagation grace does not change the contractual deadline.
+At the five-minute deadline, the worker performs a final evidence reconciliation pass. API visibility grace does not alter the contractual deadline.
 
-If no qualifying assigned attempt exists and no legitimate exit outcome explains closure, state becomes `REPORTABLE_NO_ATTEMPT`. Stage 4 consumes this evidence-backed state for report/suspension workflow; Stage 3 does not auto-ban.
+If no qualifying assigned attempt existed on time and no legitimate exit outcome explains closure, the transaction becomes `REPORTABLE_NO_ATTEMPT`.
+
+Stage 4 consumes this high-confidence state for report/suspension handling. Stage 3 does not automatically ban a player.
 
 ## 14. Refund workflow
 
-Refund-required reasons include failed-attempt refund choice, retry decline/timeout, third-party revive, late payment, and future admin decisions.
+Refund reasons include:
 
-On entry:
+- requester chooses refund after a genuine failed attempt;
+- reviver declines/times out on requested retry;
+- third-party revive makes assigned service impossible;
+- late payment arrives after the reservation deadline;
+- future Stage 4 administrative outcome.
 
+On entry to `REFUND_REQUIRED`:
+
+- set `refund_reason`;
 - `refund_required_at = now()`;
 - `refund_deadline = refund_required_at + 10 minutes`;
-- refund record is created idempotently;
-- `refund.verify` is enqueued.
+- create refund record idempotently;
+- enqueue one deduplicated `refund.verify` job.
 
-Required refund uses the same method and actual verified payment amount/quantity. Split refunds may aggregate. A child `refund_evidence` table stores unique Torn evidence IDs.
+The required refund uses the same method and the **actual verified payment value**. Split refunds may aggregate.
+
+Add child `refund_evidence` rows keyed by unique Torn evidence IDs.
 
 Successful refund -> `REFUNDED` and request closes.
 
-At the ten-minute deadline the worker does a final reconciliation. Evidence proving an on-time refund despite delayed API visibility is accepted. Otherwise state becomes `REPORTABLE_MISSING_REFUND`; Stage 4 handles protective suspension/report review.
+At the ten-minute deadline, final reconciliation accepts evidence proving an on-time refund even if Torn surfaced it slightly later. Otherwise the transaction becomes `REPORTABLE_MISSING_REFUND` for Stage 4 handling.
 
 ## 15. Worker architecture
 
@@ -234,35 +366,69 @@ Stage 3 implements:
 - `revive.verify`
 - `refund.verify`
 
-Handlers stay thin and delegate to focused credential, Torn evidence, matcher and transaction-transition services.
+Handlers remain thin and delegate to focused units:
 
-Jobs are idempotent and return an explicit result: complete, reschedule, blocked on credential/service condition, retryable Torn failure, or terminal internal data error.
+- transaction credential repository/decryptor;
+- Torn evidence adapter;
+- payment matcher;
+- revive/outcome matcher;
+- refund matcher;
+- transaction transition service.
 
-Torn 429/5xx/timeouts never create misconduct states. They emit sanitized telemetry, use bounded backoff/jitter and preserve contractual timestamps for later evidence-time comparison.
+Jobs are idempotent and produce explicit outcomes: complete, reschedule, verification hold, retryable Torn failure, or terminal internal data error.
 
-Worker heartbeat remains critical monitoring data.
+Torn 429/5xx/timeouts never create misconduct states. They emit sanitized telemetry, use bounded backoff/jitter and preserve original contractual timestamps for later evidence-time comparison.
+
+Worker heartbeat remains critical operational data because server reconciliation drives marketplace timers.
 
 ## 16. Torn API discipline
 
-Use current Torn API v2/current supported routes where practical.
+Stage 3 uses current Torn API v2/current supported routes where practical.
 
-Relevant current constraints/capabilities include user revive data with incoming/outgoing filtering, `user/log` as a separate selection, category-restricted custom log access, key/info reporting allowed categories, and Torn rate limits.
+Relevant current constraints/capabilities include:
 
-Implementation requests narrow transaction time windows, only relevant log categories/types, stops using invalid keys, and centralizes backoff to avoid bursts.
+- user revive data with incoming/outgoing filtering;
+- `user/log` requested separately;
+- custom keys restricted to specific log categories;
+- v2 key information exposing allowed categories;
+- Torn API rate limits.
 
-Exact log category/type IDs are configuration/test fixtures derived from Torn's current metadata and are never guessed from stale posts.
+Implementation:
+
+- requests narrow `from`/`to` windows around each transaction;
+- requests only relevant categories/types;
+- never bundles `user/log` contrary to Torn's current behavior;
+- stops polling credentials Torn reports invalid;
+- centralizes retry/backoff so simultaneous jobs do not create needless bursts.
+
+Exact log category/type IDs are current configuration/test fixtures derived from Torn's `logcategories`/`logtypes` metadata and are not guessed from stale forum examples.
 
 ## 17. Stage 3 client UI
 
-Options show identity connection, transaction credential state, validated requester/reviver capabilities, last validation, Rebind/Revoke, and a clear evidence-access disclosure. Plaintext key values are never redisplayed.
+### Verification settings
 
-Requester UI gates request creation on sufficient verification access and then shows assigned reviver identity, agreed payment, authoritative state/deadlines, server-derived countdown, payment check convenience action, failed-attempt retry/refund choice, refund status and terminal outcome.
+Options show:
 
-Reviver UI adds registration/verification state, available request queue, Accept, assigned requester/terms, payment status, revive deadline, retry response and refund-required countdown.
+- identity connection;
+- transaction-verification state;
+- validated requester/reviver capability;
+- last successful validation;
+- Rebind/Revoke actions;
+- plain-language disclosure of evidence categories used.
 
-Automatic revive execution remains out of scope; the reviver acts in Torn.
+Plaintext key values are never redisplayed.
 
-## 18. API contract additions
+### Requester
+
+Request creation is disabled until requester verification capability is valid. Active transaction UI shows assigned reviver identity, payment terms, authoritative state/deadlines, server-derived countdowns, optional `Check payment`, failed-attempt retry/refund choice, refund state and terminal result.
+
+### Reviver
+
+Add registration/verification state, available direct-request queue, Accept, assigned requester/terms, payment status, revive deadline, retry response and refund-required countdown.
+
+Automatic revive execution is out of scope. The reviver performs the revive in Torn.
+
+## 18. API additions
 
 Credential:
 
@@ -274,7 +440,7 @@ Reviver:
 
 - `POST /v1/reviver/register`
 - `GET /v1/reviver/queue`
-- existing Accept route extended with eligibility gates
+- existing Accept route extended with verification/standing eligibility
 
 Transaction:
 
@@ -285,21 +451,75 @@ Transaction:
 - `POST /v1/transactions/:id/request-refund`
 - `POST /v1/transactions/:id/check-refund`
 
-Clients request actions/checks. They never submit arbitrary target states.
+Every transaction read/action is authorized to the requester, assigned reviver or future administrator role as appropriate. Clients request actions/checks; they never submit arbitrary target states.
 
 ## 19. Automatic error telemetry
 
-ReviveRelay automatically collects sanitized operational errors from userscript errors/unhandled rejections, meaningful API operation failures, Fastify/API faults, worker failures, Torn transport/rate/response faults, DB/migration failures, and backup/health failures when connected to telemetry.
+### 19.1 Sources
+
+Capture sanitized operational errors from:
+
+- userscript `error` events;
+- unhandled promise rejections;
+- meaningful client/API operation failures;
+- Fastify/API faults;
+- worker handler failures;
+- Torn transport/rate/invalid-response failures;
+- database/migration failures;
+- backup/health failures when wired to the telemetry adapter.
 
 Telemetry transport failure never recursively reports itself.
 
-Stage 3 adds a tightly rate-limited `POST /v1/telemetry/errors`. Auth is optional because startup can fail before a session exists. Valid sessions may associate an internal user ID for affected-user counts, but Google Sheets never receives Torn IDs from error telemetry. Unauthenticated occurrences do not store durable IP identity.
+### 19.2 Client ingestion
 
-Allowed bounded fields include component, version/build, severity hint, error name/code, sanitized message/stack, operation/context and safe route name.
+Add tightly rate-limited:
 
-Forbidden data includes Torn keys, ReviveRelay session tokens, Authorization headers, cookies, DB/encryption/Google credentials, chat messages, requester comments, evidence bodies, arbitrary request/response bodies, full secret-bearing URLs, and unrelated Torn player data.
+`POST /v1/telemetry/errors`
 
-The server fingerprints normalized product/component/error/message/top-stack/version data. One repeated fault becomes one `error_group` rather than thousands of Sheet rows.
+Authentication is optional because startup may fail before session restore. When a valid session exists, an occurrence may reference the internal user ID for affected-user counts. Google Sheets never receives those user IDs.
+
+Unauthenticated telemetry does not persist IP addresses merely for tracking. Infrastructure may still use IPs transiently for rate limiting.
+
+### 19.3 Allowed/forbidden data
+
+Allowed bounded fields:
+
+- product/component/source;
+- client/server version and build commit;
+- severity hint;
+- error name/code;
+- sanitized message;
+- bounded sanitized stack;
+- operation/context code;
+- safe route name without secret query data.
+
+Never store/export:
+
+- Torn API keys;
+- ReviveRelay bearer/session tokens;
+- Authorization headers;
+- cookies;
+- DB/encryption/Google credentials;
+- raw chat messages;
+- requester comments;
+- payment/revive/refund API payload bodies;
+- arbitrary request/response bodies;
+- full URLs containing tokens/query secrets;
+- unrelated Torn player data.
+
+Redaction happens client-side where practical and again server-side.
+
+### 19.4 Fingerprints and version regression tracking
+
+The server fingerprint intentionally **does not include application version**. Otherwise the same bug would become a different issue row in every release.
+
+Fingerprint basis is normalized:
+
+`product + component + error code/type + message template + top stack signature`
+
+One repeated fault becomes one `error_group`.
+
+Version impact is tracked separately so the same group can show, for example, 3 occurrences on 0.4.2, 812 on 0.4.3 and 4 on 0.4.4.
 
 Add:
 
@@ -308,8 +528,8 @@ Add:
 - product/component/severity/summary;
 - representative sanitized stack;
 - first/last seen;
-- occurrence count;
-- first/last version;
+- total occurrence count;
+- first/last affected version;
 - last build commit.
 
 `error_occurrences`
@@ -318,15 +538,27 @@ Add:
 - source/version/build;
 - sanitized context;
 - occurred time;
-- bounded sanitized diagnostics.
+- bounded diagnostics.
 
-Raw occurrence retention target is 30 days; aggregate groups at least 24 months.
+`error_group_versions`
+- error group + version unique;
+- occurrence count;
+- first/last seen;
+- last build commit.
 
-Client-side storm protection deduplicates bursts, batches boundedly, caps the queue and never blocks gameplay on telemetry delivery.
+Raw occurrences retain for about 30 days. Aggregate groups/version statistics retain at least 24 months.
+
+### 19.5 Client storm protection and disclosure
+
+The client deduplicates bursts, sends bounded batches, caps the queue and drops/aggregates repeated noise rather than consuming unbounded storage.
+
+Options/onboarding disclose sanitized diagnostic telemetry. A user may disable optional **client** diagnostic submission; server/API/worker operational errors and security/audit records remain server-side because they are necessary to operate the service safely.
+
+Telemetry delivery never blocks Torn/ReviveRelay UI behavior.
 
 ## 20. Google Sheet error-triage mirror
 
-Use a common human-triage document such as `Voidsmith Error Triage`, initially with a ReviveRelay issues tab. This is external reporting only and does not weaken database isolation.
+Create/use a common human-triage document such as `Voidsmith Error Triage`, initially with a ReviveRelay issues tab. This is external reporting only and does not join/share application databases.
 
 One row per fingerprint.
 
@@ -338,6 +570,7 @@ Automatic columns:
 - Component
 - First Version
 - Last Version
+- Version Breakdown
 - Summary
 - Occurrences
 - Affected Authenticated Users
@@ -346,7 +579,7 @@ Automatic columns:
 - Last Build Commit
 - Last Sync
 
-Manual columns preserved by the exporter:
+Manual columns that exporter must preserve:
 
 - Status (`New`, `Investigating`, `Fixed`, `Ignored`)
 - Owner
@@ -354,71 +587,115 @@ Manual columns preserved by the exporter:
 - GitHub Issue
 - Fixed In
 
-`sheets.mirror` starts at a 15-minute cadence, updating only automatic columns and preserving manual work. Sheet edits never mutate users, transactions, credentials, bans or subscriptions.
+`sheets.mirror` starts at a 15-minute cadence. It identifies rows by fingerprint, updates automatic columns only, appends new groups and preserves human columns.
 
-Google Sheets API/service-account credentials are server secrets outside PostgreSQL and Git. If Google is unavailable, ReviveRelay continues normally and keeps telemetry in PostgreSQL until export recovers.
+Sheet edits never mutate ReviveRelay users, transactions, credentials, bans, subscriptions or error-group truth.
 
-## 21. Version and release manifest
+Google Sheets API/service-account credentials are server secrets outside PostgreSQL and Git. If Google export fails, ReviveRelay continues operating and retains telemetry until sync recovers.
 
-Stage 3 adds public-safe read-only `GET /v1/client/version` with stable/latest/minimum version, release timestamp/notes, Git commit and SHA-256 hashes/URLs for automatic and manual direct-distribution artifacts.
+Critical/high-severity groups may also feed a deduplicated operator-alert adapter once a provider credential is configured; alert delivery is secondary and cannot affect transaction processing.
 
-No executable code is returned by the manifest endpoint.
+## 21. Version/release manifest
 
-Historical release records store version/channel, minimum supported version, timestamp, notes, Git commit, artifact hashes/paths and mandatory/security flag.
+Add public-safe read-only:
+
+`GET /v1/client/version`
+
+It returns stable/latest/minimum version, release timestamp/notes, Git commit and SHA-256/URLs for direct automatic/manual artifacts.
+
+No executable code is returned from the manifest endpoint.
+
+Add immutable release records containing version/channel, minimum supported version, timestamp, notes, Git commit, artifact hashes/paths and mandatory/security flag.
+
+During Stage 3 internal testing the manifest/artifacts are tested via internal/local routing. Public `reviverelay.voidsmithindustries.com` install/version paths are not activated until the separate launch/DNS/Caddy gate.
 
 ## 22. Genuine automatic vs manual update modes
 
 ReviveRelay never downloads and `eval`s remote executable code.
 
-To provide a real automatic/manual distinction, direct Voidsmith distribution builds two metadata variants from the same verified source.
+Direct Voidsmith distribution builds two metadata variants from the **same verified application source**.
 
-### Automatic
+### 22.1 Automatic channel
 
-`reviverelay.user.js` contains `@version`, `@updateURL` and `@downloadURL`. Tampermonkey/userscript manager performs actual replacement according to its security/permission settings. ReviveRelay's own manifest check occurs at most once per 24 hours for UI/release notes/minimum-version state.
+Artifacts:
 
-### Manual
+- `reviverelay.meta.js` containing update metadata/header;
+- `reviverelay.user.js` containing the full automatic-channel script.
 
-`reviverelay-manual.user.js` disables native automatic direct-channel checks using supported userscript metadata behavior. ReviveRelay checks its manifest at most once per 24 hours and, when newer, shows current/latest version, short notes, Update/View Update and Remind Me Later. Update opens the canonical manual artifact so the userscript manager presents its normal install/update confirmation.
+The automatic script contains `@version`, `@updateURL` and `@downloadURL`. The userscript manager performs actual replacement under its security/permission settings.
 
-### Switching modes
+ReviveRelay's own release-manifest check occurs at most once per 24 hours for release notes, compatibility and minimum-version state.
 
-Because update metadata is static, a runtime toggle alone cannot truly change update behavior. Options therefore expose Automatic/Manual and provide a one-time `Switch update mode` installation when desired mode differs from the installed artifact channel. Both variants share source/version/namespace/storage keys.
+### 22.2 Manual channel
 
-### Greasy Fork
+`reviverelay-manual.user.js` uses supported userscript metadata to disable native direct-channel update checks, specifically `@downloadURL none`, and does not rely on a custom automatic update URL.
 
-Greasy Fork strips custom update/download URLs and uses its own update mechanism. For Greasy Fork installs, manager/Greasy Fork settings govern actual replacement; ReviveRelay may show notices but does not bypass caching/rules or inject remote executable code.
+The script checks the ReviveRelay manifest at most once per 24 hours. When newer, it shows:
+
+- current/latest version;
+- short release notes;
+- Update/View Update;
+- Remind Me Later.
+
+Update opens the canonical manual artifact so the userscript manager presents its normal installation/update confirmation.
+
+### 22.3 Switching update mode
+
+Because update metadata is static, a runtime Boolean cannot truly change update behavior.
+
+Options expose `Update mode: Automatic / Manual`. If desired mode differs from the installed artifact channel, a one-time `Switch update mode` action opens the corresponding canonical artifact.
+
+Both variants share source, version, namespace and normal ReviveRelay storage/session keys.
+
+### 22.4 Greasy Fork
+
+Greasy Fork strips custom update/download URLs for scripts installed from Greasy Fork. Therefore:
+
+- Greasy Fork/userscript-manager settings govern actual installation updates;
+- ReviveRelay's own version check remains at most once per day;
+- ReviveRelay may show compatibility/security notices;
+- ReviveRelay never bypasses Greasy Fork caching/rules with dynamic executable injection.
 
 ## 23. Minimum supported version gate
 
-Server tracks `minimumVersion` separately from `latestVersion`.
+Server tracks `minimumVersion` independently from `latestVersion`.
 
-Protected mutations include an `X-ReviveRelay-Version` header. When below minimum, session/update/read-only status may remain available where compatible, but request creation, accept and other protected mutations return `CLIENT_UPDATE_REQUIRED`.
+Protected mutation requests include:
 
-The server, not the update banner, enforces this.
+`X-ReviveRelay-Version`
+
+If below minimum:
+
+- version endpoint remains available;
+- authentication/session/read-only status may remain available where protocol-compatible;
+- protected mutations such as request creation/accept/retry/refund actions return `CLIENT_UPDATE_REQUIRED`.
+
+A modified old client cannot bypass this by hiding its update banner because compatibility is enforced server-side.
 
 ## 24. Release publication pipeline
 
-Only verified `main` can publish.
+Only verified `main` may publish a release.
 
 1. feature work completes in isolation;
-2. tests pass;
-3. merge to `main`;
-4. verify merged `main`;
-5. build automatic/manual artifacts from identical source;
-6. syntax/tests validate both;
-7. compute SHA-256;
-8. create immutable versioned release directory;
-9. atomically update release record/manifest;
-10. move stable install pointers only after verification;
-11. update Source of Truth.
+2. automated tests pass;
+3. completed work merges to `main`;
+4. full verification runs on merged `main`;
+5. build generates automatic/manual artifacts and automatic `.meta.js` from identical source/version;
+6. syntax/tests validate all artifacts;
+7. SHA-256 hashes are calculated;
+8. immutable versioned release directory is created;
+9. release record/manifest is updated atomically;
+10. stable pointers move only after artifact verification;
+11. Source of Truth is updated.
 
-Never publish a dirty worktree/unverified branch artifact.
+Never publish a dirty working tree or unverified branch artifact.
 
 Suggested layout:
 
 ```text
 /srv/voidsmith/torn-platform/reviverelay/releases/
   0.4.2/
+    reviverelay.meta.js
     reviverelay.user.js
     reviverelay-manual.user.js
     manifest.json
@@ -427,24 +704,24 @@ Suggested layout:
 
 ## 25. Version-aware telemetry
 
-Every error event carries client/server version and build commit where known. Error groups retain first/last affected versions, enabling regression detection across releases instead of a sheet full of duplicate stack traces.
+Every error occurrence carries client/server version and build commit where known. `error_group_versions` keeps per-version counts, so the Sheet can reveal release regressions without splitting one logical bug into many fingerprints.
 
 ## 26. Security boundaries for telemetry/releases
 
 - manifest is read-only/public-safe;
 - userscript sessions cannot publish releases;
 - no client endpoint accepts executable uploads;
-- artifacts are generated from repository source;
+- published artifacts are built from repository source;
 - hashes are recorded before publication;
 - telemetry cannot mutate transaction state;
 - telemetry is aggressively redacted;
-- Google Sheet exporter is one-way;
+- Google Sheet flow is one-way;
 - Google/release/deploy secrets stay outside PostgreSQL/Git;
 - existing DB/network isolation remains unchanged.
 
-## 27. Error vocabulary
+## 27. Stable Stage 3 error vocabulary
 
-Stage 3 adds/standardizes errors including:
+Where applicable:
 
 - `AUTH_REQUIRED`
 - `VERIFICATION_CREDENTIAL_REQUIRED`
@@ -464,25 +741,90 @@ Transient service failures remain distinct from user misconduct/terminal outcome
 
 Stage 3 is TDD-first.
 
-Credential tests cover identity-key discard, ownership, exact scope, plaintext leakage, atomic rebind/revoke and invalid-key pause behavior.
+### Credentials
 
-Reservation/payment tests cover accept race, repeat acceptance after unpaid expiry with historical rows preserved, on-time/late/no payment, split Cash/Xanax, duplicate evidence and overpayment refund basis.
+- identity bind still creates zero API credentials;
+- transaction credential must belong to authenticated Torn ID;
+- insufficient or unrelated/broad scope rejected;
+- plaintext never returned/logged;
+- rebind atomically revokes old credential;
+- revoked Torn credential creates verification hold, not player penalty;
+- restored credential reconciles against original deadlines.
 
-Revive tests cover assigned success/failure, retry, third-party revive, self-exit, natural expiry, ambiguity and no-attempt final reconciliation. A genuine failed revive must never be mislabeled no-attempt fraud.
+### Reservation/payment
 
-Refund tests cover exact/split Cash/Xanax, duplicate evidence, delayed API visibility and reportable missing refund.
+- second reviver cannot accept active reservation;
+- unpaid expiry closes first transaction and allows a new transaction for the same request;
+- historical reservations remain queryable;
+- check-payment spam does not create duplicate jobs;
+- payment before deadline starts five-minute SLA only after verification;
+- late payment enters normalized late-payment refund reason;
+- no payment returns request to available without penalty;
+- split Cash/Xanax aggregate correctly;
+- duplicate Torn evidence never double-counts;
+- overpayment refund basis equals actual verified amount.
 
-Worker tests cover Torn 429/5xx/timeouts, invalid credentials, stale locks, concurrent workers and idempotent retries.
+### Revive/outcomes
 
-Telemetry tests cover secret redaction, fingerprint dedupe, concurrent counts, bounded client storms, endpoint rate limits, no recursion, Sheet manual-column preservation and Sheet outage independence.
+- assigned success -> completed;
+- genuine failure -> failed-attempt choice;
+- retry acceptance -> new five-minute attempt sequence;
+- retry decline/timeout -> refund required;
+- third-party revive -> refund required;
+- requester self-exit -> no-refund terminal;
+- natural expiry -> no-refund terminal;
+- ambiguous evidence does not guess/penalize;
+- no attempt becomes reportable only after final reconciliation;
+- a failed revive is never labeled no-attempt fraud.
 
-Update/release tests cover deterministic version comparison, at-most-daily manifest checks, identical application code across metadata variants, correct auto/manual metadata, matching hashes, server minimum-version blocking and explicit prohibition of remote `eval`/Function/dynamic executable injection.
+### Refund
 
-Existing deployment isolation, backup and disposable restore tests remain mandatory.
+- exact/split Cash and Xanax refunds accepted;
+- duplicate evidence idempotent;
+- on-time refund visible late accepted;
+- missing refund becomes reportable only after final reconciliation.
+
+### Worker/outage
+
+- Torn 429/5xx/timeouts reschedule without misconduct;
+- invalid key stops repeated calls;
+- stale locks reclaimed;
+- concurrent workers do not process one logical job twice;
+- retries are idempotent.
+
+### Telemetry
+
+- keys/tokens/headers/payloads redacted;
+- same error across versions stays one fingerprint/group;
+- per-version counts update correctly;
+- concurrent occurrence/affected-user counts are safe;
+- client storm bounded;
+- endpoint rate-limited;
+- telemetry failure not recursive;
+- client diagnostic opt-out honored;
+- Sheet sync preserves manual columns;
+- Sheet outage cannot stop marketplace behavior.
+
+### Update/release
+
+- deterministic version comparison;
+- client manifest check no more than once per 24 hours;
+- automatic/manual artifacts share identical application code;
+- automatic metadata points to correct `.meta.js`/download path;
+- manual artifact contains `@downloadURL none` and no competing direct auto-update behavior;
+- hashes match generated artifacts;
+- minimum-version gate blocks protected mutations server-side;
+- supported/current clients remain allowed;
+- version endpoint remains available to blocked clients;
+- no remote `eval`, Function-constructor loading or dynamic executable-code injection exists.
+
+### Isolation
+
+Existing deployment-isolation, backup and disposable restore checks remain mandatory.
 
 ## 29. Implementation decomposition
 
-1. schema/state-history/repeat-reservation migration;
+1. schema/state-history/repeat-reservation/job-dedupe migration;
 2. transaction-verification credential binding/validation;
 3. payment evidence engine;
 4. revive evidence/outcome engine;
@@ -491,25 +833,25 @@ Existing deployment isolation, backup and disposable restore tests remain mandat
 7. error telemetry datastore/ingestion/redaction;
 8. Google Sheet error-triage exporter;
 9. release manifest/minimum-version gate;
-10. auto/manual release artifact pipeline and update UI;
+10. automatic/manual release build pipeline and update UI;
 11. internal deployment/migrations/worker activation;
 12. full isolation/backups/restore/evidence verification;
 13. merge verified completion to `main`.
 
-Do not mix Stage 4 disputes/reputation/admin tooling or Stage 5 subscription billing into Stage 3.
+Do not mix Stage 4 dispute/reputation/admin implementation or Stage 5 subscription billing into Stage 3.
 
 ## 30. Deferred to Stage 4
 
-- reputation calculations/display beyond placeholders needed by transaction UI;
-- report submission/evidence bundles;
-- protective suspension automation after reports;
+- full reputation calculation/display;
+- user report submission and evidence bundles;
+- protective suspension automation after a reportable transaction;
 - admin dispute review;
 - confirmed violation/ban workflow;
 - business/admin Sheets mirrors beyond operational error triage.
 
 ## 31. Deferred to Stage 5
 
-- 7-day Reviver Pro trial activation;
+- seven-day Reviver Pro trial activation;
 - operator Xanax subscription scanning;
 - 2 Xanax / 30 days;
 - 20 Xanax / 365 days and annual multiples;
@@ -523,23 +865,24 @@ Stage 3 is complete only when:
 
 1. requester/reviver protected actions are impossible without sufficient transaction-verification access;
 2. identity keys remain discarded;
-3. unpaid reservations safely expire and later reservations preserve history;
-4. Cash/Xanax payment evidence is server-verified/idempotent;
-5. five-minute SLA starts only on verified payment;
-6. revive success/failure/third-party/self-exit/natural-expiry/no-attempt outcomes are evidence-derived;
-7. retry/refund flows are server-timed/evidence-backed;
-8. missing refund/no-attempt become reportable only after final reconciliation;
-9. Torn outages/credential failures do not generate false misconduct;
-10. sanitized errors dedupe in PostgreSQL and mirror one row per fingerprint to the triage Sheet without secrets;
-11. errors correlate to version/build;
-12. direct distribution has genuine automatic/manual channels from the same source;
-13. manifest checks occur no more than once per 24 hours;
-14. obsolete clients can be blocked server-side from protected mutations;
-15. no remote executable-code/self-`eval` updater exists;
-16. all tests/build/isolation/backup/restore checks pass;
-17. production DB remains completely separate from every other Voidsmith database;
-18. public paid launch remains disabled until Stages 4/5/compliance are complete;
-19. completed verified Stage 3 work is merged to `main`.
+3. credential failure during a transaction creates an evidence hold without rewriting deadlines or falsely penalizing either side;
+4. unpaid reservations safely expire and later reservations preserve history;
+5. Cash/Xanax evidence is server-verified/idempotent;
+6. five-minute SLA starts only on verified payment;
+7. revive success/failure/third-party/self-exit/natural-expiry/no-attempt outcomes are evidence-derived;
+8. retry/refund flows are server-timed/evidence-backed;
+9. missing refund/no-attempt become reportable only after final reconciliation;
+10. Torn outages/credential failures do not generate false misconduct;
+11. sanitized errors deduplicate in PostgreSQL and mirror one row per fingerprint to the triage Sheet without secrets;
+12. the same error remains one group across releases with per-version counts;
+13. direct distribution builds genuine automatic/manual channels from the same source;
+14. client manifest checks occur no more than once per 24 hours;
+15. obsolete clients can be blocked server-side from protected mutations;
+16. no remote executable-code/self-`eval` updater exists;
+17. all tests/build/isolation/backup/restore checks pass;
+18. production DB remains completely separate from every other Voidsmith database;
+19. public paid launch remains disabled until Stages 4/5/compliance are complete;
+20. completed verified Stage 3 work is merged to `main`.
 
 ## 33. External capability notes reviewed 2026-08-26
 
@@ -547,7 +890,7 @@ Stage 3 is complete only when:
 - Torn supports category-restricted custom `user/log` access and v2 key information exposes allowed categories.
 - `user/log` is requested separately rather than bundled with unrelated selections.
 - Torn documents API rate limits and the need to stop using invalid keys.
-- Tampermonkey uses `@version` for update comparison and supports `@updateURL` / `@downloadURL`.
+- Tampermonkey uses `@version` for update comparison and supports `@updateURL` / `@downloadURL`; `@downloadURL none` disables its update check for that artifact.
 - Greasy Fork strips custom update/download URLs for Greasy-Fork-installed scripts and prohibits script-initiated update checks more frequently than once per day.
 
-These are constraints, not reasons to weaken ReviveRelay's server-side evidence/version controls.
+These external capabilities constrain implementation; they do not weaken ReviveRelay's server-side evidence, privacy or version controls.
