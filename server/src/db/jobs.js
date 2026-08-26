@@ -21,6 +21,7 @@ function rowToJob(row) {
     lastError: row.last_error,
     completedAt: row.completed_at,
     payload: row.payload || {},
+    dedupeKey: row.dedupe_key || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -44,6 +45,33 @@ async function enqueueJob(pool, {
     VALUES ($1, $2, $3, $4::jsonb)
     RETURNING *
   `, [type.trim(), entityId, runAt, JSON.stringify(payload || {})]);
+
+  return rowToJob(result.rows[0]);
+}
+
+
+async function enqueueUniqueJob(pool, {
+  type,
+  entityId = null,
+  runAt = new Date(),
+  payload = {},
+  dedupeKey
+}) {
+  if (typeof type !== 'string' || !type.trim()) throw new Error('job type is required');
+  if (!(runAt instanceof Date) || Number.isNaN(runAt.getTime())) throw new Error('runAt must be a valid Date');
+  if (typeof dedupeKey !== 'string' || !dedupeKey.trim()) throw new Error('dedupeKey is required');
+
+  const result = await pool.query(`
+    INSERT INTO jobs (type, entity_id, run_at, payload, dedupe_key)
+    VALUES ($1, $2, $3, $4::jsonb, $5)
+    ON CONFLICT (dedupe_key)
+      WHERE completed_at IS NULL AND dedupe_key IS NOT NULL
+    DO UPDATE SET
+      run_at = LEAST(jobs.run_at, EXCLUDED.run_at),
+      payload = jobs.payload || EXCLUDED.payload,
+      updated_at = now()
+    RETURNING *
+  `, [type.trim(), entityId, runAt, JSON.stringify(payload || {}), dedupeKey.trim()]);
 
   return rowToJob(result.rows[0]);
 }
@@ -105,6 +133,24 @@ async function claimDueJobs(pool, {
   }
 }
 
+async function rescheduleJob(pool, jobId, { runAt, now = new Date() } = {}) {
+  if (!(runAt instanceof Date) || Number.isNaN(runAt.getTime())) {
+    throw new Error('runAt must be a valid Date');
+  }
+  const result = await pool.query(`
+    UPDATE jobs
+    SET run_at = $2,
+        locked_at = NULL,
+        locked_by = NULL,
+        last_error = NULL,
+        updated_at = $3
+    WHERE id = $1
+      AND completed_at IS NULL
+    RETURNING *
+  `, [jobId, runAt, now]);
+  return result.rowCount === 1 ? rowToJob(result.rows[0]) : null;
+}
+
 async function completeJob(pool, jobId, now = new Date()) {
   const result = await pool.query(`
     UPDATE jobs
@@ -149,8 +195,14 @@ function createJobRepository(pool) {
     enqueueJob(input) {
       return enqueueJob(pool, input);
     },
+    enqueueUniqueJob(input) {
+      return enqueueUniqueJob(pool, input);
+    },
     claimDueJobs(input) {
       return claimDueJobs(pool, input);
+    },
+    rescheduleJob(jobId, input) {
+      return rescheduleJob(pool, jobId, input);
     },
     completeJob(jobId, now) {
       return completeJob(pool, jobId, now);
@@ -165,7 +217,9 @@ module.exports = {
   JOB_TYPES,
   JOB_LOCK_TIMEOUT_MS,
   enqueueJob,
+  enqueueUniqueJob,
   claimDueJobs,
+  rescheduleJob,
   completeJob,
   failJob,
   createJobRepository

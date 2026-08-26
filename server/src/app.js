@@ -5,6 +5,9 @@ const { registerCandidateRoutes } = require('./routes/candidates');
 const { registerRequestRoutes } = require('./routes/requests');
 const { registerReviverQueueRoutes } = require('./routes/reviver-queue');
 const { registerMeRoute } = require('./routes/me');
+const { registerVerificationCredentialRoutes } = require('./routes/verification-credential');
+const { registerReviverRoutes } = require('./routes/revivers');
+const { registerTransactionRoutes } = require("./routes/transactions");
 const { installAuthentication } = require('./security/authenticate');
 
 function buildApp({
@@ -15,6 +18,11 @@ function buildApp({
   candidateRepository = null,
   requestRepository = null,
   transactionRepository = null,
+  verificationCredentialRepository = null,
+  logMetadataResolver = null,
+  reviverRepository = null,
+  transactionService = null,
+  jobRepository = null,
   logger = false
 }) {
   if (!config) throw new Error('config is required');
@@ -42,6 +50,28 @@ function buildApp({
 
   app.get('/health', async () => ({ ok: true }));
 
+  if (verificationCredentialRepository) {
+    if (!sessionRepository) throw new Error('verification credential routes require a sessionRepository');
+    if (!logMetadataResolver) throw new Error('verification credential routes require logMetadataResolver');
+    app.register(async instance => {
+      await registerVerificationCredentialRoutes(instance, {
+        tornClient,
+        verificationCredentialRepository,
+        logMetadataResolver
+      });
+    });
+  }
+
+  if (reviverRepository) {
+    if (!sessionRepository || !verificationCredentialRepository) {
+      throw new Error('reviver registration requires session and verification credential repositories');
+    }
+    app.register(async instance => {
+      await registerReviverRoutes(instance, { verificationCredentialRepository, reviverRepository });
+    });
+  }
+
+
   app.register(async instance => {
     await registerAuthRoute(instance, {
       config,
@@ -60,20 +90,29 @@ function buildApp({
   }
 
   if (requestRepository) {
+    if (!verificationCredentialRepository) throw new Error('request routes require a verificationCredentialRepository');
     if (!sessionRepository) {
       throw new Error('request routes require a sessionRepository');
     }
     app.register(async instance => {
-      await registerRequestRoutes(instance, { requestRepository });
+      await registerRequestRoutes(instance, { requestRepository, verificationCredentialRepository });
     });
   }
 
   if (transactionRepository) {
+    if (!verificationCredentialRepository) throw new Error('reviver queue routes require a verificationCredentialRepository');
     if (!sessionRepository) {
       throw new Error('reviver queue routes require a sessionRepository');
     }
     app.register(async instance => {
-      await registerReviverQueueRoutes(instance, { transactionRepository });
+      await registerReviverQueueRoutes(instance, { transactionRepository, verificationCredentialRepository });
+    });
+  }
+
+  if (transactionRepository && transactionService && jobRepository) {
+    if (!sessionRepository) throw new Error("transaction action routes require a sessionRepository");
+    app.register(async instance => {
+      await registerTransactionRoutes(instance,{transactionRepository,transactionService,jobRepository});
     });
   }
 

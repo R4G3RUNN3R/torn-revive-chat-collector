@@ -18,5 +18,20 @@ test('requester UI refreshes active state and offers cancellation before committ
   assert.match(source, /getActiveRequest\(/);
   assert.match(source, /refreshActiveRequest/);
   assert.match(source, /cancelRequest\(/);
-  assert.match(source, /Stage 3|verification.*not yet active/i);
+  assert.match(source, /getTransaction\(/);
+  assert.match(source, /paymentDeadline/);
+  assert.match(source, /reviveDeadline/);
+  assert.match(source, /refundDeadline/);
+  assert.match(source, /retryResponseDeadline/);
+});
+
+
+test("transaction countdowns derive from server-provided timestamps rather than local contract guesses", () => {
+  assert.match(source, /formatCountdown|deadlineRemaining/i);
+  assert.match(source, /paymentDeadline/);
+  assert.match(source, /reviveDeadline/);
+  assert.match(source, /refundDeadline/);
+  assert.match(source, /retryResponseDeadline/);
+  assert.doesNotMatch(source, /paymentDeadline\s*=\s*new Date\(Date\.now\(\)\s*\+\s*3\s*\*\s*60/);
+  assert.doesNotMatch(source, /refundDeadline\s*=\s*new Date\(Date\.now\(\)\s*\+\s*10\s*\*\s*60/);
 });

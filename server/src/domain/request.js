@@ -6,8 +6,8 @@ function validateOffer(input) {
     throw new Error('Unsupported payment method');
   }
 
-  if (!Number.isFinite(offerAmount) || !Number.isInteger(offerAmount)) {
-    throw new Error('Offer amount must be a whole number');
+  if (!Number.isSafeInteger(offerAmount)) {
+    throw new Error('Offer amount must be a safe whole number');
   }
 
   if (paymentMethod === 'cash' && offerAmount < 500000) {

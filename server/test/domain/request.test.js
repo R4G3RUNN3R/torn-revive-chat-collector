@@ -65,3 +65,10 @@ test('optional comment is trimmed and capped at 500 characters', () => {
     /500/
   );
 });
+
+test('offers larger than JavaScript safe integer range are rejected', () => {
+  assert.throws(
+    () => validateOffer({ paymentMethod: 'cash', offerAmount: Number.MAX_SAFE_INTEGER + 1 }),
+    /safe|whole/i
+  );
+});

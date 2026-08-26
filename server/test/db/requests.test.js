@@ -261,3 +261,28 @@ test('requester cannot cancel after payment has been verified', async t => {
   assert.equal(result.cancelled, false);
   assert.equal(result.reason, 'PAYMENT_COMMITTED');
 });
+
+test('active requester view exposes the current open transaction id after assignment', async t => {
+  const { pool, requesterId } = await setup(t);
+  const reviver = await pool.query(`
+    INSERT INTO users (torn_id, current_name)
+    VALUES (654399, 'Assigned Reviver')
+    RETURNING id
+  `);
+  const created = await createRequest(pool, {
+    requesterId,
+    paymentMethod: 'xanax',
+    offerAmount: 2,
+    comment: null
+  });
+  await pool.query(`UPDATE revive_requests SET state='WAITING_FOR_PAYMENT' WHERE id=$1`, [created.request.id]);
+  const tx = await pool.query(`
+    INSERT INTO transactions (request_id, requester_id, reviver_id, state, accepted_at, payment_deadline)
+    VALUES ($1,$2,$3,'WAITING_FOR_PAYMENT',now(),now()+interval '3 minutes')
+    RETURNING id
+  `, [created.request.id, requesterId, reviver.rows[0].id]);
+
+  const active = await getActiveRequest(pool, requesterId);
+  assert.equal(active.id, created.request.id);
+  assert.equal(active.transactionId, tx.rows[0].id);
+});

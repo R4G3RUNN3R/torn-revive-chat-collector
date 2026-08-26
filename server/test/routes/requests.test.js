@@ -20,7 +20,7 @@ function makeSessionRepository() {
   };
 }
 
-function makeApp(requestRepository) {
+function makeApp(requestRepository, { credentialStatus = { id: 'cred-1', usable: true, capabilities: { requester: true, reviver: false } } } = {}) {
   return buildApp({
     config: {
       API_KEY_ENCRYPTION_KEY: '88'.repeat(32),
@@ -29,7 +29,9 @@ function makeApp(requestRepository) {
     tornClient: { async getKeyInfo() { throw new Error('not used'); } },
     identityRepository: { async bindIdentity() {} },
     sessionRepository: makeSessionRepository(),
-    requestRepository
+    requestRepository,
+    verificationCredentialRepository: { async getStatus() { return credentialStatus; }, async bind() { throw new Error('not used'); }, async revoke() { return false; } },
+    logMetadataResolver: { async get() { return { categories: {} }; } }
   });
 }
 
@@ -184,4 +186,36 @@ test('POST cancel rejects malformed request ids before repository access', async
   assert.equal(response.statusCode, 422);
   assert.equal(response.json().error, 'INVALID_REQUEST_ID');
   assert.equal(calls, 0);
+});
+
+
+test('POST /v1/requests requires a usable requester-capable transaction credential', async t => {
+  let calls = 0;
+  const app = makeApp({
+    async createRequest() { calls += 1; },
+    async getActiveRequest() { return null; },
+    async cancelRequest() { return { cancelled: false, reason: 'NOT_FOUND' }; }
+  }, { credentialStatus: null });
+  t.after(() => app.close());
+
+  const response = await app.inject({
+    method: 'POST', url: '/v1/requests',
+    headers: { authorization: 'Bearer requester-token' },
+    payload: { paymentMethod: 'xanax', offerAmount: 1 }
+  });
+  assert.equal(response.statusCode, 409);
+  assert.equal(response.json().error, 'VERIFICATION_CREDENTIAL_REQUIRED');
+  assert.equal(calls, 0);
+});
+
+test('active request lookup remains available after credential loss', async t => {
+  const app = makeApp({
+    async createRequest() { throw new Error('not used'); },
+    async getActiveRequest() { return { id: VALID_REQUEST_ID, state: 'AVAILABLE' }; },
+    async cancelRequest() { throw new Error('not used'); }
+  }, { credentialStatus: null });
+  t.after(() => app.close());
+
+  const response = await app.inject({ method: 'GET', url: '/v1/requests/active', headers: { authorization: 'Bearer requester-token' } });
+  assert.equal(response.statusCode, 200);
 });

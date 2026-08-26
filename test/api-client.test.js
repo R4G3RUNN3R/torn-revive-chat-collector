@@ -239,3 +239,45 @@ test('retryable candidate failure is rescheduled and non-retryable failure is de
   assert.equal(result.pending[0].nextAttemptAt, 15_000);
   assert.deepEqual(result.deadLetter.map((entry) => entry.id), ['invalid']);
 });
+
+
+test('Stage 3 protected marketplace API methods use exact server routes and never invent state payloads', async () => {
+  const calls=[];
+  const responses=Array.from({length:12},()=>({status:200,body:{}}));
+  const api=createApiClient({baseUrl:'https://relay.example',getToken:()=> 'session',request:fakeRequest(responses,calls)});
+  await api.getVerificationCredential();
+  await api.bindVerificationCredential('verification-key');
+  await api.revokeVerificationCredential();
+  await api.registerReviver();
+  await api.getReviverQueue();
+  await api.acceptRequest('123e4567-e89b-12d3-a456-426614174000');
+  await api.getTransaction('223e4567-e89b-12d3-a456-426614174000');
+  await api.checkPayment('223e4567-e89b-12d3-a456-426614174000');
+  await api.requestRetry('223e4567-e89b-12d3-a456-426614174000');
+  await api.respondRetry('223e4567-e89b-12d3-a456-426614174000','accept');
+  await api.requestRefund('223e4567-e89b-12d3-a456-426614174000');
+  await api.checkRefund('223e4567-e89b-12d3-a456-426614174000');
+
+  assert.deepEqual(calls.map(c=>[c.method,new URL(c.url).pathname,c.body]),[
+    ['GET','/v1/verification-credential',undefined],
+    ['POST','/v1/verification-credential',{apiKey:'verification-key'}],
+    ['DELETE','/v1/verification-credential',undefined],
+    ['POST','/v1/reviver/register',undefined],
+    ['GET','/v1/reviver/queue',undefined],
+    ['POST','/v1/requests/123e4567-e89b-12d3-a456-426614174000/accept',undefined],
+    ['GET','/v1/transactions/223e4567-e89b-12d3-a456-426614174000',undefined],
+    ['POST','/v1/transactions/223e4567-e89b-12d3-a456-426614174000/check-payment',{}],
+    ['POST','/v1/transactions/223e4567-e89b-12d3-a456-426614174000/retry-request',{}],
+    ['POST','/v1/transactions/223e4567-e89b-12d3-a456-426614174000/retry-response',{decision:'accept'}],
+    ['POST','/v1/transactions/223e4567-e89b-12d3-a456-426614174000/request-refund',{}],
+    ['POST','/v1/transactions/223e4567-e89b-12d3-a456-426614174000/check-refund',{}]
+  ]);
+  assert.equal(calls.some(c=>c.body && Object.hasOwn(c.body,'state')),false);
+});
+
+test('retry response client rejects any value other than accept or decline before network access', async () => {
+  let calls=0;
+  const api=createApiClient({baseUrl:'https://relay.example',getToken:()=> 'session',request:async()=>{calls+=1;return {status:200,body:{}};}});
+  assert.throws(()=>api.respondRetry('223e4567-e89b-12d3-a456-426614174000','COMPLETED'),/accept or decline/i);
+  assert.equal(calls,0);
+});

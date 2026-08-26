@@ -298,9 +298,9 @@ Outcomes:
 
 - assigned success -> `COMPLETED`;
 - genuine assigned failure -> `FAILED_ATTEMPT_CHOICE`, explicitly **not misconduct**;
-- requester chooses retry -> `RETRY_OFFERED`;
+- requester chooses retry -> `RETRY_OFFERED`, with a **2-minute** server-authoritative `retry_response_deadline`;
 - reviver accepts retry -> new five-minute `WAITING_FOR_REVIVE` window and next attempt sequence;
-- reviver declines or the retry-response window expires -> `REFUND_REQUIRED`;
+- reviver declines or the two-minute retry-response window expires -> `REFUND_REQUIRED`;
 - requester chooses refund after failure -> `REFUND_REQUIRED`.
 
 No second payment is required for an approved retry.
@@ -342,13 +342,14 @@ Refund reasons include:
 - late payment arrives after the reservation deadline;
 - future Stage 4 administrative outcome.
 
-On entry to `REFUND_REQUIRED`:
+On entry to `REFUND_REQUIRED`, the authoritative transaction transition performs one atomic database operation that:
 
-- set `refund_reason`;
-- `refund_required_at = now()`;
-- `refund_deadline = refund_required_at + 10 minutes`;
-- create refund record idempotently;
-- enqueue one deduplicated `refund.verify` job.
+- sets `refund_reason`;
+- sets `refund_required_at = now()`;
+- sets `refund_deadline = refund_required_at + 10 minutes`;
+- creates the refund record from the **actual verified payment value**;
+- enqueues one deduplicated `refund.verify` job;
+- fails closed if an existing refund obligation conflicts with that transaction contract.
 
 The required refund uses the same method and the **actual verified payment value**. Split refunds may aggregate.
 
@@ -451,7 +452,7 @@ Transaction:
 - `POST /v1/transactions/:id/request-refund`
 - `POST /v1/transactions/:id/check-refund`
 
-Every transaction read/action is authorized to the requester, assigned reviver or future administrator role as appropriate. Clients request actions/checks; they never submit arbitrary target states.
+Every transaction read/action is authorized to the requester, assigned reviver or future administrator role as appropriate. Participant responses expose Torn identities and required public transaction data, not internal requester/reviver UUIDs. Clients request actions/checks; they never submit arbitrary target states.
 
 ## 19. Automatic error telemetry
 

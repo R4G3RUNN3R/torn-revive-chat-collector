@@ -96,7 +96,23 @@ test('Stage 1 API smoke: privacy, request uniqueness, and accept race hold end t
       sessionRepository: createSessionRepository(pool),
       candidateRepository: createCandidateRepository(pool),
       requestRepository: createRequestRepository(pool),
-      transactionRepository: createTransactionRepository(pool)
+      transactionRepository: createTransactionRepository(pool),
+      verificationCredentialRepository: {
+        async getStatus(userId) {
+          if (userId === requesterId) {
+            return { id: 'requester-smoke-credential', usable: true, capabilities: { requester: true, reviver: false } };
+          }
+          if (userId === reviverAId || userId === reviverBId) {
+            return { id: `reviver-smoke-${userId}`, usable: true, capabilities: { requester: false, reviver: true } };
+          }
+          return null;
+        },
+        async bind() { throw new Error('verification binding is not part of this smoke flow'); },
+        async revoke() { return false; }
+      },
+      logMetadataResolver: {
+        async get() { return { categories: {} }; }
+      }
     });
 
     const health = await app.inject({ method: 'GET', url: '/health' });

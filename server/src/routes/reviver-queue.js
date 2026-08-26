@@ -1,9 +1,10 @@
 const { z } = require('zod');
 const { RATE_LIMITS } = require('../security/rate-limits');
+const { assertCredentialCapability } = require('../security/verification-credential');
 
 const requestIdSchema = z.string().uuid();
 
-async function registerReviverQueueRoutes(app, { transactionRepository }) {
+async function registerReviverQueueRoutes(app, { transactionRepository, verificationCredentialRepository }) {
   if (!transactionRepository ||
       typeof transactionRepository.listAvailableRequests !== 'function' ||
       typeof transactionRepository.acceptRequest !== 'function') {
@@ -11,6 +12,9 @@ async function registerReviverQueueRoutes(app, { transactionRepository }) {
   }
   if (typeof app.authenticate !== 'function') {
     throw new Error('reviver queue routes require session authentication');
+  }
+  if (!verificationCredentialRepository || typeof verificationCredentialRepository.getStatus !== 'function') {
+    throw new Error('reviver queue routes require verificationCredentialRepository');
   }
 
   async function requireReviver(request, reply) {
@@ -20,8 +24,21 @@ async function registerReviverQueueRoutes(app, { transactionRepository }) {
     }
   }
 
+  async function requireReviverCredential(request, reply) {
+    try {
+      const status = await verificationCredentialRepository.getStatus(request.reviveRelayUser.userId);
+      assertCredentialCapability(status, 'reviver');
+    } catch (error) {
+      const code = error && error.code;
+      if (['VERIFICATION_CREDENTIAL_REQUIRED','VERIFICATION_CREDENTIAL_INSUFFICIENT','VERIFICATION_CREDENTIAL_INVALID'].includes(code)) {
+        return reply.code(409).send({ error: code });
+      }
+      throw error;
+    }
+  }
+
   app.get('/v1/reviver/queue', {
-    preHandler: [app.authenticate, requireReviver],
+    preHandler: [app.authenticate, requireReviver, requireReviverCredential],
     config: {
       rateLimit: RATE_LIMITS.REVIVER_QUEUE
     }
@@ -31,7 +48,7 @@ async function registerReviverQueueRoutes(app, { transactionRepository }) {
   });
 
   app.post('/v1/requests/:id/accept', {
-    preHandler: [app.authenticate, requireReviver],
+    preHandler: [app.authenticate, requireReviver, requireReviverCredential],
     config: {
       rateLimit: RATE_LIMITS.ACCEPT
     }

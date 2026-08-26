@@ -72,3 +72,65 @@ test('getKeyInfo maps transport/server failures to TORN_UNAVAILABLE', async () =
     error => error instanceof TornApiError && error.code === 'TORN_UNAVAILABLE'
   );
 });
+
+test('getKeyInfo accepts current v2 wrapped key info and basic profile response', async () => {
+  const fetchImpl = async (url) => {
+    if (url.endsWith('/key/info')) return jsonResponse(200, {
+      info: {
+        selections: {
+          company: [], faction: [], market: [], property: [], torn: [],
+          user: ['profile', 'revives'], racing: [], forum: [], key: ['info']
+        },
+        access: { level: 2, type: 'Limited Access', faction: false, company: false, log: { custom_permissions: false, available: [] } },
+        user: { id: 24680, faction_id: null, company_id: null }
+      }
+    });
+    if (url.endsWith('/user/basic')) return jsonResponse(200, { profile: { id: 24680, name: 'TestReviver' } });
+    throw new Error(`unexpected URL ${url}`);
+  };
+  const torn = createTornClient({ fetchImpl });
+  const info = await torn.getKeyInfo('secret-key');
+  assert.equal(info.tornId, 24680);
+  assert.equal(info.name, 'TestReviver');
+  assert.deepEqual(info.selections.user, ['profile', 'revives']);
+});
+
+test('getLogCategories normalizes current Torn response without putting key in URL', async () => {
+  const calls = [];
+  const torn = createTornClient({
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      return jsonResponse(200, { logcategories: [{ id: 10, title: 'Money incoming' }] });
+    }
+  });
+  assert.deepEqual(await torn.getLogCategories('secret-key'), [{ id: 10, title: 'Money incoming' }]);
+  assert.doesNotMatch(calls[0].url, /secret-key/);
+  assert.equal(calls[0].options.headers.Authorization, 'ApiKey secret-key');
+});
+
+test('evidence methods encode bounded query parameters and keep key in header', async () => {
+  const calls = [];
+  const torn = createTornClient({
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      if (url.includes('/user/revives')) return jsonResponse(200, { revives: [] });
+      if (url.includes('/user/profile')) return jsonResponse(200, { profile: { id: 1, status: { state: 'Hospital', until: 1000 } } });
+      if (url.includes('/user/log')) return jsonResponse(200, { log: [] });
+      throw new Error(`unexpected URL ${url}`);
+    }
+  });
+
+  await torn.getUserRevives('secret-key', { direction: 'outgoing', from: 100, to: 200, limit: 50 });
+  await torn.getUserProfile('secret-key');
+  await torn.getUserLogs('secret-key', { categoryId: 10, targetTornId: 123, from: 100, to: 200, limit: 50 });
+
+  assert.match(calls[0].url, /filters=outgoing/);
+  assert.match(calls[0].url, /from=100/);
+  assert.match(calls[0].url, /to=200/);
+  assert.match(calls[2].url, /cat=10/);
+  assert.match(calls[2].url, /target=123/);
+  for (const call of calls) {
+    assert.equal(call.options.headers.Authorization, 'ApiKey secret-key');
+    assert.doesNotMatch(call.url, /secret-key/);
+  }
+});

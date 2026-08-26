@@ -21,6 +21,7 @@ function makeSessionRepository({ reviver = true } = {}) {
 }
 
 function makeApp(transactionRepository, options = {}) {
+  const credentialStatus = Object.hasOwn(options, 'credentialStatus') ? options.credentialStatus : { id: 'cred-r', usable: true, capabilities: { requester: false, reviver: true } };
   return buildApp({
     config: {
       API_KEY_ENCRYPTION_KEY: '88'.repeat(32),
@@ -29,7 +30,9 @@ function makeApp(transactionRepository, options = {}) {
     tornClient: { async getKeyInfo() { throw new Error('not used'); } },
     identityRepository: { async bindIdentity() {} },
     sessionRepository: makeSessionRepository(options),
-    transactionRepository
+    transactionRepository,
+    verificationCredentialRepository: { async getStatus() { return credentialStatus; }, async bind() { throw new Error('not used'); }, async revoke() { return false; } },
+    logMetadataResolver: { async get() { return { categories: {} }; } }
   });
 }
 
@@ -132,4 +135,23 @@ test('non-reviver sessions cannot view or accept the reviver queue', async t => 
     headers: { authorization: 'Bearer requester-token' }
   });
   assert.equal(accepted.statusCode, 403);
+});
+
+
+test('reviver queue and Accept require a usable reviver-capable transaction credential', async t => {
+  let calls = 0;
+  const app = makeApp({
+    async listAvailableRequests() { calls += 1; return []; },
+    async acceptRequest() { calls += 1; return { accepted: false }; }
+  }, { credentialStatus: null });
+  t.after(() => app.close());
+
+  const queue = await app.inject({ method: 'GET', url: '/v1/reviver/queue', headers: { authorization: 'Bearer reviver-token' } });
+  assert.equal(queue.statusCode, 409);
+  assert.equal(queue.json().error, 'VERIFICATION_CREDENTIAL_REQUIRED');
+
+  const accepted = await app.inject({ method: 'POST', url: `/v1/requests/${VALID_REQUEST_ID}/accept`, headers: { authorization: 'Bearer reviver-token' } });
+  assert.equal(accepted.statusCode, 409);
+  assert.equal(accepted.json().error, 'VERIFICATION_CREDENTIAL_REQUIRED');
+  assert.equal(calls, 0);
 });

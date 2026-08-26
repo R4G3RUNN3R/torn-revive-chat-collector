@@ -140,6 +140,43 @@
       },
       getMe() {
         return call('GET', '/v1/me');
+      },
+      getVerificationCredential() {
+        return call('GET', '/v1/verification-credential');
+      },
+      bindVerificationCredential(apiKey) {
+        return call('POST', '/v1/verification-credential', { apiKey: String(apiKey || '').trim() });
+      },
+      revokeVerificationCredential() {
+        return call('DELETE', '/v1/verification-credential');
+      },
+      registerReviver() {
+        return call('POST', '/v1/reviver/register');
+      },
+      getReviverQueue() {
+        return call('GET', '/v1/reviver/queue');
+      },
+      acceptRequest(id) {
+        return call('POST', `/v1/requests/${encodeURIComponent(String(id))}/accept`);
+      },
+      getTransaction(id) {
+        return call('GET', `/v1/transactions/${encodeURIComponent(String(id))}`);
+      },
+      checkPayment(id) {
+        return call('POST', `/v1/transactions/${encodeURIComponent(String(id))}/check-payment`, {});
+      },
+      requestRetry(id) {
+        return call('POST', `/v1/transactions/${encodeURIComponent(String(id))}/retry-request`, {});
+      },
+      respondRetry(id, decision) {
+        if (!['accept', 'decline'].includes(decision)) throw new Error('Retry decision must be accept or decline');
+        return call('POST', `/v1/transactions/${encodeURIComponent(String(id))}/retry-response`, { decision });
+      },
+      requestRefund(id) {
+        return call('POST', `/v1/transactions/${encodeURIComponent(String(id))}/request-refund`, {});
+      },
+      checkRefund(id) {
+        return call('POST', `/v1/transactions/${encodeURIComponent(String(id))}/check-refund`, {});
       }
     });
   }

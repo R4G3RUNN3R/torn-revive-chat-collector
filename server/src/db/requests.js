@@ -9,6 +9,7 @@ function rowToRequest(row) {
     offerAmount: Number(row.offer_amount),
     comment: row.comment,
     state: row.state,
+    transactionId: row.transaction_id || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     cancelledAt: row.cancelled_at,
@@ -145,11 +146,19 @@ async function createRequest(pool, input) {
 
 async function getActiveRequest(pool, requesterId) {
   const result = await pool.query(`
-    SELECT *
-    FROM revive_requests
-    WHERE requester_id = $1
-      AND closed_at IS NULL
-    ORDER BY created_at DESC
+    SELECT r.*, tx.id AS transaction_id
+    FROM revive_requests r
+    LEFT JOIN LATERAL (
+      SELECT t.id
+      FROM transactions t
+      WHERE t.request_id = r.id
+        AND t.closed_at IS NULL
+      ORDER BY t.accepted_at DESC, t.created_at DESC
+      LIMIT 1
+    ) tx ON true
+    WHERE r.requester_id = $1
+      AND r.closed_at IS NULL
+    ORDER BY r.created_at DESC
     LIMIT 1
   `, [requesterId]);
 
@@ -188,6 +197,8 @@ async function cancelRequest(pool, { requestId, requesterId, now = new Date() })
       SELECT *
       FROM transactions
       WHERE request_id = $1
+        AND closed_at IS NULL
+      ORDER BY accepted_at DESC, id DESC
       LIMIT 1
       FOR UPDATE
     `, [requestId]);
@@ -240,6 +251,25 @@ async function cancelRequest(pool, { requestId, requesterId, now = new Date() })
             updated_at = $3
         WHERE id = $1
       `, [transaction.id, cancellationState, now]);
+
+
+      await client.query(`
+        INSERT INTO transaction_state_history (
+          transaction_id, from_state, to_state, event_code,
+          actor_type, actor_id, details, created_at
+        ) VALUES ($1,$2,$3,'requester_cancel','user',$4,'{}'::jsonb,$5)
+      `, [transaction.id, transaction.state, cancellationState, requesterId, now]);
+
+      await client.query(`
+        UPDATE jobs
+        SET completed_at = COALESCE(completed_at, $2),
+            locked_at = NULL,
+            locked_by = NULL,
+            updated_at = $2
+        WHERE entity_id = $1
+          AND type = 'payment.verify'
+          AND completed_at IS NULL
+      `, [transaction.id, now]);
     }
 
     const updated = await client.query(`

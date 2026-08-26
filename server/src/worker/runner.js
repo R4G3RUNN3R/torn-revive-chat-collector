@@ -43,8 +43,18 @@ function createWorkerRunner({
       }
 
       try {
-        await handler(job);
-        await jobRepository.completeJob(job.id);
+        const outcome = await handler(job);
+        if (outcome && outcome.status === 'reschedule') {
+          if (typeof jobRepository.rescheduleJob !== 'function') {
+            throw new Error('jobRepository.rescheduleJob is required for reschedule outcomes');
+          }
+          if (!(outcome.runAt instanceof Date) || Number.isNaN(outcome.runAt.getTime())) {
+            throw new Error('Reschedule outcome requires a valid runAt date');
+          }
+          await jobRepository.rescheduleJob(job.id, { runAt: outcome.runAt, now: new Date() });
+        } else {
+          await jobRepository.completeJob(job.id);
+        }
       } catch (error) {
         const message = String(error && error.message || error || 'Job handler failed');
         if (logger && typeof logger.error === 'function') {

@@ -2,9 +2,9 @@
 
 ReviveRelay is a Torn userscript plus an isolated server backend for public revive-candidate discovery and direct revive requests.
 
-Current repository stage: **Stage 2 client complete / Stage 3 marketplace verification not yet active**.
+Current repository stage: **Stage 3 marketplace core implemented; public launch remains gated**.
 
-## What the Stage 2 client does
+## What the client does
 
 - positively identifies only explicitly allowlisted public Torn chats;
 - rejects Faction, Company, one-to-one/private/group-private, competition, poker, and unknown channels before message parsing;
@@ -29,19 +29,40 @@ Non-candidate public messages are local-only and are not submitted to the VPS. L
 
 The Stage 2 identity flow uses a minimally scoped Torn custom API key only to resolve the player's Torn identity. The backend verifies it with Torn, creates/updates the ReviveRelay user, issues an opaque ReviveRelay session token, and discards the supplied identity key.
 
-The `api_credentials` table remains reserved for the separate Stage 3 **transaction-verification credential** flow. That future credential will be minimally scoped to the evidence needed for protected payment, revive-attempt, and refund verification and will be encrypted independently of the identity flow.
+Protected transactions use a **separate transaction-verification credential**. It is validated against the authenticated Torn identity, restricted to the smallest evidence scope ReviveRelay needs, encrypted with AES-GCM using a server-side key held outside PostgreSQL, and never returned to the client after binding.
 
-## Direct Request Revive
+Requester capability requires only the Torn profile/revive evidence needed to verify hospitalization and incoming revive outcomes. Reviver capability additionally requires narrowly restricted incoming/outgoing money and item-log access so Cash/Xanax payments and refunds can be independently reconciled. Over-broad or unrelated private access is rejected rather than treated as acceptable.
 
-Requester access is free. The server currently enforces:
+## Protected revive marketplace
+
+Requester access is free. The server enforces:
 
 - Cash offers: whole Torn-dollar amounts, minimum **$500,000**;
 - Xanax offers: whole quantities, minimum **1 Xanax**;
 - optional requester comment: maximum **500 characters**;
 - one active request per requester;
-- atomic reviver acceptance in the Stage 1 backend.
+- atomic reviver acceptance so exactly one reviver can win a request;
+- a **3-minute payment window**, followed by bounded reconciliation against Torn evidence;
+- a **5-minute revive SLA** after verified payment;
+- immutable revive-attempt evidence and explicit handling for genuine failure, third-party revive, requester self-exit, natural hospital expiry, and no-attempt outcomes;
+- retry without a second payment when a genuine assigned attempt fails;
+- requester-controlled retry/refund choice after a genuine failed attempt;
+- a **10-minute refund window** when a refund becomes required;
+- refund verification against the **actual verified payment value**, including split payments and overpayments;
+- server-authoritative state transitions, timestamps, deadlines, and idempotent background jobs.
 
-Stage 3 will add the protected transaction engine: payment verification, the three-minute payment window, five-minute revive SLA, revive-attempt evidence, retry/refund outcomes, and the ten-minute refund workflow. Until that work is complete, the client explicitly labels protected transaction verification as not yet active.
+The userscript renders server-provided transaction state and countdowns. It can request named actions such as payment check, retry, refund, and refund check, but it cannot submit arbitrary transaction states.
+
+Verification outages or credential loss create evidence holds and retries; they do **not** rewrite contractual deadlines or automatically create misconduct findings.
+
+## Stage 3 boundaries and later stages
+
+Stage 3 provides the protected marketplace core, not the entire planned ReviveRelay product. The following remain separate later-stage work:
+
+- **Stage 4:** reputation, disputes, evidence bundles, protective suspensions/bans, administrator tooling, and the one-way operational Google Sheets views;
+- **Stage 5:** Reviver Pro trial/subscription verification and paid-feature gating.
+
+`PAID_TIER_ENABLED` must remain false until Stage 5 and the Torn monetization/compliance launch gate are complete. Public DNS/Caddy exposure and general distribution also remain separate launch gates.
 
 ## Server deployment
 

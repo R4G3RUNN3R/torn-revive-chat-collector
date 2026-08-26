@@ -70,3 +70,25 @@ test('worker records handler failures instead of silently losing jobs', async ()
   await runner.runOnce();
   assert.deepEqual(failed, [['job-1', 'Torn unavailable']]);
 });
+
+test('worker reschedules normal polling outcomes without marking failure or completion', async () => {
+  const completed=[]; const failed=[]; const rescheduled=[];
+  const runAt = new Date('2026-08-26T10:00:15Z');
+  const runner = createWorkerRunner({
+    workerId:'worker-test',
+    jobRepository:{
+      async claimDueJobs(){ return [{id:'job-1',type:'payment.verify',payload:{}}]; },
+      async completeJob(id){ completed.push(id); },
+      async failJob(id,error){ failed.push([id,error]); },
+      async rescheduleJob(id,input){ rescheduled.push([id,input]); }
+    },
+    handlers:{ 'payment.verify':async()=>({status:'reschedule',runAt}) },
+    sleep:async()=>{}, logger:{error(){},info(){}}
+  });
+  await runner.runOnce();
+  assert.deepEqual(completed,[]);
+  assert.deepEqual(failed,[]);
+  assert.equal(rescheduled.length,1);
+  assert.equal(rescheduled[0][0],'job-1');
+  assert.equal(rescheduled[0][1].runAt,runAt);
+});

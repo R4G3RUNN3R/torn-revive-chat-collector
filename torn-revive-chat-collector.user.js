@@ -66,6 +66,9 @@
     draining: false,
     lastInteractionAt: 0,
     activeRequest: null,
+    activeTransaction: null,
+    verificationCredential: null,
+    reviverQueue: [],
     liveEvents: [],
     stats: {
       openChats: 0,
@@ -371,7 +374,7 @@
     }, DISCOVERY_EVERY_MS);
     state.outboxTimer = setInterval(drainCandidateOutbox, OUTBOX_EVERY_MS);
     state.requestTimer = setInterval(() => {
-      if (state.sessionToken) refreshActiveRequest();
+      if (state.sessionToken) refreshMarketplaceState();
     }, ACTIVE_REQUEST_EVERY_MS);
   }
 
@@ -393,19 +396,33 @@
     state.sessionToken = '';
     state.identity = null;
     state.activeRequest = null;
+    state.activeTransaction = null;
+    state.verificationCredential = null;
+    state.reviverQueue = [];
     GM_setValue(KEYS.sessionToken, '');
     GM_setValue(KEYS.publicIdentity, null);
     refreshPanel();
     renderActiveRequest();
+    renderVerificationCredential();
+    renderActiveTransaction();
+    renderReviverMarketplace();
+  }
+
+  function identityFromMe(me, fallback = null) {
+    if (!me?.user) return fallback;
+    return {
+      ...me.user,
+      roles: Array.isArray(me?.roles) ? me.roles : []
+    };
   }
 
   async function restoreSession() {
     if (!state.sessionToken) return false;
     try {
       const me = await state.api.getMe();
-      state.identity = me?.user || null;
+      state.identity = identityFromMe(me, null);
       GM_setValue(KEYS.publicIdentity, state.identity);
-      await refreshActiveRequest();
+      await refreshMarketplaceState();
       return true;
     } catch (error) {
       if (error?.code === 'AUTH_REQUIRED') clearSession();
@@ -429,9 +446,11 @@
       state.sessionToken = String(result?.token || '');
       state.identity = result?.user || null;
       GM_setValue(KEYS.sessionToken, state.sessionToken);
+      const me = await state.api.getMe();
+      state.identity = identityFromMe(me, state.identity);
       GM_setValue(KEYS.publicIdentity, state.identity);
       setStatus(`Connected as ${state.identity?.name || state.identity?.tornId || 'Torn player'}. Identity key discarded by server.`);
-      await refreshActiveRequest();
+      await refreshMarketplaceState();
     } catch (error) {
       setStatus(`Connection failed: ${error?.code || 'REQUEST_FAILED'}`, true);
     } finally {
@@ -455,6 +474,10 @@
       setStatus('Connect your Torn identity before requesting a revive.', true);
       return;
     }
+    if (!hasCredentialCapability('requester')) {
+      setStatus('Bind a valid transaction-verification key before creating a protected request.', true);
+      return;
+    }
     const selected = document.querySelector('input[name="rr-payment-method"]:checked');
     const paymentMethod = selected?.value || 'cash';
     const amount = Number(document.getElementById('rr-offer-amount')?.value || 0);
@@ -467,11 +490,241 @@
     try {
       setStatus('Submitting revive request...');
       await state.api.createRequest({ paymentMethod, offerAmount: amount, comment: comment || undefined });
-      setStatus('Revive request is active. Stage 3 payment/revive verification is not yet active.');
-      await refreshActiveRequest();
+      setStatus('Protected revive request is active.');
+      await refreshMarketplaceState();
     } catch (error) {
       setStatus(`Request failed: ${error?.code || 'REQUEST_FAILED'}`, true);
     }
+  }
+
+  function hasCredentialCapability(role) {
+    const credential = state.verificationCredential;
+    return Boolean(credential && credential.usable && credential.capabilities && credential.capabilities[role] === true);
+  }
+
+  function formatCountdown(timestamp) {
+    if (!timestamp) return '';
+    const deadline = new Date(timestamp).getTime();
+    if (!Number.isFinite(deadline)) return '';
+    const remaining = Math.max(0, deadline - Date.now());
+    const totalSeconds = Math.ceil(remaining / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes}:${String(seconds).padStart(2, '0')}`;
+  }
+
+  async function refreshVerificationCredential() {
+    if (!state.sessionToken) {
+      state.verificationCredential = null;
+      renderVerificationCredential();
+      return;
+    }
+    try {
+      const result = await state.api.getVerificationCredential();
+      state.verificationCredential = result?.credential || null;
+    } catch (error) {
+      if (error?.code === 'AUTH_REQUIRED') clearSession();
+      else console.warn('[ReviveRelay] Verification credential refresh failed', error?.code || error?.message || error);
+    }
+    renderVerificationCredential();
+    refreshPanel();
+  }
+
+  async function bindTransactionVerificationCredential() {
+    const verificationKeyInput = document.getElementById('rr-verification-key');
+    const apiKey = String(verificationKeyInput?.value || '').trim();
+    if (!apiKey) {
+      setStatus('Paste the dedicated transaction-verification Torn key.', true);
+      return;
+    }
+    try {
+      setStatus('Validating transaction-verification key...');
+      const result = await state.api.bindVerificationCredential(apiKey);
+      state.verificationCredential = result?.credential || null;
+      setStatus('Transaction-verification key validated and encrypted server-side.');
+    } catch (error) {
+      setStatus(`Verification key failed: ${error?.code || 'REQUEST_FAILED'}`, true);
+    } finally {
+      verificationKeyInput.value = '';
+      renderVerificationCredential();
+      refreshPanel();
+    }
+  }
+
+  async function revokeTransactionVerificationCredential() {
+    try {
+      await state.api.revokeVerificationCredential();
+      state.verificationCredential = null;
+      state.reviverQueue = [];
+      setStatus('Transaction-verification key revoked. Existing transactions remain visible.');
+    } catch (error) {
+      setStatus(`Revoke failed: ${error?.code || 'REQUEST_FAILED'}`, true);
+    }
+    renderVerificationCredential();
+    renderReviverMarketplace();
+    refreshPanel();
+  }
+
+  function renderVerificationCredential() {
+    const box = document.getElementById('rr-verification-status');
+    if (!box) return;
+    const credential = state.verificationCredential;
+    if (!credential) {
+      box.innerHTML = '<div class="rr-warning">No transaction-verification key bound. Protected Request/Accept actions are disabled.</div>';
+      return;
+    }
+    const capabilities = [];
+    if (credential.capabilities?.requester) capabilities.push('requester');
+    if (credential.capabilities?.reviver) capabilities.push('reviver');
+    box.innerHTML = `<div><strong>${credential.usable ? 'VALID' : 'UNUSABLE'}</strong> · ${escapeHtml(capabilities.join(', ') || 'no protected capability')}</div>
+      <div class="rr-muted">Last validated: ${escapeHtml(credential.lastValidatedAt || 'unknown')}</div>`;
+  }
+
+  async function refreshActiveTransaction() {
+    const transactionId = state.activeRequest?.transactionId || state.activeTransaction?.id;
+    if (!transactionId) {
+      state.activeTransaction = null;
+      renderActiveTransaction();
+      return;
+    }
+    try {
+      const result = await state.api.getTransaction(transactionId);
+      state.activeTransaction = result?.transaction || null;
+    } catch (error) {
+      if (error?.code === 'TRANSACTION_NOT_FOUND') state.activeTransaction = null;
+      else if (error?.code === 'AUTH_REQUIRED') clearSession();
+      else console.warn('[ReviveRelay] Transaction refresh failed', error?.code || error?.message || error);
+    }
+    renderActiveTransaction();
+  }
+
+  async function refreshReviverQueue() {
+    if (!state.sessionToken || !hasCredentialCapability('reviver') || !Array.isArray(state.identity?.roles) || !state.identity.roles.includes('reviver')) {
+      state.reviverQueue = [];
+      renderReviverMarketplace();
+      return;
+    }
+    try {
+      const result = await state.api.getReviverQueue();
+      state.reviverQueue = Array.isArray(result?.requests) ? result.requests : [];
+    } catch (error) {
+      if (!['REVIVER_REQUIRED','VERIFICATION_CREDENTIAL_REQUIRED','VERIFICATION_CREDENTIAL_INVALID','VERIFICATION_CREDENTIAL_INSUFFICIENT'].includes(error?.code)) {
+        console.warn('[ReviveRelay] Reviver queue refresh failed', error?.code || error?.message || error);
+      }
+      state.reviverQueue = [];
+    }
+    renderReviverMarketplace();
+  }
+
+  async function refreshMarketplaceState() {
+    await refreshVerificationCredential();
+    await refreshActiveRequest();
+    await refreshActiveTransaction();
+    await refreshReviverQueue();
+  }
+
+  async function registerAsReviver() {
+    if (!hasCredentialCapability('reviver')) {
+      setStatus('A reviver-capable verification key is required first.', true);
+      return;
+    }
+    try {
+      await state.api.registerReviver();
+      const me = await state.api.getMe();
+      state.identity = identityFromMe(me, state.identity);
+      GM_setValue(KEYS.publicIdentity, state.identity);
+      setStatus('Registered as a ReviveRelay reviver.');
+      await refreshReviverQueue();
+    } catch (error) {
+      setStatus(`Reviver registration failed: ${error?.code || 'REQUEST_FAILED'}`, true);
+    }
+  }
+
+  async function acceptMarketplaceRequest(requestId) {
+    if (!hasCredentialCapability('reviver')) return;
+    try {
+      const result = await state.api.acceptRequest(requestId);
+      state.activeTransaction = result?.transaction || null;
+      setStatus('Revive request accepted. Payment window is now active.');
+      await refreshMarketplaceState();
+    } catch (error) {
+      setStatus(`Accept failed: ${error?.code || 'REQUEST_FAILED'}`, true);
+      await refreshReviverQueue();
+    }
+  }
+
+  async function transactionAction(action) {
+    const transaction = state.activeTransaction;
+    if (!transaction?.id) return;
+    try {
+      if (action === 'check-payment') await state.api.checkPayment(transaction.id);
+      else if (action === 'retry-request') await state.api.requestRetry(transaction.id);
+      else if (action === 'retry-accept') await state.api.respondRetry(transaction.id, 'accept');
+      else if (action === 'retry-decline') await state.api.respondRetry(transaction.id, 'decline');
+      else if (action === 'request-refund') await state.api.requestRefund(transaction.id);
+      else if (action === 'check-refund') await state.api.checkRefund(transaction.id);
+      else return;
+      setStatus('Transaction action submitted.');
+      await refreshActiveTransaction();
+    } catch (error) {
+      setStatus(`Transaction action failed: ${error?.code || 'REQUEST_FAILED'}`, true);
+      await refreshActiveTransaction();
+    }
+  }
+
+  function renderActiveTransaction() {
+    const box = document.getElementById('rr-active-transaction');
+    if (!box) return;
+    const tx = state.activeTransaction;
+    if (!tx) {
+      box.innerHTML = '<div class="rr-muted">No assigned protected transaction.</div>';
+      return;
+    }
+    const deadlineRows = [
+      ['Payment', tx.paymentDeadline],
+      ['Revive', tx.reviveDeadline],
+      ['Retry response', tx.retryResponseDeadline],
+      ['Refund', tx.refundDeadline]
+    ].filter(([, value]) => value);
+    const requester = tx.requester ? `${tx.requester.name || 'Requester'} [${tx.requester.tornId}]` : '';
+    const reviver = tx.reviver ? `${tx.reviver.name || 'Reviver'} [${tx.reviver.tornId}]` : '';
+    let actions = '';
+    if (['WAITING_FOR_PAYMENT','PAYMENT_RECONCILING'].includes(tx.state)) actions += '<button data-rr-tx-action="check-payment">Check payment</button>';
+    if (tx.participantRole === 'requester' && tx.state === 'FAILED_ATTEMPT_CHOICE') actions += '<button data-rr-tx-action="retry-request">Retry</button><button data-rr-tx-action="request-refund">Request refund</button>';
+    if (tx.participantRole === 'reviver' && tx.state === 'RETRY_OFFERED') actions += '<button data-rr-tx-action="retry-accept">Accept retry</button><button data-rr-tx-action="retry-decline">Decline retry</button>';
+    if (['REFUND_REQUIRED','REFUND_RECONCILING'].includes(tx.state)) actions += '<button data-rr-tx-action="check-refund">Check refund</button>';
+    box.innerHTML = `<div><strong>${escapeHtml(tx.state || '')}</strong></div>
+      <div>${escapeHtml(requester)} → ${escapeHtml(reviver)}</div>
+      <div>${escapeHtml(tx.terms?.paymentMethod || '')}: ${escapeHtml(tx.terms?.offerAmount ?? '')}</div>
+      ${deadlineRows.map(([label, value]) => `<div class="rr-muted">${label}: ${formatCountdown(value)} · ${escapeHtml(value)}</div>`).join('')}
+      <div class="rr-actions">${actions}</div>`;
+    box.querySelectorAll('[data-rr-tx-action]').forEach(button => {
+      button.onclick = () => transactionAction(button.getAttribute('data-rr-tx-action'));
+    });
+  }
+
+  function renderReviverMarketplace() {
+    const box = document.getElementById('rr-reviver-queue');
+    if (!box) return;
+    const canRevive = hasCredentialCapability('reviver');
+    const isReviver = Array.isArray(state.identity?.roles) && state.identity.roles.includes('reviver');
+    if (!canRevive) {
+      box.innerHTML = '<div class="rr-warning">Bind a reviver-capable verification key to enable the queue and Accept.</div>';
+      return;
+    }
+    if (!isReviver) {
+      box.innerHTML = '<button id="rr-register-reviver" type="button">Register as reviver</button>';
+      document.getElementById('rr-register-reviver').onclick = registerAsReviver;
+      return;
+    }
+    box.innerHTML = state.reviverQueue.length ? state.reviverQueue.map(request => `<div class="rr-market-row">
+      <div><strong>${escapeHtml(request.requesterName || request.requesterTornId || 'Requester')}</strong></div>
+      <div>${escapeHtml(request.paymentMethod)}: ${escapeHtml(request.offerAmount)}</div>
+      <button data-rr-accept="${escapeHtml(request.id)}" ${canRevive ? '' : 'disabled'}>Accept</button>
+    </div>`).join('') : '<div class="rr-muted">No available revive requests.</div>';
+    box.querySelectorAll('[data-rr-accept]').forEach(button => {
+      button.onclick = () => acceptMarketplaceRequest(button.getAttribute('data-rr-accept'));
+    });
   }
 
   async function refreshActiveRequest() {
@@ -581,6 +834,18 @@
     if (onboarding) onboarding.style.display = state.sessionToken ? 'none' : '';
     const requester = document.getElementById('rr-requester');
     if (requester) requester.style.display = state.sessionToken ? '' : 'none';
+    const verification = document.getElementById('rr-verification');
+    if (verification) verification.style.display = state.sessionToken ? '' : 'none';
+    const reviver = document.getElementById('rr-reviver');
+    if (reviver) reviver.style.display = state.sessionToken ? '' : 'none';
+    const requestButton = document.getElementById('rr-request');
+    if (requestButton) {
+      requestButton.disabled = !state.sessionToken || !hasCredentialCapability('requester');
+      requestButton.title = requestButton.disabled ? 'Requester-capable verification key required' : '';
+    }
+    renderVerificationCredential();
+    renderReviverMarketplace();
+    renderActiveTransaction();
   }
 
   function createPanel() {
@@ -590,7 +855,7 @@
       #rr-body{padding:10px;max-height:calc(82vh - 38px);overflow:auto}.rr-grid{display:grid;grid-template-columns:1fr auto;gap:4px 8px;margin-bottom:10px}.rr-grid strong{text-align:right}
       #rr-panel input,#rr-panel textarea,#rr-panel select{width:100%;box-sizing:border-box;margin:3px 0 7px;padding:6px;background:#0f1317;color:#e7edf3;border:1px solid #47525e;border-radius:4px}#rr-panel input[type=radio]{width:auto;margin-right:4px}
       .rr-actions{display:flex;flex-wrap:wrap;gap:5px}.rr-actions button,#rr-panel button{background:#39434d;color:#fff;border:1px solid #566472;border-radius:4px;padding:5px 8px;cursor:pointer}.rr-actions button:hover,#rr-panel button:hover{filter:brightness(1.12)}
-      #rr-status{margin-top:8px;color:#9bd5a5;word-break:break-word}#rr-status.error{color:#ff9d9d}.rr-muted{color:#aeb7c0;font-size:10px}.rr-warning{color:#e6c46b;font-size:10px;margin:6px 0}.rr-section{border-top:1px solid #333b44;padding-top:9px;margin-top:9px}.rr-section h4{margin:0 0 6px}.rr-live-row{border-top:1px solid #2b3239;padding:5px 0;word-break:break-word}
+      #rr-status{margin-top:8px;color:#9bd5a5;word-break:break-word}#rr-status.error{color:#ff9d9d}.rr-muted{color:#aeb7c0;font-size:10px}.rr-warning{color:#e6c46b;font-size:10px;margin:6px 0}.rr-section{border-top:1px solid #333b44;padding-top:9px;margin-top:9px}.rr-section h4{margin:0 0 6px}.rr-market-row{border-top:1px solid #2b3239;padding:6px 0;word-break:break-word}.rr-live-row{border-top:1px solid #2b3239;padding:5px 0;word-break:break-word}
     `);
 
     const panel = document.createElement('div');
@@ -619,6 +884,14 @@
           <button id="rr-connect" type="button">Verify &amp; connect</button>
         </div>
 
+        <div id="rr-verification" class="rr-section" style="display:none">
+          <h4>Protected Transaction Verification</h4>
+          <div class="rr-muted">Use a dedicated narrowly scoped Torn key for payment/revive/refund evidence. It is encrypted server-side and never stored in Tampermonkey.</div>
+          <input id="rr-verification-key" type="password" autocomplete="off" placeholder="Dedicated transaction-verification key">
+          <div class="rr-actions"><button id="rr-bind-verification" type="button">Bind verification key</button><button id="rr-revoke-verification" type="button">Revoke verification key</button></div>
+          <div id="rr-verification-status"><div class="rr-muted">Checking verification status...</div></div>
+        </div>
+
         <div id="rr-requester" class="rr-section" style="display:none">
           <h4>Request Revive</h4>
           <label><input type="radio" name="rr-payment-method" value="cash" checked>Cash</label>
@@ -628,8 +901,15 @@
           <label for="rr-comment">Comment for reviver (optional)</label>
           <textarea id="rr-comment" maxlength="500" rows="2" placeholder="Up to 500 characters"></textarea>
           <button id="rr-request" type="button">Request Revive</button>
-          <div class="rr-warning">Stage 3 protected payment, revive-attempt and refund verification is not yet active.</div>
+          <div class="rr-muted">Protected requests require a validated requester-capable verification key.</div>
           <div id="rr-active-request"></div>
+          <div id="rr-active-transaction" class="rr-market-row"></div>
+        </div>
+
+        <div id="rr-reviver" class="rr-section" style="display:none">
+          <h4>Reviver Marketplace</h4>
+          <div class="rr-muted">Registration, queue and Accept require a validated reviver-capable verification key.</div>
+          <div id="rr-reviver-queue"></div>
         </div>
 
         <div class="rr-section">
@@ -650,7 +930,7 @@
         <div class="rr-section rr-actions">
           <button id="rr-pause" type="button">Pause collection</button>
           <button id="rr-rescan" type="button">Rescan public chats</button>
-          <button id="rr-refresh-request" type="button">Refresh request</button>
+          <button id="rr-refresh-request" type="button">Refresh marketplace</button>
           <button id="rr-disconnect" type="button">Disconnect</button>
         </div>
         <div class="rr-warning">Only explicitly allowlisted public Torn chats are processed. Faction, Company, private/group-private, competition, poker and unknown chats are rejected before parsing.</div>
@@ -661,7 +941,9 @@
     const apiKeyInput = document.getElementById('rr-api-key');
     document.getElementById('rr-connect').onclick = connectIdentity;
     document.getElementById('rr-request').onclick = submitReviveRequest;
-    document.getElementById('rr-refresh-request').onclick = refreshActiveRequest;
+    document.getElementById('rr-bind-verification').onclick = bindTransactionVerificationCredential;
+    document.getElementById('rr-revoke-verification').onclick = revokeTransactionVerificationCredential;
+    document.getElementById('rr-refresh-request').onclick = refreshMarketplaceState;
     document.getElementById('rr-disconnect').onclick = () => {
       clearSession();
       apiKeyInput.value = '';
