@@ -4,7 +4,7 @@
 
 **Goal:** Build the evidence-backed protected revive marketplace: separate transaction-verification credentials, payment verification, revive verification, retry/refund handling, authoritative timers, and requester/reviver transaction UI.
 
-**Architecture:** Extend the existing isolated Fastify/PostgreSQL/worker stack. The browser may request actions and expedited checks but never supplies authoritative evidence or state transitions. Persistent Torn evidence access is a separate AES-256-GCM encrypted `transaction_verification` credential; worker handlers obtain narrowly scoped Torn evidence, match it idempotently, and commit business transitions plus append-only history in PostgreSQL.
+**Architecture:** Extend the existing isolated Fastify/PostgreSQL/worker stack. Browser actions only request server actions or expedited checks; they never supply authoritative evidence or target states. Persistent Torn evidence access is a separate AES-256-GCM encrypted `transaction_verification` credential. Worker handlers obtain narrowly scoped Torn evidence, normalize it, run pure matchers, and commit business transitions plus append-only history in PostgreSQL.
 
 **Tech Stack:** Node.js 20, Fastify 5, PostgreSQL 16, `pg`, `zod`, Node test runner, Tampermonkey userscript, Docker Compose.
 
@@ -26,47 +26,79 @@
 
 ---
 
-### Task 1: Evolve the Stage 1 Schema for Historical Reservations and Evidence
+### Task 1: Add a Reusable Disposable-Database Test Harness and Evolve the Schema
 
 **Files:**
+- Create: `server/test/support/database.js`
 - Create: `server/src/db/migrations/003_stage3_marketplace.sql`
-- Test: `server/test/db/stage3-schema.test.js`
-- Test: `server/test/db/transaction-history.test.js`
+- Create: `server/test/db/stage3-schema.test.js`
+- Create: `server/test/db/transaction-history.test.js`
 
 **Interfaces:**
-- Consumes: existing `users`, `api_credentials`, `revive_requests`, `transactions`, `payments`, `revive_attempts`, `refunds`, `jobs`, `audit_events`.
-- Produces: `api_credentials.purpose`, capability metadata, `transaction_state_history`, `payment_evidence`, `refund_evidence`, verification-hold fields, normalized refund reason, repeat reservation support, and active-job deduplication.
+- Produces: `withDisposableDatabase(prefix, fn)`, Stage 3 schema additions, historical reservation support, evidence child tables, verification holds, and active-job deduplication.
 
-- [ ] **Step 1: Write a PostgreSQL RED schema test**
+- [ ] **Step 1: Write the disposable DB helper**
 
 ```js
-const assert = require('node:assert/strict');
-const test = require('node:test');
-const { withTestDatabase } = require('../support/database');
+const path = require('node:path');
+const { setTimeout: sleep } = require('node:timers/promises');
+const { createPool } = require('../../src/db/pool');
+const { migrate } = require('../../src/db/migrate');
 
-test('stage3 schema permits historical transactions but only one open assignment per request', async () => {
-  await withTestDatabase(async pool => {
-    const constraints = await pool.query(`
-      SELECT indexname, indexdef FROM pg_indexes
-      WHERE tablename IN ('transactions','api_credentials','jobs')
-    `);
-    const text = constraints.rows.map(row => `${row.indexname} ${row.indexdef}`).join('\n');
-    assert.match(text, /transactions_one_open_per_request/);
-    assert.match(text, /api_credentials_one_active_purpose_per_user/);
-    assert.match(text, /jobs_one_active_dedupe_key/);
+async function waitForSessions(adminPool, dbName) {
+  for (let i = 0; i < 100; i += 1) {
+    const result = await adminPool.query('SELECT COUNT(*)::int AS count FROM pg_stat_activity WHERE datname = $1', [dbName]);
+    if (result.rows[0].count === 0) return;
+    await sleep(10);
+  }
+  throw new Error(`Timed out waiting for PostgreSQL sessions to close for ${dbName}`);
+}
+
+async function withDisposableDatabase(prefix, fn) {
+  const sourceUrl = process.env.TEST_DATABASE_URL;
+  if (!sourceUrl) throw new Error('TEST_DATABASE_URL is required');
+  const dbName = `${prefix}_${process.pid}_${Date.now()}`;
+  const adminUrl = new URL(sourceUrl); adminUrl.pathname = '/postgres';
+  const targetUrl = new URL(sourceUrl); targetUrl.pathname = `/${dbName}`;
+  const adminPool = createPool(adminUrl.toString());
+  const pool = createPool(targetUrl.toString());
+  try {
+    await adminPool.query(`CREATE DATABASE "${dbName}"`);
+    await migrate(pool, path.resolve(__dirname, '../../src/db/migrations'));
+    return await fn(pool);
+  } finally {
+    await pool.end();
+    await waitForSessions(adminPool, dbName);
+    await adminPool.query(`DROP DATABASE IF EXISTS "${dbName}"`);
+    await adminPool.end();
+  }
+}
+
+module.exports = { withDisposableDatabase };
+```
+
+- [ ] **Step 2: Write RED schema tests**
+
+```js
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { withDisposableDatabase } = require('../support/database');
+
+test('Stage 3 indexes enforce one open transaction, one active credential purpose and one active logical job', async () => {
+  await withDisposableDatabase('reviverelay_stage3_schema', async pool => {
+    const result = await pool.query(`SELECT indexname FROM pg_indexes WHERE indexname IN ('transactions_one_open_per_request','api_credentials_one_active_purpose_per_user','jobs_one_active_dedupe_key')`);
+    assert.deepEqual(new Set(result.rows.map(row => row.indexname)), new Set(['transactions_one_open_per_request','api_credentials_one_active_purpose_per_user','jobs_one_active_dedupe_key']));
   });
 });
 ```
 
-- [ ] **Step 2: Run the RED schema test**
+- [ ] **Step 3: Run RED schema test**
 
 Run: `TEST_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:15432/reviverelay_test node --test server/test/db/stage3-schema.test.js`
 
-Expected: FAIL because migration `003_stage3_marketplace.sql` and the three Stage 3 indexes do not exist.
+Expected: FAIL because migration `003_stage3_marketplace.sql` does not exist.
 
-- [ ] **Step 3: Add migration `003_stage3_marketplace.sql`**
-
-The migration must:
+- [ ] **Step 4: Add `003_stage3_marketplace.sql`**
 
 ```sql
 ALTER TABLE api_credentials ADD COLUMN purpose text;
@@ -76,20 +108,14 @@ ALTER TABLE api_credentials ADD COLUMN capability jsonb NOT NULL DEFAULT '{}'::j
 ALTER TABLE api_credentials ADD COLUMN last_validated_at timestamptz;
 ALTER TABLE api_credentials ADD COLUMN unusable_at timestamptz;
 ALTER TABLE api_credentials ADD COLUMN unusable_reason text;
-
-CREATE UNIQUE INDEX api_credentials_one_active_purpose_per_user
-  ON api_credentials(user_id, purpose)
-  WHERE revoked_at IS NULL;
+CREATE UNIQUE INDEX api_credentials_one_active_purpose_per_user ON api_credentials(user_id,purpose) WHERE revoked_at IS NULL;
 
 ALTER TABLE transactions DROP CONSTRAINT IF EXISTS transactions_request_id_key;
 ALTER TABLE transactions ADD COLUMN refund_reason text;
 ALTER TABLE transactions ADD COLUMN verification_hold_reason text;
 ALTER TABLE transactions ADD COLUMN verification_hold_started_at timestamptz;
 ALTER TABLE transactions ADD COLUMN verification_hold_metadata jsonb NOT NULL DEFAULT '{}'::jsonb;
-
-CREATE UNIQUE INDEX transactions_one_open_per_request
-  ON transactions(request_id)
-  WHERE closed_at IS NULL;
+CREATE UNIQUE INDEX transactions_one_open_per_request ON transactions(request_id) WHERE closed_at IS NULL;
 
 CREATE TABLE transaction_state_history (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -124,114 +150,82 @@ CREATE TABLE refund_evidence (
 );
 
 ALTER TABLE jobs ADD COLUMN dedupe_key text;
-CREATE UNIQUE INDEX jobs_one_active_dedupe_key
-  ON jobs(dedupe_key)
-  WHERE completed_at IS NULL AND dedupe_key IS NOT NULL;
+CREATE UNIQUE INDEX jobs_one_active_dedupe_key ON jobs(dedupe_key) WHERE completed_at IS NULL AND dedupe_key IS NOT NULL;
 ```
 
-- [ ] **Step 4: Write RED history/evidence tests** proving two closed transaction rows can share one request, a second open row cannot, and duplicate Torn evidence IDs are rejected.
+- [ ] **Step 5: Write history/evidence RED tests** proving two closed transactions may share one request, two open transactions may not, and duplicate Torn evidence IDs fail.
 
-```js
-assert.equal(closedInsert.rowCount, 1);
-await assert.rejects(
-  pool.query('INSERT INTO payment_evidence (payment_id,torn_evidence_id,evidence_timestamp,amount) VALUES ($1,$2,now(),1)', [paymentId, 'same-log'])
-);
-```
-
-- [ ] **Step 5: Run schema/history tests until green**
+- [ ] **Step 6: Run schema/history tests**
 
 Run: `TEST_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:15432/reviverelay_test node --test server/test/db/stage3-schema.test.js server/test/db/transaction-history.test.js`
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add server/src/db/migrations/003_stage3_marketplace.sql server/test/db/stage3-schema.test.js server/test/db/transaction-history.test.js
+git add server/test/support/database.js server/src/db/migrations/003_stage3_marketplace.sql server/test/db/stage3-schema.test.js server/test/db/transaction-history.test.js
 git commit -m "feat: add Stage 3 marketplace schema"
 ```
 
-### Task 2: Add Transaction-Verification Credential Repository and Scope Validation
+### Task 2: Add Transaction-Verification Credential Storage and Capability Validation
 
 **Files:**
 - Create: `server/src/db/verification-credentials.js`
 - Create: `server/src/security/verification-credential.js`
 - Create: `server/src/torn/key-capabilities.js`
+- Create: `server/src/torn/log-metadata.js`
 - Modify: `server/src/torn/client.js`
-- Test: `server/test/db/verification-credentials.test.js`
-- Test: `server/test/security/verification-credential.test.js`
-- Test: `server/test/torn/key-capabilities.test.js`
+- Create: `server/test/db/verification-credentials.test.js`
+- Create: `server/test/security/verification-credential.test.js`
+- Create: `server/test/torn/key-capabilities.test.js`
+- Create: `server/test/torn/log-metadata.test.js`
 
 **Interfaces:**
-- Produces: `createVerificationCredentialRepository(pool, cryptoBox)`, `validateTransactionCredential({ keyInfo, ownerTornId })`, `requiredCapabilitiesFor(role)`, and Torn-client methods `getKeyInfo(apiKey)` plus narrow evidence methods used by later tasks.
+- Produces: `createVerificationCredentialRepository(pool,{ encryptionKeyHex })`, `validateTransactionCredential({ keyInfo, ownerTornId, logMetadata })`, `requiredCapabilitiesFor(role)`, and a Torn metadata adapter that resolves current log categories/types instead of hardcoding stale IDs.
 
 - [ ] **Step 1: Write RED capability tests**
 
 ```js
 const { validateTransactionCredential } = require('../../src/torn/key-capabilities');
 
-test('rejects a key owned by a different Torn player', () => {
-  assert.throws(() => validateTransactionCredential({
-    ownerTornId: 123,
-    keyInfo: { owner: { id: 456 }, access: { user: ['revives'] }, logCategories: [] }
-  }), /owner/i);
+assert.throws(() => validateTransactionCredential({ ownerTornId:123, keyInfo:{ owner:{ id:456 } }, logMetadata:{} }), /owner/i);
+const result = validateTransactionCredential({
+  ownerTornId:123,
+  keyInfo:{ owner:{ id:123 }, selections:['revives','profile','log'], allowedLogCategories:[1,2,3,4,5,6] },
+  logMetadata:{
+    categories:{ 1:'Money incoming',2:'Money outgoing',3:'Item incoming',4:'Item outgoing',5:'Revive',6:'Hospital' }
+  }
 });
-
-test('derives requester and reviver capabilities from validated access', () => {
-  const result = validateTransactionCredential({
-    ownerTornId: 123,
-    keyInfo: {
-      owner: { id: 123 },
-      access: { user: ['revives','profile','log'] },
-      logCategories: ['money_incoming','money_outgoing','item_incoming','item_outgoing','revive','hospital']
-    }
-  });
-  assert.equal(result.requester, true);
-  assert.equal(result.reviver, true);
-});
+assert.equal(result.requester, true);
+assert.equal(result.reviver, true);
 ```
 
 - [ ] **Step 2: Run RED capability tests**
 
-Run: `node --test server/test/torn/key-capabilities.test.js`
+Run: `node --test server/test/torn/key-capabilities.test.js server/test/torn/log-metadata.test.js`
 
-Expected: FAIL because `key-capabilities.js` does not exist.
+Expected: FAIL because modules are absent.
 
-- [ ] **Step 3: Implement pure capability validation**
+- [ ] **Step 3: Implement capability mapping without guessed numeric IDs**
 
-Export:
+`log-metadata.js` fetches Torn's current log category/type metadata through the Torn client, normalizes category IDs to names, and exposes a cacheable immutable mapping. `key-capabilities.js` compares the key's allowed category IDs against the current resolved names. Canonical capability names are:
 
 ```js
-function requiredCapabilitiesFor(role) {
-  if (role === 'requester') return ['incoming_revives', 'hospital_status'];
-  if (role === 'reviver') return ['outgoing_revives', 'money_incoming', 'item_incoming', 'money_outgoing', 'item_outgoing'];
-  throw new Error('Unknown verification role');
-}
-
-function validateTransactionCredential({ keyInfo, ownerTornId }) {
-  const owner = Number(keyInfo?.owner?.id);
-  if (owner !== Number(ownerTornId)) throw new Error('Credential owner mismatch');
-  const capabilities = deriveCapabilitiesFromKeyInfo(keyInfo);
-  return Object.freeze({
-    requester: requiredCapabilitiesFor('requester').every(name => capabilities.has(name)),
-    reviver: requiredCapabilitiesFor('reviver').every(name => capabilities.has(name)),
-    validated: Array.from(capabilities).sort()
-  });
-}
+const CAPABILITIES = Object.freeze([
+  'incoming_revives','hospital_status','outgoing_revives',
+  'money_incoming','item_incoming','money_outgoing','item_outgoing'
+]);
 ```
 
-The derivation must use only current Torn selections/category metadata and must reject unrelated unrestricted access rather than silently blessing it.
+Requester requires `incoming_revives` + `hospital_status`; reviver requires the other five.
 
-- [ ] **Step 4: Write RED encrypted-repository tests**
+- [ ] **Step 4: Write RED encrypted repository tests** proving `bind()` stores no plaintext, replaces a prior active `transaction_verification` credential atomically, and `getDecryptedActiveForUser()` decrypts only in-process.
 
-Assert that `upsertForUser()` stores ciphertext/IV/auth tag, never plaintext, revokes the prior active credential atomically, and `getDecryptedActiveForUser()` returns plaintext only inside the backend process.
-
-- [ ] **Step 5: Implement `verification-credentials.js` and `verification-credential.js`**
-
-Repository public API:
+- [ ] **Step 5: Implement repository using existing `encryptSecret`/`decryptSecret`** from `server/src/security/crypto.js`.
 
 ```js
-createVerificationCredentialRepository(pool, cryptoBox) => ({
+createVerificationCredentialRepository(pool,{ encryptionKeyHex }) => ({
   getStatus(userId),
   bind({ userId, plaintextKey, capability, accessScope, validatedAt }),
   revoke({ userId, reason, now }),
@@ -240,26 +234,24 @@ createVerificationCredentialRepository(pool, cryptoBox) => ({
 })
 ```
 
-`cryptoBox` must use the existing application AES-256-GCM encryption utility/key source; plaintext must never be logged or returned by status methods.
+Store `tag` returned by `encryptSecret` in `api_credentials.auth_tag`; reconstruct `{ ciphertext, iv, tag: auth_tag }` before `decryptSecret`.
 
-- [ ] **Step 6: Extend Torn client tests and methods**
-
-Add narrow v2 methods with explicit `from`/`to` parameters and supplied API key. Keep URL construction centralized and redact `key` from thrown/logged errors.
+- [ ] **Step 6: Extend Torn client with explicit key-info/log-metadata/evidence methods** using supplied API key, bounded `from`/`to`, and URL/error redaction.
 
 - [ ] **Step 7: Run credential/security/Torn tests**
 
-Run: `node --test server/test/db/verification-credentials.test.js server/test/security/verification-credential.test.js server/test/torn/key-capabilities.test.js server/test/torn`
+Run: `node --test server/test/db/verification-credentials.test.js server/test/security/verification-credential.test.js server/test/torn`
 
 Expected: PASS.
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add server/src/db/verification-credentials.js server/src/security/verification-credential.js server/src/torn/key-capabilities.js server/src/torn/client.js server/test/db/verification-credentials.test.js server/test/security/verification-credential.test.js server/test/torn
+git add server/src/db/verification-credentials.js server/src/security/verification-credential.js server/src/torn/key-capabilities.js server/src/torn/log-metadata.js server/src/torn/client.js server/test/db/verification-credentials.test.js server/test/security/verification-credential.test.js server/test/torn
 git commit -m "feat: add transaction verification credentials"
 ```
 
-### Task 3: Expose Credential Binding and Enforce Protected-Transaction Eligibility
+### Task 3: Expose Credential Binding and Gate Protected Transactions
 
 **Files:**
 - Create: `server/src/routes/verification-credential.js`
@@ -268,132 +260,85 @@ git commit -m "feat: add transaction verification credentials"
 - Modify: `server/src/routes/reviver-queue.js`
 - Modify: `server/src/app.js`
 - Modify: `server/src/server.js`
-- Test: `server/test/routes/verification-credential.test.js`
-- Test: `server/test/routes/revivers.test.js`
+- Create: `server/test/routes/verification-credential.test.js`
+- Create: `server/test/routes/revivers.test.js`
 - Modify: `server/test/routes/requests.test.js`
 - Modify: `server/test/routes/reviver-queue.test.js`
 
 **Interfaces:**
-- Consumes: verification credential repository/capability validator from Task 2.
-- Produces: `GET|POST|DELETE /v1/verification-credential`, `POST /v1/reviver/register`, and server-side requester/reviver capability gates.
+- Produces: `GET|POST|DELETE /v1/verification-credential`, `POST /v1/reviver/register`, and server-side requester/reviver capability guards.
 
 - [ ] **Step 1: Write RED route tests**
 
 ```js
-const response = await app.inject({ method: 'POST', url: '/v1/verification-credential', headers: auth, payload: { apiKey: 'test-key' } });
+const response = await app.inject({ method:'POST', url:'/v1/verification-credential', headers:auth, payload:{ apiKey:'test-key' } });
 assert.equal(response.statusCode, 200);
-const body = response.json();
-assert.deepEqual(body.credential.capabilities, { requester: true, reviver: false });
-assert.equal(Object.hasOwn(body.credential, 'apiKey'), false);
+assert.equal(Object.hasOwn(response.json().credential, 'apiKey'), false);
 ```
 
-Add tests that request creation returns `409 VERIFICATION_CREDENTIAL_REQUIRED` without requester capability and queue/accept returns `409 VERIFICATION_CREDENTIAL_REQUIRED` without reviver capability.
+Add tests that protected request creation and queue/accept return `409 VERIFICATION_CREDENTIAL_REQUIRED` when the corresponding capability is absent.
 
 - [ ] **Step 2: Run RED route tests**
 
 Run: `node --test server/test/routes/verification-credential.test.js server/test/routes/revivers.test.js server/test/routes/requests.test.js server/test/routes/reviver-queue.test.js`
 
-Expected: FAIL on missing routes/gates.
+Expected: FAIL.
 
-- [ ] **Step 3: Implement credential routes**
+- [ ] **Step 3: Implement credential routes**: verify key owner/scopes against current metadata, then call repository `bind()`. `GET` returns status/capabilities only; `DELETE` revokes without returning plaintext.
 
-`POST /v1/verification-credential` flow:
+- [ ] **Step 4: Implement idempotent reviver registration** requiring valid reviver capability and creating/updating `revivers` with `standing='active'`; do not grant paid entitlement yet.
 
-```js
-const keyInfo = await tornClient.getKeyInfo(request.body.apiKey);
-const capability = validateTransactionCredential({ keyInfo, ownerTornId: request.reviveRelayUser.tornId });
-const credential = await verificationCredentialRepository.bind({
-  userId: request.reviveRelayUser.id,
-  plaintextKey: request.body.apiKey,
-  capability,
-  accessScope: keyInfo.access,
-  validatedAt: new Date()
-});
-return reply.send({ credential });
-```
+- [ ] **Step 5: Add requester/reviver guards** to protected routes. Accept additionally checks active standing and no active ban.
 
-Use `finally`/scope discipline so route code retains no plaintext beyond the request.
+- [ ] **Step 6: Wire dependencies explicitly in `app.js`/`server.js`**.
 
-- [ ] **Step 4: Implement `POST /v1/reviver/register`**
-
-Require valid reviver capability, then idempotently insert/update the authenticated user's `revivers` row with `standing='active'`. Do not grant Reviver Pro yet.
-
-- [ ] **Step 5: Add eligibility guards**
-
-`POST /v1/requests` requires requester capability. `GET /v1/reviver/queue` and Accept require reviver capability, active standing, and no active ban. Return stable error codes from the spec.
-
-- [ ] **Step 6: Register repositories/routes in `app.js` and `server.js`**
-
-Pass dependencies explicitly; do not use hidden globals.
-
-- [ ] **Step 7: Run route tests**
-
-Expected: PASS.
-
-- [ ] **Step 8: Commit**
+- [ ] **Step 7: Run route tests and commit**
 
 ```bash
 git add server/src/routes/verification-credential.js server/src/routes/revivers.js server/src/routes/requests.js server/src/routes/reviver-queue.js server/src/app.js server/src/server.js server/test/routes
 git commit -m "feat: gate protected revive transactions by evidence access"
 ```
 
-### Task 4: Add Transaction Transition Service, History, and Deduplicated Jobs
+### Task 4: Add Authoritative State Transitions, History, and Unique Logical Jobs
 
 **Files:**
 - Modify: `server/src/domain/transaction-state.js`
 - Create: `server/src/domain/transaction-service.js`
 - Modify: `server/src/db/transactions.js`
 - Modify: `server/src/db/jobs.js`
-- Test: `server/test/domain/transaction-state.test.js`
+- Modify: `server/test/domain/transaction-state.test.js`
 - Create: `server/test/domain/transaction-service.test.js`
 - Modify: `server/test/db/jobs.test.js`
-- Modify: `server/test/db/transactions.test.js`
+- Create: `server/test/db/transactions-stage3.test.js`
 
 **Interfaces:**
-- Produces: `transitionTransaction({ transactionId, event, actor, details, now })`, `setVerificationHold(...)`, `clearVerificationHold(...)`, and `enqueueUniqueJob({ type, entityId, dedupeKey, runAt, payload })`.
+- Produces: `transitionTransaction({ transactionId, event, actor, details, now })`, `setVerificationHold(input)`, `clearVerificationHold(input)`, `enqueueUniqueJob({ type, entityId, dedupeKey, runAt, payload })`.
 
-- [ ] **Step 1: Write RED transition tests** for all Stage 3 states and events, including `payment_expired`, `payment_verified`, `late_payment`, `revive_success`, `revive_failed`, `retry_requested`, `retry_accepted`, `retry_declined`, `refund_requested`, `refund_verified`, `no_attempt`, `missing_refund`, `requester_exit`, and `natural_expiry`.
-
-```js
-assert.equal(canTransition('PAYMENT_RECONCILING', 'payment_expired'), 'PAYMENT_EXPIRED');
-assert.equal(canTransition('WAITING_FOR_REVIVE', 'no_attempt'), 'REPORTABLE_NO_ATTEMPT');
-assert.equal(canTransition('REFUND_RECONCILING', 'missing_refund'), 'REPORTABLE_MISSING_REFUND');
-```
-
-- [ ] **Step 2: Run RED domain tests**
-
-Expected: FAIL on missing states/transitions.
-
-- [ ] **Step 3: Implement normalized state table**
-
-Remove permanent use of `REFUND_REQUIRED_LATE_PAYMENT`; late payment maps to `REFUND_REQUIRED` plus `refund_reason='late_payment'`.
-
-- [ ] **Step 4: Write RED repository/service tests** proving each transition updates `transactions.state`, mirrors the request state where applicable, inserts exactly one `transaction_state_history` row, and enqueues at most one active logical job per dedupe key.
-
-- [ ] **Step 5: Implement transaction service** using one SQL transaction for state, deadlines/evidence pointer changes, history, audit, and job enqueue.
-
-- [ ] **Step 6: Implement `enqueueUniqueJob`**
+- [ ] **Step 1: Write RED transition assertions**
 
 ```js
-INSERT INTO jobs (type, entity_id, run_at, payload, dedupe_key)
-VALUES ($1,$2,$3,$4::jsonb,$5)
-ON CONFLICT (dedupe_key) WHERE completed_at IS NULL AND dedupe_key IS NOT NULL
-DO UPDATE SET run_at = LEAST(jobs.run_at, EXCLUDED.run_at), updated_at = now()
-RETURNING *;
+assert.equal(canTransition('PAYMENT_RECONCILING','payment_expired'),'PAYMENT_EXPIRED');
+assert.equal(canTransition('WAITING_FOR_REVIVE','no_attempt'),'REPORTABLE_NO_ATTEMPT');
+assert.equal(canTransition('REFUND_RECONCILING','missing_refund'),'REPORTABLE_MISSING_REFUND');
+assert.equal(canTransition('WAITING_FOR_REVIVE','third_party_revive'),'REFUND_REQUIRED');
 ```
 
-- [ ] **Step 7: Run domain/DB tests**
+- [ ] **Step 2: Implement normalized states/events** including `REFUND_RECONCILING`, `PAYMENT_EXPIRED`, `CLOSED_REQUESTER_EXIT`, `CLOSED_NATURAL_EXPIRY`, `REPORTABLE_NO_ATTEMPT`, `REPORTABLE_MISSING_REFUND`. Late payment maps to `REFUND_REQUIRED` with reason `late_payment`; do not keep `REFUND_REQUIRED_LATE_PAYMENT` as a permanent competing state.
 
-Expected: PASS.
+- [ ] **Step 3: Write RED DB/service tests** proving every transition updates the transaction, mirrors request state/closure where applicable, adds exactly one `transaction_state_history` row, and writes audit detail without secrets.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 4: Implement `enqueueUniqueJob`** using the `dedupe_key` partial unique index; a second expedited check updates the existing active logical job rather than creating another.
+
+- [ ] **Step 5: Implement verification holds** as columns layered over the business state; setting/clearing a hold must not modify `payment_deadline`, `revive_deadline`, or `refund_deadline`.
+
+- [ ] **Step 6: Run domain/DB tests and commit**
 
 ```bash
 git add server/src/domain/transaction-state.js server/src/domain/transaction-service.js server/src/db/transactions.js server/src/db/jobs.js server/test/domain server/test/db
 git commit -m "feat: add authoritative Stage 3 transaction transitions"
 ```
 
-### Task 5: Implement Payment Evidence Matching and `payment.verify`
+### Task 5: Verify Cash/Xanax Payments
 
 **Files:**
 - Create: `server/src/domain/payment-matcher.js`
@@ -401,71 +346,42 @@ git commit -m "feat: add authoritative Stage 3 transaction transitions"
 - Create: `server/src/db/payments.js`
 - Create: `server/src/worker/payment-verify.js`
 - Modify: `server/src/worker.js`
-- Test: `server/test/domain/payment-matcher.test.js`
-- Create: `server/test/worker/payment-verify.test.js`
+- Create: `server/test/domain/payment-matcher.test.js`
 - Create: `server/test/db/payments.test.js`
+- Create: `server/test/worker/payment-verify.test.js`
 
 **Interfaces:**
-- Produces: `matchPaymentEvidence({ method, offerAmount, requesterTornId, acceptedAt, paymentDeadline, logs })` and `createPaymentVerifyHandler(deps)`.
+- Produces: `matchPaymentEvidence(input)` and `createPaymentVerifyHandler(deps)`.
 
-- [ ] **Step 1: Write RED pure matcher tests**
-
-```js
-test('aggregates split on-time Xanax transfers from the requester', () => {
-  const result = matchPaymentEvidence({
-    method: 'xanax',
-    offerAmount: 3,
-    requesterTornId: 111,
-    acceptedAt: new Date('2026-08-26T10:00:00Z'),
-    paymentDeadline: new Date('2026-08-26T10:03:00Z'),
-    logs: [
-      { id: 'a', senderId: 111, item: 'Xanax', quantity: 1, at: '2026-08-26T10:01:00Z' },
-      { id: 'b', senderId: 111, item: 'Xanax', quantity: 2, at: '2026-08-26T10:02:00Z' }
-    ]
-  });
-  assert.equal(result.status, 'verified');
-  assert.equal(result.verifiedAmount, 3);
-});
-```
-
-Also test wrong sender, wrong item/method, pre-accept transfer, late payment, overpayment, duplicate log ID, and no payment.
-
-- [ ] **Step 2: Run RED matcher tests**
-
-Expected: FAIL because matcher is absent.
-
-- [ ] **Step 3: Implement matcher as a pure function** returning one of:
+- [ ] **Step 1: Write RED pure matcher tests** for Cash and Xanax, wrong sender, wrong method/item, pre-accept transfer, split transfers, overpayment, late transfer, duplicate evidence ID, and no payment.
 
 ```js
-{ status: 'verified', verifiedAmount, evidence }
-{ status: 'late', verifiedAmount, evidence }
-{ status: 'not_found', evidence: [] }
+const result = matchPaymentEvidence({ method:'xanax', offerAmount:3, requesterTornId:111, acceptedAt:new Date('2026-08-26T10:00:00Z'), paymentDeadline:new Date('2026-08-26T10:03:00Z'), logs:[
+  { id:'a', senderId:111, kind:'xanax', amount:1, at:'2026-08-26T10:01:00Z' },
+  { id:'b', senderId:111, kind:'xanax', amount:2, at:'2026-08-26T10:02:00Z' }
+]});
+assert.equal(result.status,'verified');
+assert.equal(result.verifiedAmount,3);
 ```
 
-Evidence comparison uses Torn evidence timestamps, not fetch time.
+- [ ] **Step 2: Implement pure matcher** returning only `{status:'verified'|'late'|'not_found', verifiedAmount, evidence}` and comparing Torn evidence timestamps, not fetch time.
 
-- [ ] **Step 4: Implement `payments.js`** with idempotent `recordVerifiedPayment()` that stores one aggregate payment and child evidence rows in one transaction.
+- [ ] **Step 3: Implement payment repository** recording one aggregate payment plus unique `payment_evidence` rows idempotently in one transaction.
 
-- [ ] **Step 5: Write RED worker tests** with fake Torn evidence/credential repositories. Verify: immediate on-time payment -> `WAITING_FOR_REVIVE` with `reviveDeadline = paymentVerifiedAt + 5m`; no payment before deadline -> reschedule; no payment after reconciliation -> `PAYMENT_EXPIRED`; late payment -> `REFUND_REQUIRED` with `late_payment`; Torn timeout -> retry without misconduct.
+- [ ] **Step 4: Write RED worker tests**: verified on-time -> `WAITING_FOR_REVIVE` and `revive_deadline = payment_verified_at + 5m`; before deadline with no payment -> reschedule; after reconciliation -> `PAYMENT_EXPIRED`; late evidence -> refund required; Torn timeout/invalid credential -> retry/verification hold, never misconduct.
 
-- [ ] **Step 6: Implement `server/src/torn/evidence.js`** to decrypt the assigned reviver credential through the credential repository, request only the relevant narrow log window/category, normalize Torn response fields into matcher-friendly records, and discard plaintext references after the call.
+- [ ] **Step 5: Implement Torn evidence normalization** for narrowly scoped incoming money/item logs and assigned reviver credential use. Domain matcher must never know raw Torn response shapes.
 
-- [ ] **Step 7: Implement `createPaymentVerifyHandler(deps)`**
+- [ ] **Step 6: Implement/register `payment.verify` and run tests**
 
-Handler must use transaction service for all business transitions and return/reschedule through the job runner contract rather than directly mutating job rows.
-
-- [ ] **Step 8: Register handler in `worker.js` and run tests**
-
-Expected: PASS.
-
-- [ ] **Step 9: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add server/src/domain/payment-matcher.js server/src/torn/evidence.js server/src/db/payments.js server/src/worker/payment-verify.js server/src/worker.js server/test/domain/payment-matcher.test.js server/test/worker/payment-verify.test.js server/test/db/payments.test.js
+git add server/src/domain/payment-matcher.js server/src/torn/evidence.js server/src/db/payments.js server/src/worker/payment-verify.js server/src/worker.js server/test/domain/payment-matcher.test.js server/test/db/payments.test.js server/test/worker/payment-verify.test.js
 git commit -m "feat: verify revive payments from Torn evidence"
 ```
 
-### Task 6: Implement Revive Attempt and Exit-Outcome Verification
+### Task 6: Verify Revive Attempts and Hospital Exit Outcomes
 
 **Files:**
 - Create: `server/src/domain/revive-matcher.js`
@@ -473,49 +389,31 @@ git commit -m "feat: verify revive payments from Torn evidence"
 - Create: `server/src/worker/revive-verify.js`
 - Modify: `server/src/torn/evidence.js`
 - Modify: `server/src/worker.js`
-- Test: `server/test/domain/revive-matcher.test.js`
-- Create: `server/test/worker/revive-verify.test.js`
+- Create: `server/test/domain/revive-matcher.test.js`
 - Create: `server/test/db/revive-attempts.test.js`
+- Create: `server/test/worker/revive-verify.test.js`
 
 **Interfaces:**
-- Produces: `classifyReviveOutcome(input)` and `createReviveVerifyHandler(deps)`.
+- Produces: `classifyReviveOutcome(input)`, immutable attempt recording, and `createReviveVerifyHandler(deps)`.
 
-- [ ] **Step 1: Write RED matcher tests** for assigned success, assigned genuine failure, third-party success, requester self-exit, natural expiry, no attempt before deadline, no attempt after final reconciliation, and ambiguous evidence.
+- [ ] **Step 1: Write RED matcher tests** for assigned success, assigned genuine failure, third-party success, requester self-exit, natural expiry, no-attempt deadline, and ambiguous evidence.
 
-```js
-assert.deepEqual(classifyReviveOutcome({
-  requesterTornId: 100,
-  assignedReviverTornId: 200,
-  reviveDeadline,
-  revives: [{ id: 'r1', reviverId: 200, targetId: 100, success: false, at: withinWindow }],
-  hospital: { exitedAt: null, naturalExpiryAt: later }
-}), { kind: 'assigned_failed', evidenceId: 'r1' });
-```
+- [ ] **Step 2: Implement pure precedence**: assigned success -> assigned failure -> third-party success -> proven self-exit -> proven natural expiry -> no-attempt after final reconciliation -> ambiguous/retry.
 
-- [ ] **Step 2: Run RED matcher tests**
+- [ ] **Step 3: Implement immutable attempt repository** with unique Torn evidence IDs and monotonically increasing per-transaction sequence numbers.
 
-Expected: FAIL.
+- [ ] **Step 4: Extend Torn adapter** for `user/revives` incoming/outgoing plus narrow hospital/status evidence; keep raw response parsing out of domain code.
 
-- [ ] **Step 3: Implement pure `classifyReviveOutcome`** with evidence precedence: assigned success; assigned failed attempt; third-party success; proven self-exit; proven natural expiry; deadline/no-attempt; ambiguous/retry.
+- [ ] **Step 5: Implement worker behavior**: success closes `COMPLETED`; genuine failure -> `FAILED_ATTEMPT_CHOICE`; third-party -> refund reason `third_party_revive`; self/natural exit closes no-refund; no attempt becomes reportable only after final reconciliation; outages/ambiguity never create misconduct.
 
-- [ ] **Step 4: Implement `revive-attempts.js`** to insert immutable unique Torn attempts and monotonically increasing transaction sequence numbers.
-
-- [ ] **Step 5: Write RED worker tests** proving assigned success closes `COMPLETED`; assigned failure -> `FAILED_ATTEMPT_CHOICE`; third-party success -> `REFUND_REQUIRED` reason `third_party_revive`; self/natural exit close without refund; no attempt becomes `REPORTABLE_NO_ATTEMPT` only after final reconciliation; Torn failures never do.
-
-- [ ] **Step 6: Extend Torn evidence adapter** for `user/revives` incoming/outgoing and narrow hospital/status evidence. Keep exact API response normalization in this adapter, not in domain matchers.
-
-- [ ] **Step 7: Implement/register `revive.verify` handler and run tests**
-
-Expected: PASS.
-
-- [ ] **Step 8: Commit**
+- [ ] **Step 6: Run tests and commit**
 
 ```bash
-git add server/src/domain/revive-matcher.js server/src/db/revive-attempts.js server/src/worker/revive-verify.js server/src/torn/evidence.js server/src/worker.js server/test/domain/revive-matcher.test.js server/test/worker/revive-verify.test.js server/test/db/revive-attempts.test.js
+git add server/src/domain/revive-matcher.js server/src/db/revive-attempts.js server/src/worker/revive-verify.js server/src/torn/evidence.js server/src/worker.js server/test/domain/revive-matcher.test.js server/test/db/revive-attempts.test.js server/test/worker/revive-verify.test.js
 git commit -m "feat: verify revive outcomes from Torn evidence"
 ```
 
-### Task 7: Implement Retry/Refund Actions and `refund.verify`
+### Task 7: Add Retry, Refund, and Transaction Action APIs
 
 **Files:**
 - Create: `server/src/domain/refund-matcher.js`
@@ -525,18 +423,19 @@ git commit -m "feat: verify revive outcomes from Torn evidence"
 - Modify: `server/src/app.js`
 - Modify: `server/src/server.js`
 - Modify: `server/src/worker.js`
-- Test: `server/test/domain/refund-matcher.test.js`
+- Create: `server/test/domain/refund-matcher.test.js`
+- Create: `server/test/db/refunds.test.js`
 - Create: `server/test/worker/refund-verify.test.js`
 - Create: `server/test/routes/transactions.test.js`
 
 **Interfaces:**
-- Produces transaction-status/check/retry/refund endpoints from the Stage 3 spec and `createRefundVerifyHandler(deps)`.
+- Produces: transaction read/check/retry/refund routes from the spec and `createRefundVerifyHandler(deps)`.
 
-- [ ] **Step 1: Write RED refund matcher tests** for exact Cash, exact Xanax, split refunds, under-refund, wrong recipient, on-time evidence surfaced late, and actual-payment overage being fully refunded.
+- [ ] **Step 1: Write RED refund tests** for exact/split Cash and Xanax, under-refund, wrong party, on-time evidence surfaced late, and overpayment requiring refund of actual verified value.
 
-- [ ] **Step 2: Write RED transaction route tests**
+- [ ] **Step 2: Implement refund matcher/repository** using `payments.verified_amount`, same method, unique `refund_evidence`, and idempotent aggregate updates.
 
-Test authenticated ownership/assignment and allowed states for:
+- [ ] **Step 3: Write RED route tests** for:
 
 ```text
 GET  /v1/transactions/:id
@@ -547,24 +446,20 @@ POST /v1/transactions/:id/request-refund
 POST /v1/transactions/:id/check-refund
 ```
 
-A client-supplied `{ state: 'COMPLETED' }` must never be accepted by any route.
+Assert ownership/assignment and valid-state authorization. A payload containing `{ "state":"COMPLETED" }` must never create a state transition.
 
-- [ ] **Step 3: Implement pure refund matcher and refund repository** using actual `payments.verified_amount` and the same method.
+- [ ] **Step 4: Implement routes** by translating allowed actions into transaction-service events and deduplicated expedited-check jobs only.
 
-- [ ] **Step 4: Implement transaction action routes** by translating allowed user actions into `transactionService.transitionTransaction(...)` and deduplicated expedited-check jobs.
+- [ ] **Step 5: Write/implement refund worker**: verified -> `REFUNDED`; before deadline -> reschedule; after final reconciliation -> `REPORTABLE_MISSING_REFUND`; outage/invalid key -> hold/retry.
 
-- [ ] **Step 5: Write RED worker tests** proving refund verification -> `REFUNDED`; before deadline -> reschedule; after reconciliation with no evidence -> `REPORTABLE_MISSING_REFUND`; Torn outage -> hold/retry.
-
-- [ ] **Step 6: Implement/register refund worker handler** and run tests.
-
-- [ ] **Step 7: Commit**
+- [ ] **Step 6: Run tests and commit**
 
 ```bash
-git add server/src/domain/refund-matcher.js server/src/db/refunds.js server/src/worker/refund-verify.js server/src/routes/transactions.js server/src/app.js server/src/server.js server/src/worker.js server/test/domain/refund-matcher.test.js server/test/worker/refund-verify.test.js server/test/routes/transactions.test.js
+git add server/src/domain/refund-matcher.js server/src/db/refunds.js server/src/worker/refund-verify.js server/src/routes/transactions.js server/src/app.js server/src/server.js server/src/worker.js server/test/domain/refund-matcher.test.js server/test/db/refunds.test.js server/test/worker/refund-verify.test.js server/test/routes/transactions.test.js
 git commit -m "feat: add retry and refund verification workflow"
 ```
 
-### Task 8: Upgrade the Userscript/API Client for Protected Transactions
+### Task 8: Add Protected Transaction Controls to the Userscript
 
 **Files:**
 - Modify: `src/api-client.js`
@@ -576,20 +471,19 @@ git commit -m "feat: add retry and refund verification workflow"
 - Modify: `test/requester-ui.test.js`
 
 **Interfaces:**
-- Consumes all Stage 3 API endpoints.
-- Produces verification credential settings, requester/reviver transaction controls, authoritative countdown rendering, and no client-authoritative state/evidence path.
+- Produces credential settings, requester/reviver marketplace controls, and authoritative countdown rendering.
 
-- [ ] **Step 1: Add RED API client tests** for credential bind/status/revoke, reviver register/queue/accept, transaction status, expedited checks, retry/refund actions.
+- [ ] **Step 1: Add RED API-client tests** for credential status/bind/revoke, reviver register/queue/accept, transaction status, payment/refund check, retry/refund actions.
 
-- [ ] **Step 2: Implement API client methods** exactly matching the server paths. Preserve the existing opaque ReviveRelay session handling.
+- [ ] **Step 2: Implement API-client methods** exactly matching Stage 3 routes while preserving opaque session auth.
 
-- [ ] **Step 3: Add RED source-contract/UI tests** proving plaintext transaction key inputs are cleared immediately, never written to `GM_setValue`, requester cannot submit protected request without credential readiness, reviver cannot Accept without readiness, and UI renders server timestamps/countdowns rather than deriving deadlines from button clicks.
+- [ ] **Step 3: Add RED UI tests** proving plaintext verification key is cleared immediately and never stored with `GM_setValue`; protected Request/Accept are disabled without validated capability; countdowns derive from server timestamps; no client control can submit arbitrary transaction state.
 
-- [ ] **Step 4: Implement Verification Settings UI** showing status/capability/last validation plus Bind/Rebind/Revoke. Never redisplay the plaintext key.
+- [ ] **Step 4: Implement Verification Settings UI** with capability/last-validation status and Bind/Rebind/Revoke. Plaintext keys are never redisplayed.
 
-- [ ] **Step 5: Implement requester transaction UI** for assigned reviver/terms, payment deadline/check, revive deadline, failed-attempt retry/refund choice, refund deadline/check, and terminal states.
+- [ ] **Step 5: Implement requester UI** for assigned reviver/terms, payment deadline/check, revive deadline, failed-attempt retry/refund choice, refund deadline/check, and terminal result.
 
-- [ ] **Step 6: Implement reviver marketplace UI** for registration, queue, Accept, assigned requester, payment status, revive countdown, retry response, and refund obligation.
+- [ ] **Step 6: Implement reviver UI** for registration, queue, Accept, assigned requester/terms, payment/revive status, retry response, and refund obligation.
 
 - [ ] **Step 7: Run client tests/build**
 
@@ -604,48 +498,43 @@ git add src/api-client.js torn-revive-chat-collector.user.js scripts/build.js te
 git commit -m "feat: add protected transaction userscript workflow"
 ```
 
-### Task 9: Full Marketplace-Core Verification, Internal Deployment, and Merge
+### Task 9: Verify, Deploy Internally, Merge to `main`
 
 **Files:**
 - Modify: `README.md`
 - Runtime: `/srv/voidsmith/torn-platform/reviverelay/app`
 
 **Interfaces:**
-- Produces a fully tested Stage 3 marketplace core on internal VPS only; telemetry/updater are separate plans.
+- Produces fully tested Stage 3 marketplace core internally; telemetry/updater remain separate plans.
 
-- [ ] **Step 1: Update README** to state Stage 3 core behavior, credential scopes, protected timers, and remaining telemetry/updater/Stage 4/5 limitations.
+- [ ] **Step 1: Update README** with credential/evidence model, 3/5/10-minute timers, retry/refund behavior, and remaining Stage 4/5 limitations.
 
-- [ ] **Step 2: Run full client tests**
+- [ ] **Step 2: Run full client tests and build**
 
-Run: `npm run test:client`
-
-Expected: all tests PASS.
-
-- [ ] **Step 3: Run full server tests against disposable PostgreSQL 16**
-
-Run: `TEST_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:15432/reviverelay_test npm run test:server`
-
-Expected: all tests PASS.
-
-- [ ] **Step 4: Run build/syntax and deployment isolation tests**
-
-Run: `npm run build && node --check dist/torn-revive-chat-collector.user.js && node --test server/test/deployment-isolation.test.js server/test/deploy`
+Run: `npm run test:client && npm run build && node --check dist/torn-revive-chat-collector.user.js`
 
 Expected: PASS.
 
-- [ ] **Step 5: Stage the exact verified tree into `/srv/voidsmith/torn-platform/reviverelay/app`**, run migrations using Compose project `reviverelay`, restart only ReviveRelay API/worker, and verify `GET http://127.0.0.1:18730/health` returns `{ "ok": true }`.
+- [ ] **Step 3: Run full server suite against disposable PostgreSQL 16**
 
-- [ ] **Step 6: Re-run runtime isolation gate** proving Postgres has no host port/outbound network, only ReviveRelay containers are on `reviverelay_db_internal`, and API remains localhost-only.
+Run: `TEST_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:15432/reviverelay_test npm run test:server`
 
-- [ ] **Step 7: Perform fresh PostgreSQL backup and disposable restore verification** against the migrated schema.
+Expected: PASS.
 
-- [ ] **Step 8: Confirm launch gates remain closed**: `PAID_TIER_ENABLED=false`, no ReviveRelay public DNS/Caddy route, no paid subscription enforcement.
+- [ ] **Step 4: Run deployment isolation tests**
 
-- [ ] **Step 9: Commit final docs, merge completed branch into local `main`, rerun full tests on merged `main`, synchronize GitHub `main`, verify tree equality, then remove the completed worktree/branch.**
+Run: `node --test server/test/deployment-isolation.test.js server/test/deploy`
 
-```bash
-git add README.md
-git commit -m "docs: document Stage 3 marketplace verification"
-```
+Expected: PASS.
 
-- [ ] **Step 10: Update the Voidsmith Source of Truth** with only verified implementation/runtime facts and no secret values.
+- [ ] **Step 5: Stage the exact verified tree** to `/srv/voidsmith/torn-platform/reviverelay/app`, run migrations under Compose project `reviverelay`, restart only ReviveRelay API/worker, and verify `GET http://127.0.0.1:18730/health` returns `{ "ok": true }`.
+
+- [ ] **Step 6: Re-run runtime isolation** proving PostgreSQL has no host-published port/outbound network, only ReviveRelay containers join `reviverelay_db_internal`, and API remains localhost-only.
+
+- [ ] **Step 7: Perform fresh database backup + disposable restore verification** against the migrated schema.
+
+- [ ] **Step 8: Confirm launch gates stay closed**: `PAID_TIER_ENABLED=false`, no public ReviveRelay DNS/Caddy route, no Stage 5 subscription gating.
+
+- [ ] **Step 9: Commit final docs, merge the completed feature branch to local `main`, rerun full tests on merged `main`, synchronize GitHub `main`, verify tree equality, then remove the completed worktree/branch.**
+
+- [ ] **Step 10: Update the Voidsmith Source of Truth** with verified Stage 3 core facts only; never store secret values.
