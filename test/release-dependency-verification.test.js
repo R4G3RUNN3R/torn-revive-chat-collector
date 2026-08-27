@@ -8,31 +8,36 @@ function currentCommit() {
   return cp.execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
 }
 
-test('release validation rejects moving dependency refs and stale build provenance', () => {
+test('release validation accepts self-contained artifacts, rejects runtime @require, and rejects stale build provenance', () => {
   assert.equal(typeof releaseClient.validatePinnedArtifacts, 'function');
   const auto = fs.readFileSync('dist/reviverelay-auto.user.js', 'utf8');
   const manual = fs.readFileSync('dist/reviverelay-manual.user.js', 'utf8');
   const meta = fs.readFileSync('dist/reviverelay-auto.meta.js', 'utf8');
   const head = currentCommit();
 
-  assert.doesNotThrow(() => releaseClient.validatePinnedArtifacts({
+  const validated = releaseClient.validatePinnedArtifacts({
     artifactTexts: [auto, manual, meta],
     expectedCommit: head
-  }));
+  });
+  assert.equal(validated.commit, head);
+  assert.equal(validated.dependencies.length, 10);
 
-  const moving = auto.replace(`/${head}/src/core.js`, '/main/src/core.js');
+  const withRuntimeRequire = auto.replace(
+    '// @run-at       document-idle',
+    '// @require      https://raw.githubusercontent.com/example/dependency.js\n// @run-at       document-idle'
+  );
   assert.throws(() => releaseClient.validatePinnedArtifacts({
-    artifactTexts: [moving, manual, meta],
+    artifactTexts: [withRuntimeRequire, manual, meta],
     expectedCommit: head
-  }), /immutable|pinned|commit/i);
+  }), /self-contained|@require|external/i);
 
   assert.throws(() => releaseClient.validatePinnedArtifacts({
     artifactTexts: [auto, manual, meta],
     expectedCommit: 'f'.repeat(40)
-  }), /stale|commit/i);
+  }), /stale|commit|provenance/i);
 });
 
-test('release verification compares every pinned GitHub dependency byte-for-byte with its local committed source', async () => {
+test('release verification still compares all ten GitHub source modules byte-for-byte with committed local source', async () => {
   assert.equal(typeof releaseClient.verifyPinnedDependencyBytes, 'function');
   const auto = fs.readFileSync('dist/reviverelay-auto.user.js', 'utf8');
   const head = currentCommit();
@@ -51,7 +56,7 @@ test('release verification compares every pinned GitHub dependency byte-for-byte
       };
     }
   }));
-  assert.equal(requested.length, validated.dependencies.length);
+  assert.equal(requested.length, 10);
 
   let changedOne = false;
   await assert.rejects(() => releaseClient.verifyPinnedDependencyBytes({
@@ -66,4 +71,16 @@ test('release verification compares every pinned GitHub dependency byte-for-byte
       return { ok: true, status: 200, async arrayBuffer() { return local; } };
     }
   }), /mismatch|bytes|sha-256/i);
+});
+
+test('release validation rejects an executable artifact whose embedded support-module bytes were altered', () => {
+  const auto = fs.readFileSync('dist/reviverelay-auto.user.js', 'utf8');
+  const head = currentCommit();
+  const start = '/* ReviveRelay bundled module: src/core.js */\n';
+  assert.ok(auto.includes(start));
+  const corrupted = auto.replace(start, `${start}// injected corruption\n`);
+  assert.throws(() => releaseClient.validatePinnedArtifacts({
+    artifactTexts: [corrupted],
+    expectedCommit: head
+  }), /bundled|embedded|mismatch|bytes/i);
 });

@@ -12,9 +12,10 @@ test('API client submits telemetry to the dedicated endpoint', async () => {
   assert.equal(requests[0].body.errors.length,1);
 });
 
-test('userscript wires telemetry dependency, global hooks and diagnostics toggle', () => {
+test('userscript bundles telemetry dependency, global hooks and diagnostics toggle', () => {
   const source=fs.readFileSync('torn-revive-chat-collector.user.js','utf8');
-  assert.match(source, /src\/telemetry-client\.js/);
+  const artifact=fs.readFileSync('dist/reviverelay-auto.user.js','utf8');
+  assert.match(artifact, /ReviveRelay bundled module: src\/telemetry-client\.js/);
   assert.match(source, /ReviveRelayTelemetryClient/);
   assert.ok(source.includes("addEventListener('error'"));
   assert.ok(source.includes("addEventListener('unhandledrejection'"));

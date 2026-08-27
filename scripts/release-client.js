@@ -22,7 +22,7 @@ const REQUIRED_SUPPORT_MODULES = [
   'src/revive-classifier.js',
   'src/candidate-pipeline.js'
 ];
-const RAW_REQUIRE_RE = /^https:\/\/raw\.githubusercontent\.com\/R4G3RUNN3R\/torn-revive-chat-collector\/([0-9a-f]{40})\/(src\/.+)$/;
+const RAW_BASE = 'https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector';
 
 function buildReleaseManifest({ version, minimumVersion, mandatory = false, releaseNotes, releasedAt, gitCommit, autoSha256, manualSha256 }) {
   return validateReleaseManifest({
@@ -57,41 +57,59 @@ function parseArgs(argv) {
   return out;
 }
 
-function parsePinnedArtifact(text) {
-  const requireRows = [...String(text || '').matchAll(/^\/\/ @require\s+(\S+)$/gm)].map(match => match[1]);
-  if (requireRows.length !== REQUIRED_SUPPORT_MODULES.length) {
-    throw new Error('Release artifact has an unexpected support dependency count');
-  }
+function dependenciesForCommit(commit) {
+  return REQUIRED_SUPPORT_MODULES.map(relativePath => ({
+    url: `${RAW_BASE}/${commit}/${relativePath}`,
+    commit,
+    relativePath
+  }));
+}
 
-  const commits = new Set();
-  const paths = new Set();
-  const dependencies = [];
-  for (const url of requireRows) {
-    const match = url.match(RAW_REQUIRE_RE);
-    if (!match) throw new Error(`Release dependency is not pinned to an immutable Git commit: ${url}`);
-    const [, commit, relativePath] = match;
-    if (!REQUIRED_SUPPORT_MODULES.includes(relativePath)) throw new Error(`Unexpected release support dependency: ${relativePath}`);
-    if (paths.has(relativePath)) throw new Error(`Duplicate release support dependency: ${relativePath}`);
-    commits.add(commit);
-    paths.add(relativePath);
-    dependencies.push({ url, commit, relativePath });
-  }
-
-  if (commits.size !== 1) throw new Error('Release support dependencies do not share one immutable Git commit');
+function validateBundledModuleBytes(source) {
   for (const relativePath of REQUIRED_SUPPORT_MODULES) {
-    if (!paths.has(relativePath)) throw new Error(`Missing release support dependency: ${relativePath}`);
+    const startMarker = `/* ReviveRelay bundled module: ${relativePath} */\n`;
+    const endMarker = `/* ReviveRelay end bundled module: ${relativePath} */`;
+    const startIndex = source.indexOf(startMarker);
+    if (startIndex < 0 || source.indexOf(startMarker, startIndex + startMarker.length) >= 0) {
+      throw new Error(`Bundled support module marker mismatch for ${relativePath}`);
+    }
+    const contentStart = startIndex + startMarker.length;
+    const endIndex = source.indexOf(endMarker, contentStart);
+    if (endIndex < 0 || source.indexOf(endMarker, endIndex + endMarker.length) >= 0) {
+      throw new Error(`Bundled support module end marker mismatch for ${relativePath}`);
+    }
+    const expected = fs.readFileSync(path.join(root, relativePath), 'utf8');
+    let embedded = source.slice(contentStart, endIndex);
+    if (!expected.endsWith('\n') && embedded === `${expected}\n`) embedded = expected;
+    if (embedded !== expected) {
+      throw new Error(`Bundled support module byte mismatch for ${relativePath}`);
+    }
+  }
+}
+
+function parsePinnedArtifact(text) {
+  const source = String(text || '');
+  if (/^\/\/ @require\s+/m.test(source)) {
+    throw new Error('Release artifact must be self-contained and must not use runtime @require dependencies');
   }
 
-  const commit = [...commits][0];
-  const buildCommitMatch = String(text || '').match(/const BUILD_COMMIT = '([0-9a-f]{40})';/);
-  if (buildCommitMatch && buildCommitMatch[1] !== commit) {
-    throw new Error('Release telemetry build commit does not match pinned dependencies');
+  const provenanceMatches = [...source.matchAll(/ReviveRelay-Build-Commit:\s*([0-9a-f]{40})/g)];
+  if (provenanceMatches.length !== 1) {
+    throw new Error('Release artifact must contain exactly one immutable build provenance commit');
   }
-  if (String(text || '').includes('(function') && !buildCommitMatch) {
+  const commit = provenanceMatches[0][1];
+
+  const buildCommitMatch = source.match(/const BUILD_COMMIT = '([0-9a-f]{40})';/);
+  const isExecutableArtifact = source.includes('if (window.__REVIVERELAY_ACTIVE__)');
+  if (isExecutableArtifact && !buildCommitMatch) {
     throw new Error('Release userscript is missing telemetry build provenance');
   }
+  if (buildCommitMatch && buildCommitMatch[1] !== commit) {
+    throw new Error('Release telemetry build commit does not match metadata build provenance');
+  }
+  if (isExecutableArtifact) validateBundledModuleBytes(source);
 
-  return { commit, dependencies };
+  return { commit, dependencies: dependenciesForCommit(commit) };
 }
 
 function validatePinnedArtifacts({ artifactTexts, expectedCommit }) {

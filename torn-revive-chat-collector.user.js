@@ -12,16 +12,7 @@
 // @connect      reviverelay.voidsmithindustries.com
 // @updateURL    __REVIVERELAY_UPDATE_URL__
 // @downloadURL  __REVIVERELAY_DOWNLOAD_URL__
-// @require      https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/__REVIVERELAY_GIT_COMMIT__/src/core.js
-// @require      https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/__REVIVERELAY_GIT_COMMIT__/src/chat-dom.js
-// @require      https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/__REVIVERELAY_GIT_COMMIT__/src/public-channels.js
-// @require      https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/__REVIVERELAY_GIT_COMMIT__/src/client-chat-policy.js
-// @require      https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/__REVIVERELAY_GIT_COMMIT__/src/api-client.js
-// @require      https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/__REVIVERELAY_GIT_COMMIT__/src/versioning.js
-// @require      https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/__REVIVERELAY_GIT_COMMIT__/src/update-manager.js
-// @require      https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/__REVIVERELAY_GIT_COMMIT__/src/telemetry-client.js
-// @require      https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/__REVIVERELAY_GIT_COMMIT__/src/revive-classifier.js
-// @require      https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/__REVIVERELAY_GIT_COMMIT__/src/candidate-pipeline.js
+// ReviveRelay-Build-Commit: __REVIVERELAY_GIT_COMMIT__
 // @run-at       document-idle
 // ==/UserScript==
 
