@@ -91,6 +91,7 @@
     activeRequest: null,
     activeTransaction: null,
     verificationCredential: null,
+    publicCandidateFeed: [],
     reviverQueue: [],
     liveEvents: [],
     stats: {
@@ -470,6 +471,7 @@
     state.activeRequest = null;
     state.activeTransaction = null;
     state.verificationCredential = null;
+    state.publicCandidateFeed = [];
     state.reviverQueue = [];
     GM_setValue(KEYS.sessionToken, '');
     GM_setValue(KEYS.publicIdentity, null);
@@ -477,6 +479,7 @@
     renderActiveRequest();
     renderVerificationCredential();
     renderActiveTransaction();
+    renderPublicCandidateFeed();
     renderReviverMarketplace();
   }
 
@@ -683,6 +686,26 @@
     renderActiveTransaction();
   }
 
+  async function refreshPublicCandidateFeed() {
+    if (!state.sessionToken) {
+      state.publicCandidateFeed = [];
+      renderPublicCandidateFeed();
+      return;
+    }
+    try {
+      const result = await state.api.getRecentCandidates();
+      state.publicCandidateFeed = Array.isArray(result?.candidates) ? result.candidates : [];
+    } catch (error) {
+      if (error?.code === 'AUTH_REQUIRED') clearSession();
+      else {
+        reportClientError(error, 'candidate.feed.refresh');
+        console.warn('[ReviveRelay] Shared candidate feed refresh failed', error?.code || error?.message || error);
+      }
+      state.publicCandidateFeed = [];
+    }
+    renderPublicCandidateFeed();
+  }
+
   async function refreshReviverQueue() {
     if (!state.sessionToken || !hasCredentialCapability('reviver') || !Array.isArray(state.identity?.roles) || !state.identity.roles.includes('reviver')) {
       state.reviverQueue = [];
@@ -703,6 +726,7 @@
   }
 
   async function refreshMarketplaceState() {
+    await refreshPublicCandidateFeed();
     await refreshVerificationCredential();
     await refreshActiveRequest();
     await refreshActiveTransaction();
@@ -816,6 +840,33 @@
     if (String(method).toLowerCase() === 'cash') return `$${Math.max(0, value).toLocaleString()}`;
     if (String(method).toLowerCase() === 'xanax') return `${Math.max(0, value).toLocaleString()} Xanax`;
     return `${String(method || '').toUpperCase()} ${Math.max(0, value).toLocaleString()}`.trim();
+  }
+
+  function openCandidateProfile(senderId) {
+    const tornId = String(senderId || '').trim();
+    if (!/^\d+$/.test(tornId)) return;
+    window.open(`https://www.torn.com/profiles.php?XID=${encodeURIComponent(tornId)}`, '_blank', 'noopener');
+  }
+
+  function renderPublicCandidateFeed() {
+    const box = document.getElementById('rr-public-candidate-feed');
+    if (!box) return;
+    if (!state.sessionToken) {
+      box.innerHTML = '<div class="rr-empty-state">Connect ReviveRelay to view the shared public-chat feed.</div>';
+      return;
+    }
+    box.innerHTML = state.publicCandidateFeed.length ? state.publicCandidateFeed.map(candidate => `<article class="rr-market-card">
+      <div class="rr-market-top">
+        <div><strong>${escapeHtml(candidate.senderName || 'Unknown player')}</strong>${candidate.senderId ? `<span class="rr-muted"> [${escapeHtml(candidate.senderId)}]</span>` : ''}</div>
+        <span class="rr-age">${escapeHtml(formatRelativeAge(candidate.lastSeenAt || candidate.firstSeenAt))}</span>
+      </div>
+      <div class="rr-muted">${escapeHtml(candidate.channelName || 'Public chat')} · seen ${escapeHtml(candidate.seenCount || 1)} time${Number(candidate.seenCount || 1) === 1 ? '' : 's'}</div>
+      <div class="rr-market-comment">“${escapeHtml(candidate.text || '')}”</div>
+      <div class="rr-market-footer"><span class="rr-status-chip">PUBLIC CHAT</span>${candidate.senderId ? `<button type="button" data-rr-open-profile="${escapeHtml(candidate.senderId)}">Open profile</button>` : ''}</div>
+    </article>`).join('') : '<div class="rr-empty-state">No shared public-chat revive requests in the last 10 minutes.</div>';
+    box.querySelectorAll('[data-rr-open-profile]').forEach(button => {
+      button.onclick = () => openCandidateProfile(button.getAttribute('data-rr-open-profile'));
+    });
   }
 
   function renderReviverMarketplace() {
@@ -1077,6 +1128,7 @@
     activatePanelTab(state.panelTab, false);
     renderActiveRequest();
     renderVerificationCredential();
+    renderPublicCandidateFeed();
     renderReviverMarketplace();
     renderActiveTransaction();
     renderUpdateStatus();
@@ -1152,7 +1204,11 @@
         </section>
 
         <section class="rr-panel-page" data-rr-panel="reviver" role="tabpanel">
-          <div id="rr-reviver" style="display:none"><div class="rr-card"><div class="rr-card-heading"><span>Reviver marketplace</span><span class="rr-status-chip">QUEUE</span></div><div class="rr-muted">Registration, queue and Accept require a validated reviver-capable verification key.</div><div id="rr-reviver-queue"></div></div><div id="rr-reviver-transaction" class="rr-card"></div></div>
+          <div id="rr-reviver" style="display:none">
+            <div class="rr-card rr-card-primary"><div class="rr-card-heading"><span>Shared public chat requests</span><span class="rr-status-chip">RELAY</span></div><div class="rr-muted">Fresh revive requests pooled from allowlisted public chats seen by connected ReviveRelay collectors.</div><div id="rr-public-candidate-feed"></div></div>
+            <div class="rr-card"><div class="rr-card-heading"><span>Reviver marketplace</span><span class="rr-status-chip">QUEUE</span></div><div class="rr-muted">Protected direct requests. Registration, queue and Accept require a validated reviver-capable verification key.</div><div id="rr-reviver-queue"></div></div>
+            <div id="rr-reviver-transaction" class="rr-card"></div>
+          </div>
           <div id="rr-reviver-connect-hint" class="rr-empty-state">Connect from the Request tab to use reviver tools.</div>
         </section>
 

@@ -31,3 +31,11 @@ test('client exposes only named transaction actions and never submits arbitrary 
 test('session identity merges server roles so reviver registration becomes visible to the UI', () => {
   assert.match(source, /roles:\s*Array\.isArray\(me\?\.roles\)/);
 });
+
+
+test('Reviver tab has a central shared public-chat request feed independent of protected marketplace capability', () => {
+  assert.match(source, /Shared public chat requests/i);
+  assert.match(source, /getRecentCandidates\(/);
+  assert.match(source, /rr-public-candidate-feed/);
+  assert.match(source, /open.*profile|profile.*open/i);
+});
