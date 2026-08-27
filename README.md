@@ -2,7 +2,7 @@
 
 ReviveRelay is a Torn userscript plus an isolated server backend for public revive-candidate discovery and direct revive requests.
 
-Current repository stage: **Stage 3 marketplace core implemented; public launch remains gated**.
+Current repository stage: **Stage 3 marketplace core implemented; public HTTPS API and client delivery are active; paid tier remains disabled**.
 
 ## What the client does
 
@@ -13,6 +13,7 @@ Current repository stage: **Stage 3 marketplace core implemented; public launch 
 - uploads **only likely revive candidates**, never the complete public-chat stream;
 - deduplicates pooled candidates server-side;
 - provides a bounded local **Live Capture** monitor for classifier decisions;
+- presents Request, Reviver, Activity, and Settings tabs in a movable hybrid Torn/Voidsmith panel whose position, selected tab, and minimized state persist locally;
 - verifies Torn identity through `POST /v1/auth/bind` and stores only the returned opaque ReviveRelay session locally;
 - discards the identity-binding Torn API key after the verification request rather than persisting it;
 - lets a connected requester create one active Cash or Xanax revive request, inspect its state, and cancel it while the server still considers it cancellable.
@@ -64,7 +65,7 @@ Stage 3 provides the protected marketplace core, not the entire planned ReviveRe
 - **Stage 4:** reputation, disputes, evidence bundles, protective suspensions/bans, administrator tooling, and the one-way operational Google Sheets views;
 - **Stage 5:** Reviver Pro trial/subscription verification and paid-feature gating.
 
-`PAID_TIER_ENABLED` must remain false until Stage 5 and the Torn monetization/compliance launch gate are complete. Public DNS/Caddy exposure and general distribution also remain separate launch gates.
+`PAID_TIER_ENABLED` must remain false until Stage 5 and the Torn monetization/compliance launch gate are complete. Public DNS/Caddy exposure is active for the free Stage 3 client/API; paid-feature launch remains a separate gate.
 
 ## Server deployment
 
@@ -76,7 +77,7 @@ The backend uses its own PostgreSQL 16 container, credentials, storage path, pri
 
 Detailed deployment/isolation instructions are in `deploy/README.md`.
 
-The API origin is currently internal-only on `127.0.0.1:18730`. Public DNS/Caddy exposure is deliberately deferred until the remaining launch gates are complete.
+The API process remains bound only to `127.0.0.1:18730`; Caddy is the public TLS gateway for `https://reviverelay.voidsmithindustries.com`. PostgreSQL remains unexposed on the host.
 
 Operational error groups can be mirrored one-way to the private `Voidsmith Error Triage` Google Sheet. Only aggregate fields are exported; internal user IDs are never mirrored. Automatic sync owns columns A:N, while human workflow columns O:S (`Status`, `Owner`, `Notes`, `GitHub Issue`, `Fixed In`) are preserved. The Google service-account secret is mounted read-only into the ReviveRelay worker only.
 
@@ -121,6 +122,6 @@ No production API key, session token, database password, encryption key, or coll
 
 ## Client releases and updates
 
-ReviveRelay client version `0.4.1` hardens the automatic and manual release channels. Every generated `@require` URL is pinned to the exact 40-hex GitHub release commit, and client telemetry carries that same build commit. The release command rejects moving/stale dependency refs and verifies each pinned GitHub support module byte-for-byte against the committed local source before a manifest can be published. Automatic installations use Tampermonkey's native `@updateURL`/`@downloadURL` behavior; manual installations disable native updates and receive a once-daily JSON manifest check plus an install link. ReviveRelay never downloads and `eval()`s executable updates and never rewrites its own userscript.
+ReviveRelay client version `0.4.2` adds the movable, persistent four-tab hybrid UI while preserving the hardened automatic and manual release channels introduced in `0.4.1`. Every generated `@require` URL is pinned to the exact 40-hex GitHub release commit, and client telemetry carries that same build commit. The release command rejects moving/stale dependency refs and verifies each pinned GitHub support module byte-for-byte against the committed local source before a manifest can be published. Automatic installations use Tampermonkey's native `@updateURL`/`@downloadURL` behavior; manual installations disable native updates and receive a once-daily JSON manifest check plus an install link. ReviveRelay never downloads and `eval()`s executable updates and never rewrites its own userscript.
 
-The API exposes the validated release manifest at `/v1/client/version`. Protected marketplace mutations require a supported `X-ReviveRelay-Version`; health, version discovery, authentication, `/v1/me`, telemetry and safe read-only routes remain available to old clients. Immutable client artifacts live under `/srv/voidsmith/torn-platform/reviverelay/releases/client/<version>/`. Only generated files from `dist/` are installable release artifacts; the tracked userscript source is a build template. Public Caddy/DNS serving remains a separate cutover and is not enabled by this release.
+The API exposes the validated release manifest at `/v1/client/version`. Protected marketplace mutations require a supported `X-ReviveRelay-Version`; health, version discovery, authentication, `/v1/me`, telemetry and safe read-only routes remain available to old clients. Immutable client artifacts live under `/srv/voidsmith/torn-platform/reviverelay/releases/client/<version>/`. Only generated files from `dist/` are installable release artifacts; the tracked userscript source is a build template. Public Caddy/DNS serving is active at `reviverelay.voidsmithindustries.com`; release artifacts are served through the immutable `current` client-release symlink.

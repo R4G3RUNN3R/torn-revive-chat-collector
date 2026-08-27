@@ -62,7 +62,9 @@
     deadLetters: 'reviverelay_candidate_dead_letters',
     paused: 'reviverelay_paused',
     minimized: 'reviverelay_minimized',
-    liveFilter: 'reviverelay_live_filter'
+    liveFilter: 'reviverelay_live_filter',
+    panelPosition: 'reviverelay_panel_position',
+    panelTab: 'reviverelay_panel_tab'
   });
 
   const state = {
@@ -82,6 +84,8 @@
     seenNodes: new WeakSet(),
     paused: Boolean(GM_getValue(KEYS.paused, false)),
     minimized: Boolean(GM_getValue(KEYS.minimized, false)),
+    panelPosition: GM_getValue(KEYS.panelPosition, null) || null,
+    panelTab: Core?.normalizePanelTab ? Core.normalizePanelTab(GM_getValue(KEYS.panelTab, 'request')) : 'request',
     draining: false,
     lastInteractionAt: 0,
     activeRequest: null,
@@ -758,35 +762,60 @@
   }
 
   function renderActiveTransaction() {
-    const box = document.getElementById('rr-active-transaction');
-    if (!box) return;
+    const boxes = ['rr-active-transaction', 'rr-reviver-transaction']
+      .map((id) => document.getElementById(id))
+      .filter(Boolean);
+    if (!boxes.length) return;
     const tx = state.activeTransaction;
-    if (!tx) {
-      box.innerHTML = '<div class="rr-muted">No assigned protected transaction.</div>';
-      return;
-    }
-    const deadlineRows = [
-      ['Payment', tx.paymentDeadline],
-      ['Revive', tx.reviveDeadline],
-      ['Retry response', tx.retryResponseDeadline],
-      ['Refund', tx.refundDeadline]
-    ].filter(([, value]) => value);
-    const requester = tx.requester ? `${tx.requester.name || 'Requester'} [${tx.requester.tornId}]` : '';
-    const reviver = tx.reviver ? `${tx.reviver.name || 'Reviver'} [${tx.reviver.tornId}]` : '';
-    let actions = '';
-    if (!clientSupported()) { box.innerHTML = `<div><strong>${escapeHtml(tx.state || '')}</strong></div><div class="rr-warning">Update ReviveRelay to use protected transaction actions.</div>`; return; }
-    if (['WAITING_FOR_PAYMENT','PAYMENT_RECONCILING'].includes(tx.state)) actions += '<button data-rr-tx-action="check-payment">Check payment</button>';
-    if (tx.participantRole === 'requester' && tx.state === 'FAILED_ATTEMPT_CHOICE') actions += '<button data-rr-tx-action="retry-request">Retry</button><button data-rr-tx-action="request-refund">Request refund</button>';
-    if (tx.participantRole === 'reviver' && tx.state === 'RETRY_OFFERED') actions += '<button data-rr-tx-action="retry-accept">Accept retry</button><button data-rr-tx-action="retry-decline">Decline retry</button>';
-    if (['REFUND_REQUIRED','REFUND_RECONCILING'].includes(tx.state)) actions += '<button data-rr-tx-action="check-refund">Check refund</button>';
-    box.innerHTML = `<div><strong>${escapeHtml(tx.state || '')}</strong></div>
-      <div>${escapeHtml(requester)} → ${escapeHtml(reviver)}</div>
-      <div>${escapeHtml(tx.terms?.paymentMethod || '')}: ${escapeHtml(tx.terms?.offerAmount ?? '')}</div>
-      ${deadlineRows.map(([label, value]) => `<div class="rr-muted">${label}: ${formatCountdown(value)} · ${escapeHtml(value)}</div>`).join('')}
-      <div class="rr-actions">${actions}</div>`;
-    box.querySelectorAll('[data-rr-tx-action]').forEach(button => {
-      button.onclick = () => transactionAction(button.getAttribute('data-rr-tx-action'));
-    });
+    const render = (box) => {
+      if (!tx) {
+        box.innerHTML = '<div class="rr-empty-state">No assigned protected transaction.</div>';
+        return;
+      }
+      const deadlineRows = [
+        ['Payment', tx.paymentDeadline],
+        ['Revive', tx.reviveDeadline],
+        ['Retry response', tx.retryResponseDeadline],
+        ['Refund', tx.refundDeadline]
+      ].filter(([, value]) => value);
+      const requester = tx.requester ? `${tx.requester.name || 'Requester'} [${tx.requester.tornId}]` : '';
+      const reviver = tx.reviver ? `${tx.reviver.name || 'Reviver'} [${tx.reviver.tornId}]` : '';
+      if (!clientSupported()) {
+        box.innerHTML = `<div class="rr-state-line"><strong>${escapeHtml(tx.state || '')}</strong></div><div class="rr-warning">Update ReviveRelay to use protected transaction actions.</div>`;
+        return;
+      }
+      let actions = '';
+      if (['WAITING_FOR_PAYMENT','PAYMENT_RECONCILING'].includes(tx.state)) actions += '<button data-rr-tx-action="check-payment">Check payment</button>';
+      if (tx.participantRole === 'requester' && tx.state === 'FAILED_ATTEMPT_CHOICE') actions += '<button data-rr-tx-action="retry-request">Retry</button><button data-rr-tx-action="request-refund">Request refund</button>';
+      if (tx.participantRole === 'reviver' && tx.state === 'RETRY_OFFERED') actions += '<button data-rr-tx-action="retry-accept">Accept retry</button><button data-rr-tx-action="retry-decline">Decline retry</button>';
+      if (['REFUND_REQUIRED','REFUND_RECONCILING'].includes(tx.state)) actions += '<button data-rr-tx-action="check-refund">Check refund</button>';
+      box.innerHTML = `<div class="rr-card-heading"><span>Transaction</span><span class="rr-status-chip">${escapeHtml(tx.state || 'ACTIVE')}</span></div>
+        <div class="rr-transaction-route">${escapeHtml(requester)} <span>→</span> ${escapeHtml(reviver)}</div>
+        <div class="rr-offer-line">${escapeHtml(formatOffer(tx.terms?.paymentMethod, tx.terms?.offerAmount))}</div>
+        ${deadlineRows.map(([label, value]) => `<div class="rr-deadline"><span>${label}</span><strong>${formatCountdown(value)}</strong></div>`).join('')}
+        <div class="rr-actions rr-transaction-actions">${actions}</div>`;
+      box.querySelectorAll('[data-rr-tx-action]').forEach(button => {
+        button.onclick = () => transactionAction(button.getAttribute('data-rr-tx-action'));
+      });
+    };
+    boxes.forEach(render);
+  }
+
+  function formatRelativeAge(timestamp) {
+    const then = new Date(timestamp || 0).getTime();
+    if (!Number.isFinite(then) || then <= 0) return 'just now';
+    const seconds = Math.max(0, Math.floor((Date.now() - then) / 1000));
+    if (seconds < 60) return `${seconds}s ago`;
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    return `${Math.floor(minutes / 60)}h ago`;
+  }
+
+  function formatOffer(method, amount) {
+    const value = Number(amount || 0);
+    if (String(method).toLowerCase() === 'cash') return `$${Math.max(0, value).toLocaleString()}`;
+    if (String(method).toLowerCase() === 'xanax') return `${Math.max(0, value).toLocaleString()} Xanax`;
+    return `${String(method || '').toUpperCase()} ${Math.max(0, value).toLocaleString()}`.trim();
   }
 
   function renderReviverMarketplace() {
@@ -795,19 +824,23 @@
     const canRevive = hasCredentialCapability('reviver') && clientSupported();
     const isReviver = Array.isArray(state.identity?.roles) && state.identity.roles.includes('reviver');
     if (!canRevive) {
-      box.innerHTML = '<div class="rr-warning">Bind a reviver-capable verification key to enable the queue and Accept.</div>';
+      box.innerHTML = '<div class="rr-empty-state rr-warning">Bind a reviver-capable verification key in Settings to enable the queue and Accept.</div>';
       return;
     }
     if (!isReviver) {
-      box.innerHTML = '<button id="rr-register-reviver" type="button">Register as reviver</button>';
+      box.innerHTML = '<div class="rr-empty-state">Your verification key is reviver-capable.</div><button id="rr-register-reviver" class="rr-primary" type="button">Register as reviver</button>';
       document.getElementById('rr-register-reviver').onclick = registerAsReviver;
       return;
     }
-    box.innerHTML = state.reviverQueue.length ? state.reviverQueue.map(request => `<div class="rr-market-row">
-      <div><strong>${escapeHtml(request.requesterName || request.requesterTornId || 'Requester')}</strong></div>
-      <div>${escapeHtml(request.paymentMethod)}: ${escapeHtml(request.offerAmount)}</div>
-      <button data-rr-accept="${escapeHtml(request.id)}" ${canRevive ? '' : 'disabled'}>Accept</button>
-    </div>`).join('') : '<div class="rr-muted">No available revive requests.</div>';
+    box.innerHTML = state.reviverQueue.length ? state.reviverQueue.map(request => `<article class="rr-market-card">
+      <div class="rr-market-top">
+        <div><strong>${escapeHtml(request.requesterName || 'Requester')}</strong><span class="rr-muted"> [${escapeHtml(request.requesterTornId || '')}]</span></div>
+        <span class="rr-age">${escapeHtml(formatRelativeAge(request.createdAt))}</span>
+      </div>
+      <div class="rr-market-offer">${escapeHtml(formatOffer(request.paymentMethod, request.offerAmount))}</div>
+      ${request.comment ? `<div class="rr-market-comment">“${escapeHtml(request.comment)}”</div>` : '<div class="rr-muted">No comment supplied.</div>'}
+      <div class="rr-market-footer"><span class="rr-status-chip">AVAILABLE</span><button class="rr-primary" data-rr-accept="${escapeHtml(request.id)}" ${canRevive ? '' : 'disabled'}>Accept</button></div>
+    </article>`).join('') : '<div class="rr-empty-state">No available revive requests.</div>';
     box.querySelectorAll('[data-rr-accept]').forEach(button => {
       button.onclick = () => acceptMarketplaceRequest(button.getAttribute('data-rr-accept'));
     });
@@ -856,23 +889,28 @@
 
   function renderActiveRequest() {
     const box = document.getElementById('rr-active-request');
+    const form = document.getElementById('rr-request-form');
     if (!box) return;
     if (!state.sessionToken) {
-      box.innerHTML = '<div class="rr-muted">Connect to manage a revive request.</div>';
+      if (form) form.style.display = 'none';
+      box.innerHTML = '';
       return;
     }
     const request = state.activeRequest;
     if (!request) {
-      box.innerHTML = '<div class="rr-muted">No active revive request.</div>';
+      if (form) form.style.display = '';
+      box.innerHTML = '<div class="rr-empty-state">No active revive request.</div>';
       return;
     }
+    if (form) form.style.display = 'none';
     const cancellable = ['AVAILABLE', 'WAITING_FOR_PAYMENT'].includes(request.state);
-    box.innerHTML = `
-      <div><strong>${escapeHtml(request.state || 'ACTIVE')}</strong></div>
-      <div>${escapeHtml(request.paymentMethod || '')}: ${escapeHtml(request.offerAmount ?? '')}</div>
+    box.innerHTML = `<div class="rr-active-request-card">
+      <div class="rr-card-heading"><span>Active request</span><span class="rr-status-chip">${escapeHtml(request.state || 'ACTIVE')}</span></div>
+      <div class="rr-market-offer">${escapeHtml(formatOffer(request.paymentMethod, request.offerAmount))}</div>
+      ${request.comment ? `<div class="rr-market-comment">“${escapeHtml(request.comment)}”</div>` : ''}
       <div class="rr-muted">Request ${escapeHtml(request.id || '')}</div>
-      ${cancellable ? '<button id="rr-cancel-request" type="button">Cancel request</button>' : ''}
-    `;
+      ${cancellable ? '<button id="rr-cancel-request" class="rr-danger-subtle" type="button">Cancel request</button>' : ''}
+    </div>`;
     const cancel = document.getElementById('rr-cancel-request');
     if (cancel) cancel.onclick = cancelActiveRequest;
   }
@@ -897,9 +935,93 @@
     `).join('') : '<div class="rr-muted">No matching local events yet.</div>';
   }
 
+  function applyPanelPosition(position = state.panelPosition, persist = false) {
+    const panel = document.getElementById('rr-panel');
+    if (!panel) return null;
+    if (!position || typeof position !== 'object') {
+      panel.style.left = '';
+      panel.style.top = '';
+      panel.style.right = '16px';
+      panel.style.bottom = '16px';
+      state.panelPosition = null;
+      return null;
+    }
+    const rect = panel.getBoundingClientRect();
+    const clamped = Core.clampPanelPosition(
+      position,
+      { width: window.innerWidth, height: window.innerHeight },
+      { width: rect.width, height: rect.height },
+      8
+    );
+    panel.style.left = `${clamped.x}px`;
+    panel.style.top = `${clamped.y}px`;
+    panel.style.right = 'auto';
+    panel.style.bottom = 'auto';
+    state.panelPosition = clamped;
+    if (persist) GM_setValue(KEYS.panelPosition, clamped);
+    return clamped;
+  }
+
+  function resetPanelPosition() {
+    state.panelPosition = null;
+    GM_setValue(KEYS.panelPosition, null);
+    applyPanelPosition(null, false);
+  }
+
+  function activatePanelTab(tab, persist = true) {
+    state.panelTab = Core.normalizePanelTab(tab);
+    if (persist) GM_setValue(KEYS.panelTab, state.panelTab);
+    document.querySelectorAll('#rr-panel [data-rr-tab]').forEach((button) => {
+      const active = button.getAttribute('data-rr-tab') === state.panelTab;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-selected', active ? 'true' : 'false');
+      button.tabIndex = active ? 0 : -1;
+    });
+    document.querySelectorAll('#rr-panel [data-rr-panel]').forEach((page) => {
+      page.classList.toggle('active', page.getAttribute('data-rr-panel') === state.panelTab);
+    });
+  }
+
+  function wirePanelDragging(panel) {
+    const header = document.getElementById('rr-header');
+    if (!header) return;
+    let drag = null;
+    header.addEventListener('pointerdown', (event) => {
+      if (event.button !== 0 || event.target.closest('button')) return;
+      const rect = panel.getBoundingClientRect();
+      drag = { pointerId: event.pointerId, offsetX: event.clientX - rect.left, offsetY: event.clientY - rect.top };
+      header.setPointerCapture(event.pointerId);
+      panel.classList.add('rr-dragging');
+      event.preventDefault();
+    });
+    header.addEventListener('pointermove', (event) => {
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      applyPanelPosition({ x: event.clientX - drag.offsetX, y: event.clientY - drag.offsetY }, false);
+    });
+    const finishDrag = (event) => {
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      applyPanelPosition(state.panelPosition, true);
+      panel.classList.remove('rr-dragging');
+      if (header.hasPointerCapture?.(event.pointerId)) header.releasePointerCapture(event.pointerId);
+      drag = null;
+    };
+    header.addEventListener('pointerup', finishDrag);
+    header.addEventListener('pointercancel', finishDrag);
+    header.addEventListener('dblclick', (event) => {
+      if (event.target.closest('button')) return;
+      resetPanelPosition();
+    });
+    window.addEventListener('resize', () => {
+      if (!state.panelPosition) return;
+      requestAnimationFrame(() => applyPanelPosition(state.panelPosition, true));
+    });
+  }
+
   function refreshPanel() {
+    const status = stateLabel();
     const values = {
-      'rr-state': stateLabel(),
+      'rr-state': status,
+      'rr-summary-state': status,
       'rr-identity': state.identity ? `${state.identity.name || 'Player'} [${state.identity.tornId || ''}]` : 'Not connected',
       'rr-open-chats': state.stats.openChats,
       'rr-list-items': state.stats.chatListItems,
@@ -908,7 +1030,10 @@
       'rr-queued': state.stats.queued,
       'rr-submitted': state.stats.submitted,
       'rr-duplicates': state.stats.duplicates,
-      'rr-dead': state.stats.deadLetters
+      'rr-dead': state.stats.deadLetters,
+      'rr-summary-processed': state.stats.processed,
+      'rr-summary-candidates': state.stats.candidates,
+      'rr-summary-submitted': state.stats.submitted
     };
     for (const [id, value] of Object.entries(values)) {
       const el = document.getElementById(id);
@@ -917,10 +1042,20 @@
     const body = document.getElementById('rr-body');
     if (body) body.style.display = state.minimized ? 'none' : '';
     const minimize = document.getElementById('rr-minimize');
-    if (minimize) minimize.textContent = state.minimized ? '+' : '−';
+    if (minimize) {
+      minimize.textContent = state.minimized ? '+' : '−';
+      minimize.setAttribute('aria-label', state.minimized ? 'Expand ReviveRelay' : 'Minimize ReviveRelay');
+    }
+    const connectionPill = document.getElementById('rr-connection-pill');
+    if (connectionPill) {
+      connectionPill.textContent = state.sessionToken ? 'CONNECTED' : 'OFFLINE';
+      connectionPill.classList.toggle('connected', Boolean(state.sessionToken));
+    }
     const pause = document.getElementById('rr-pause');
-    document.getElementById('rr-update-check').onclick = () => checkForUpdates(true);
-    document.getElementById('rr-update-switch').onclick = () => state.updateManager?.switchChannel(UPDATE_CHANNEL === 'automatic' ? 'manual' : 'automatic');
+    const updateCheck = document.getElementById('rr-update-check');
+    const updateSwitch = document.getElementById('rr-update-switch');
+    if (updateCheck) updateCheck.onclick = () => checkForUpdates(true);
+    if (updateSwitch) updateSwitch.onclick = () => state.updateManager?.switchChannel(UPDATE_CHANNEL === 'automatic' ? 'manual' : 'automatic');
     const diagnostics = document.getElementById('rr-diagnostics-enabled');
     if (diagnostics) diagnostics.checked = state.clientDiagnosticsEnabled;
     if (pause) pause.textContent = state.paused ? 'Resume collection' : 'Pause collection';
@@ -932,11 +1067,15 @@
     if (verification) verification.style.display = state.sessionToken ? '' : 'none';
     const reviver = document.getElementById('rr-reviver');
     if (reviver) reviver.style.display = state.sessionToken ? '' : 'none';
+    const reviverHint = document.getElementById('rr-reviver-connect-hint');
+    if (reviverHint) reviverHint.style.display = state.sessionToken ? 'none' : '';
     const requestButton = document.getElementById('rr-request');
     if (requestButton) {
       requestButton.disabled = !state.sessionToken || !hasCredentialCapability('requester') || !clientSupported();
       requestButton.title = !clientSupported() ? 'ReviveRelay update required' : (requestButton.disabled ? 'Requester-capable verification key required' : '');
     }
+    activatePanelTab(state.panelTab, false);
+    renderActiveRequest();
     renderVerificationCredential();
     renderReviverMarketplace();
     renderActiveTransaction();
@@ -945,104 +1084,90 @@
 
   function createPanel() {
     GM_addStyle(`
-      #rr-panel{position:fixed;right:16px;bottom:16px;z-index:1000000;width:390px;max-height:82vh;background:#171b20;color:#e7edf3;border:1px solid #3d4650;border-radius:8px;box-shadow:0 8px 28px #0008;font:12px/1.35 Arial,sans-serif;overflow:hidden}
-      #rr-header{display:flex;align-items:center;padding:8px 10px;background:#262c33;font-weight:700;gap:8px}#rr-header span{flex:1}
-      #rr-body{padding:10px;max-height:calc(82vh - 38px);overflow:auto}.rr-grid{display:grid;grid-template-columns:1fr auto;gap:4px 8px;margin-bottom:10px}.rr-grid strong{text-align:right}
-      #rr-panel input,#rr-panel textarea,#rr-panel select{width:100%;box-sizing:border-box;margin:3px 0 7px;padding:6px;background:#0f1317;color:#e7edf3;border:1px solid #47525e;border-radius:4px}#rr-panel input[type=radio],#rr-panel input[type=checkbox]{width:auto;margin-right:4px}
-      .rr-actions{display:flex;flex-wrap:wrap;gap:5px}.rr-actions button,#rr-panel button{background:#39434d;color:#fff;border:1px solid #566472;border-radius:4px;padding:5px 8px;cursor:pointer}.rr-actions button:hover,#rr-panel button:hover{filter:brightness(1.12)}
-      #rr-status{margin-top:8px;color:#9bd5a5;word-break:break-word}#rr-status.error{color:#ff9d9d}.rr-muted{color:#aeb7c0;font-size:10px}.rr-warning{color:#e6c46b;font-size:10px;margin:6px 0}.rr-section{border-top:1px solid #333b44;padding-top:9px;margin-top:9px}.rr-section h4{margin:0 0 6px}.rr-market-row{border-top:1px solid #2b3239;padding:6px 0;word-break:break-word}.rr-live-row{border-top:1px solid #2b3239;padding:5px 0;word-break:break-word}
+      #rr-panel{position:fixed;right:16px;bottom:16px;z-index:1000000;width:min(420px,calc(100vw - 16px));max-height:min(84vh,760px);background:#14181d;color:#e8edf2;border:1px solid #434a52;border-top:2px solid #b8793f;border-radius:10px;box-shadow:0 12px 34px #0009;font:12px/1.45 Arial,sans-serif;overflow:hidden;box-sizing:border-box}
+      #rr-panel.rr-dragging{box-shadow:0 16px 42px #000b;opacity:.98}
+      #rr-header{display:flex;align-items:center;gap:9px;padding:8px 9px 8px 11px;background:linear-gradient(180deg,#272d34,#20262c);border-bottom:1px solid #353c44;cursor:move;touch-action:none;user-select:none}
+      .rr-brand{display:flex;align-items:center;gap:7px;min-width:0;flex:1}.rr-brand-mark{color:#b8793f;font-size:14px}.rr-brand-copy{display:flex;align-items:baseline;gap:6px;min-width:0}.rr-brand-name{font-size:13px;font-weight:800;letter-spacing:.2px}.rr-version{color:#89939d;font-size:9px;font-weight:600}
+      #rr-connection-pill{flex:0 0 auto;padding:2px 6px;border:1px solid #5c6269;border-radius:999px;color:#aeb5bc;background:#191e23;font-size:8px;font-weight:800;letter-spacing:.5px}#rr-connection-pill.connected{color:#8ed6b0;border-color:#3d795c;background:#173024}
+      #rr-minimize{width:25px;height:24px;padding:0!important;border-radius:5px!important;font-size:16px;line-height:1;background:#2b3239!important}
+      #rr-body{max-height:calc(min(84vh,760px) - 42px);overflow:auto;background:#14181d}
+      .rr-summary{display:grid;grid-template-columns:1.35fr repeat(3,1fr);gap:6px;padding:9px 10px;background:#171c21;border-bottom:1px solid #2d343b}.rr-summary-main{display:flex;flex-direction:column;justify-content:center}.rr-summary-main strong{font-size:10px}.rr-summary-main span{font-size:9px;color:#89949e}.rr-summary-stat{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:5px 3px;background:#1e242a;border:1px solid #303840;border-radius:6px}.rr-summary-stat strong{font-size:13px;color:#dce5ec}.rr-summary-stat span{font-size:8px;color:#87919a;text-transform:uppercase;letter-spacing:.3px}
+      .rr-tabs{position:sticky;top:0;z-index:5;display:grid;grid-template-columns:repeat(4,1fr);background:#101419;border-bottom:1px solid #333a42}.rr-tab{appearance:none;border:0!important;border-radius:0!important;padding:8px 4px!important;background:transparent!important;color:#8f9aa4!important;font-size:10px;font-weight:700;border-bottom:2px solid transparent!important}.rr-tab:hover{background:#1b2127!important;color:#e7edf3!important}.rr-tab.active{color:#e9eef2!important;background:#1a2026!important;border-bottom-color:#b8793f!important}
+      .rr-panel-page{display:none;padding:10px}.rr-panel-page.active{display:block}.rr-card{margin:0 0 9px;padding:10px;background:#1b2026;border:1px solid #333b44;border-radius:8px}.rr-card-primary{border-color:#564332;border-left:3px solid #b8793f;background:linear-gradient(135deg,#211e1b,#1a2026 55%)}.rr-card-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;font-weight:800}.rr-card-heading>span:first-child{font-size:11px;letter-spacing:.15px}
+      .rr-status-chip{display:inline-flex;align-items:center;padding:2px 6px;border:1px solid #4b5966;border-radius:999px;background:#17212a;color:#8fc9dc;font-size:8px;font-weight:800;letter-spacing:.35px;white-space:nowrap}
+      #rr-panel input,#rr-panel textarea,#rr-panel select{width:100%;box-sizing:border-box;margin:4px 0 8px;padding:7px 8px;background:#0f1317;color:#e7edf3;border:1px solid #46515c;border-radius:5px;outline:none}#rr-panel input:focus,#rr-panel textarea:focus,#rr-panel select:focus{border-color:#7b684e;box-shadow:0 0 0 2px #b8793f22}#rr-panel input[type=radio],#rr-panel input[type=checkbox]{width:auto;margin:0 5px 0 0}
+      .rr-payment-choices{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:4px 0 8px}.rr-choice{display:flex;align-items:center;justify-content:center;gap:4px;padding:7px;border:1px solid #3d4751;border-radius:6px;background:#161b20;cursor:pointer;font-weight:700}.rr-choice:has(input:checked){border-color:#8b6949;background:#2a2119;color:#f0ddca}
+      .rr-actions{display:flex;flex-wrap:wrap;gap:6px}.rr-actions button,#rr-panel button{background:#303943;color:#fff;border:1px solid #4b5865;border-radius:5px;padding:6px 9px;cursor:pointer;font:inherit;font-weight:700}.rr-actions button:hover,#rr-panel button:hover{filter:brightness(1.12)}#rr-panel button:disabled{opacity:.45;cursor:not-allowed;filter:none}.rr-primary{background:#8b5f38!important;border-color:#b8793f!important;color:#fff7ef!important}.rr-danger-subtle{margin-top:8px;background:#342425!important;border-color:#684044!important;color:#e9b6b6!important}
+      .rr-muted{color:#98a3ad;font-size:9px}.rr-warning{color:#dfbd70;font-size:9px;margin:6px 0}.rr-empty-state{padding:8px;border:1px dashed #39424b;border-radius:6px;color:#919ca6;text-align:center;font-size:10px}.rr-field-label{display:block;margin-top:4px;color:#c9d1d8;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.35px}.rr-grid{display:grid;grid-template-columns:1fr auto;gap:5px 8px}.rr-grid strong{text-align:right}
+      .rr-market-card{padding:9px;margin-top:7px;background:#151a1f;border:1px solid #303840;border-radius:7px}.rr-market-top,.rr-market-footer{display:flex;align-items:center;justify-content:space-between;gap:8px}.rr-market-offer{margin:7px 0 5px;color:#e7d2bd;font-size:15px;font-weight:800}.rr-market-comment{margin:5px 0 8px;padding:6px 7px;border-left:2px solid #4c6670;background:#172026;color:#cbd7dc;font-size:10px;word-break:break-word}.rr-age{color:#7f8a94;font-size:9px}.rr-market-footer{margin-top:8px}.rr-transaction-route{color:#c8d1d8;font-size:10px;word-break:break-word}.rr-transaction-route span{color:#6eb2c2}.rr-offer-line{margin:7px 0;color:#e3ccb5;font-size:13px;font-weight:800}.rr-deadline{display:flex;justify-content:space-between;padding:3px 0;border-top:1px solid #293038;color:#929da6;font-size:9px}.rr-deadline strong{color:#cbd6de}.rr-transaction-actions{margin-top:8px}.rr-live-row{border-top:1px solid #2b3239;padding:6px 0;word-break:break-word}.rr-live-row:first-child{border-top:0}.rr-active-request-card{padding-top:3px}
+      #rr-status{margin:9px 10px 10px;padding:7px 8px;background:#17231d;border:1px solid #2f5742;border-radius:6px;color:#9bd5a5;word-break:break-word;font-size:9px}#rr-status.error{background:#2c1c1d;border-color:#6b383b;color:#ffaaaa}.rr-privacy-note{margin:9px 0 0;padding:7px;border-radius:6px;background:#161c21;border:1px solid #2c343c;color:#89949e;font-size:8px}
+      @media (max-width:520px){#rr-panel{right:8px;bottom:8px}.rr-summary{grid-template-columns:1fr repeat(3,.75fr);padding:7px}.rr-panel-page{padding:8px}.rr-card{padding:9px}}
     `);
 
     const panel = document.createElement('div');
     panel.id = 'rr-panel';
     panel.innerHTML = `
-      <div id="rr-header"><span>ReviveRelay v${VERSION}</span><button id="rr-minimize" type="button">−</button></div>
+      <div id="rr-header" title="Drag to move. Double-click to reset position.">
+        <div class="rr-brand"><span class="rr-brand-mark">◆</span><div class="rr-brand-copy"><span class="rr-brand-name">ReviveRelay</span><span class="rr-version">v${VERSION}</span></div></div>
+        <span id="rr-connection-pill">OFFLINE</span>
+        <button id="rr-minimize" type="button" aria-label="Minimize ReviveRelay">−</button>
+      </div>
       <div id="rr-body">
-        <div class="rr-grid">
-          <span>Collection</span><strong id="rr-state">STARTING</strong>
-          <span>Identity</span><strong id="rr-identity">Not connected</strong>
-          <span>Public chats loaded</span><strong id="rr-open-chats">0</strong>
-          <span>Public list items</span><strong id="rr-list-items">0</strong>
-          <span>Processed locally</span><strong id="rr-processed">0</strong>
-          <span>Revive candidates</span><strong id="rr-candidates">0</strong>
-          <span>Queue</span><strong id="rr-queued">0</strong>
-          <span>Submitted</span><strong id="rr-submitted">0</strong>
-          <span>Duplicate</span><strong id="rr-duplicates">0</strong>
-          <span>Dead-letter</span><strong id="rr-dead">0</strong>
+        <div class="rr-summary">
+          <div class="rr-summary-main"><strong id="rr-summary-state">STARTING</strong><span>public revive relay</span></div>
+          <div class="rr-summary-stat"><strong id="rr-summary-processed">0</strong><span>Processed</span></div>
+          <div class="rr-summary-stat"><strong id="rr-summary-candidates">0</strong><span>Candidates</span></div>
+          <div class="rr-summary-stat"><strong id="rr-summary-submitted">0</strong><span>Sent</span></div>
+        </div>
+        <div class="rr-tabs" role="tablist" aria-label="ReviveRelay sections">
+          <button class="rr-tab" type="button" role="tab" data-rr-tab="request" aria-selected="true">Request</button>
+          <button class="rr-tab" type="button" role="tab" data-rr-tab="reviver" aria-selected="false">Reviver</button>
+          <button class="rr-tab" type="button" role="tab" data-rr-tab="activity" aria-selected="false">Activity</button>
+          <button class="rr-tab" type="button" role="tab" data-rr-tab="settings" aria-selected="false">Settings</button>
         </div>
 
-        <div id="rr-onboarding" class="rr-section">
-          <h4>Connect ReviveRelay</h4>
-          <div class="rr-muted">Your Torn key is sent over HTTPS only for identity verification. The identity key is not stored by ReviveRelay.</div>
-          <label for="rr-api-key">Minimally scoped Torn API key</label>
-          <input id="rr-api-key" type="password" autocomplete="off" placeholder="Paste key for one-time identity verification">
-          <button id="rr-connect" type="button">Verify &amp; connect</button>
-        </div>
+        <section class="rr-panel-page" data-rr-panel="request" role="tabpanel">
+          <div id="rr-onboarding" class="rr-card rr-card-primary">
+            <div class="rr-card-heading"><span>Connect ReviveRelay</span><span class="rr-status-chip">ONE-TIME</span></div>
+            <div class="rr-muted">Your Torn key is sent over HTTPS only for identity verification. The identity key is not stored by ReviveRelay.</div>
+            <label class="rr-field-label" for="rr-api-key">Minimally scoped Torn API key</label>
+            <input id="rr-api-key" type="password" autocomplete="off" placeholder="Paste key for one-time identity verification">
+            <button id="rr-connect" class="rr-primary" type="button">Verify &amp; connect</button>
+          </div>
+          <div id="rr-requester" style="display:none">
+            <div id="rr-request-card" class="rr-card rr-card-primary">
+              <div class="rr-card-heading"><span>Request a revive</span><span class="rr-status-chip">REQUESTER</span></div>
+              <div id="rr-request-form">
+                <span class="rr-field-label">Payment</span>
+                <div class="rr-payment-choices"><label class="rr-choice"><input type="radio" name="rr-payment-method" value="cash" checked>Cash</label><label class="rr-choice"><input type="radio" name="rr-payment-method" value="xanax">Xanax</label></div>
+                <label class="rr-field-label" for="rr-offer-amount">Offer</label><input id="rr-offer-amount" type="number" min="1" step="1" value="500000">
+                <div class="rr-muted">Cash minimum $500,000. Minimum 1 Xanax. Whole numbers only.</div>
+                <label class="rr-field-label" for="rr-comment">Comment for reviver</label><textarea id="rr-comment" maxlength="500" rows="2" placeholder="Optional message, up to 500 characters"></textarea>
+                <button id="rr-request" class="rr-primary" type="button">Request Revive</button><div class="rr-muted">Protected requests require a validated requester-capable verification key in Settings.</div>
+              </div>
+              <div id="rr-active-request"></div>
+            </div>
+            <div id="rr-active-transaction" class="rr-card"></div>
+          </div>
+        </section>
 
-        <div id="rr-verification" class="rr-section" style="display:none">
-          <h4>Protected Transaction Verification</h4>
-          <div class="rr-muted">Use a dedicated narrowly scoped Torn key for payment/revive/refund evidence. It is encrypted server-side and never stored in Tampermonkey.</div>
-          <input id="rr-verification-key" type="password" autocomplete="off" placeholder="Dedicated transaction-verification key">
-          <div class="rr-actions"><button id="rr-bind-verification" type="button">Bind verification key</button><button id="rr-revoke-verification" type="button">Revoke verification key</button></div>
-          <div id="rr-verification-status"><div class="rr-muted">Checking verification status...</div></div>
-        </div>
+        <section class="rr-panel-page" data-rr-panel="reviver" role="tabpanel">
+          <div id="rr-reviver" style="display:none"><div class="rr-card"><div class="rr-card-heading"><span>Reviver marketplace</span><span class="rr-status-chip">QUEUE</span></div><div class="rr-muted">Registration, queue and Accept require a validated reviver-capable verification key.</div><div id="rr-reviver-queue"></div></div><div id="rr-reviver-transaction" class="rr-card"></div></div>
+          <div id="rr-reviver-connect-hint" class="rr-empty-state">Connect from the Request tab to use reviver tools.</div>
+        </section>
 
-        <div id="rr-requester" class="rr-section" style="display:none">
-          <h4>Request Revive</h4>
-          <label><input type="radio" name="rr-payment-method" value="cash" checked>Cash</label>
-          <label><input type="radio" name="rr-payment-method" value="xanax">Xanax</label>
-          <input id="rr-offer-amount" type="number" min="1" step="1" value="500000">
-          <div class="rr-muted">Cash minimum $500,000. Minimum 1 Xanax. Whole numbers only.</div>
-          <label for="rr-comment">Comment for reviver (optional)</label>
-          <textarea id="rr-comment" maxlength="500" rows="2" placeholder="Up to 500 characters"></textarea>
-          <button id="rr-request" type="button">Request Revive</button>
-          <div class="rr-muted">Protected requests require a validated requester-capable verification key.</div>
-          <div id="rr-active-request"></div>
-          <div id="rr-active-transaction" class="rr-market-row"></div>
-        </div>
+        <section class="rr-panel-page" data-rr-panel="activity" role="tabpanel">
+          <div class="rr-card"><div class="rr-card-heading"><span>Collection activity</span><span id="rr-state" class="rr-status-chip">STARTING</span></div><div class="rr-grid"><span>Identity</span><strong id="rr-identity">Not connected</strong><span>Public chats loaded</span><strong id="rr-open-chats">0</strong><span>Public list items</span><strong id="rr-list-items">0</strong><span>Processed locally</span><strong id="rr-processed">0</strong><span>Revive candidates</span><strong id="rr-candidates">0</strong><span>Queue</span><strong id="rr-queued">0</strong><span>Submitted</span><strong id="rr-submitted">0</strong><span>Duplicate</span><strong id="rr-duplicates">0</strong><span>Dead-letter</span><strong id="rr-dead">0</strong></div></div>
+          <div class="rr-card"><div class="rr-card-heading"><span>Live Capture</span><span class="rr-status-chip">LOCAL</span></div><div class="rr-muted">Local processing monitor only. Non-candidate public messages are not uploaded.</div><select id="rr-live-filter"><option value="all">All local events</option><option value="candidates">Likely revive requests</option><option value="global">Global</option><option value="trade">Trade</option><option value="hospital">Hospital</option><option value="jail">Jail</option><option value="travel">Travel</option></select><div id="rr-live-events"><div class="rr-empty-state">No local events yet.</div></div></div>
+        </section>
 
-        <div id="rr-reviver" class="rr-section" style="display:none">
-          <h4>Reviver Marketplace</h4>
-          <div class="rr-muted">Registration, queue and Accept require a validated reviver-capable verification key.</div>
-          <div id="rr-reviver-queue"></div>
-        </div>
-
-        <div class="rr-section">
-          <h4>Live Capture</h4>
-          <div class="rr-muted">Local processing monitor only. Non-candidate public messages are not uploaded.</div>
-          <select id="rr-live-filter">
-            <option value="all">All local events</option>
-            <option value="candidates">Likely revive requests</option>
-            <option value="global">Global</option>
-            <option value="trade">Trade</option>
-            <option value="hospital">Hospital</option>
-            <option value="jail">Jail</option>
-            <option value="travel">Travel</option>
-          </select>
-          <div id="rr-live-events"><div class="rr-muted">No local events yet.</div></div>
-        </div>
-
-        <div class="rr-section">
-          <h4>Updates</h4>
-          <div class="rr-grid"><span>Current Version</span><strong id="rr-update-current">${VERSION}</strong><span>Channel</span><strong id="rr-update-channel"></strong><span>Latest Version</span><strong id="rr-update-latest">Unknown</strong><span>Last Checked</span><strong id="rr-update-checked">Never</strong></div>
-          <div id="rr-update-banner" class="rr-muted">Version check pending.</div>
-          <div class="rr-actions"><button id="rr-update-check" type="button">Check Now</button><button id="rr-update-switch" type="button">Switch Channel</button></div>
-          <div class="rr-muted">Automatic uses Tampermonkey's native update mechanism. Manual only notifies and opens the installer; ReviveRelay never rewrites or evals itself.</div>
-        </div>
-
-        <div class="rr-section">
-          <h4>Diagnostics</h4>
-          <label><input id="rr-diagnostics-enabled" type="checkbox">Send sanitized error diagnostics</label>
-          <div class="rr-muted">Optional. Sends bounded technical error details only. Chat text, Torn keys, request bodies and raw payloads are never included.</div>
-        </div>
-
-        <div class="rr-section rr-actions">
-          <button id="rr-pause" type="button">Pause collection</button>
-          <button id="rr-rescan" type="button">Rescan public chats</button>
-          <button id="rr-refresh-request" type="button">Refresh marketplace</button>
-          <button id="rr-disconnect" type="button">Disconnect</button>
-        </div>
-        <div class="rr-warning">Only explicitly allowlisted public Torn chats are processed. Faction, Company, private/group-private, competition, poker and unknown chats are rejected before parsing.</div>
+        <section class="rr-panel-page" data-rr-panel="settings" role="tabpanel">
+          <div class="rr-card"><div class="rr-card-heading"><span>Account &amp; controls</span><span class="rr-status-chip">SETTINGS</span></div><div class="rr-actions"><button id="rr-pause" type="button">Pause collection</button><button id="rr-rescan" type="button">Rescan public chats</button><button id="rr-refresh-request" type="button">Refresh marketplace</button><button id="rr-disconnect" type="button">Disconnect</button></div></div>
+          <div id="rr-verification" class="rr-card" style="display:none"><div class="rr-card-heading"><span>Transaction verification</span><span class="rr-status-chip">PROTECTED</span></div><div class="rr-muted">Use a dedicated narrowly scoped Torn key for payment/revive/refund evidence. It is encrypted server-side and never stored in Tampermonkey.</div><input id="rr-verification-key" type="password" autocomplete="off" placeholder="Dedicated transaction-verification key"><div class="rr-actions"><button id="rr-bind-verification" class="rr-primary" type="button">Bind verification key</button><button id="rr-revoke-verification" type="button">Revoke verification key</button></div><div id="rr-verification-status"><div class="rr-muted">Checking verification status...</div></div></div>
+          <div class="rr-card"><div class="rr-card-heading"><span>Updates</span><span class="rr-status-chip">CLIENT</span></div><div class="rr-grid"><span>Current version</span><strong id="rr-update-current">${VERSION}</strong><span>Channel</span><strong id="rr-update-channel"></strong><span>Latest version</span><strong id="rr-update-latest">Unknown</strong><span>Last checked</span><strong id="rr-update-checked">Never</strong></div><div id="rr-update-banner" class="rr-muted">Version check pending.</div><div class="rr-actions"><button id="rr-update-check" type="button">Check now</button><button id="rr-update-switch" type="button">Switch channel</button></div><div class="rr-muted">Automatic uses Tampermonkey's native update mechanism. Manual only notifies and opens the installer; ReviveRelay never rewrites or evals itself.</div></div>
+          <div class="rr-card"><div class="rr-card-heading"><span>Diagnostics</span><span class="rr-status-chip">OPTIONAL</span></div><label><input id="rr-diagnostics-enabled" type="checkbox">Send sanitized error diagnostics</label><div class="rr-muted">Sends bounded technical error details only. Chat text, Torn keys, request bodies and raw payloads are never included.</div></div>
+          <div class="rr-privacy-note">Only explicitly allowlisted public Torn chats are processed. Faction, Company, private/group-private, competition, poker and unknown chats are rejected before parsing.</div>
+        </section>
         <div id="rr-status">Starting...</div>
       </div>`;
     document.body.appendChild(panel);
@@ -1053,49 +1178,26 @@
     document.getElementById('rr-bind-verification').onclick = bindTransactionVerificationCredential;
     document.getElementById('rr-revoke-verification').onclick = revokeTransactionVerificationCredential;
     document.getElementById('rr-refresh-request').onclick = refreshMarketplaceState;
-    document.getElementById('rr-disconnect').onclick = () => {
-      clearSession();
-      apiKeyInput.value = '';
-      setStatus('Disconnected locally.');
-    };
+    document.getElementById('rr-disconnect').onclick = () => { clearSession(); apiKeyInput.value = ''; setStatus('Disconnected locally.'); };
     document.getElementById('rr-minimize').onclick = () => {
       state.minimized = !state.minimized;
       GM_setValue(KEYS.minimized, state.minimized);
       refreshPanel();
+      requestAnimationFrame(() => { if (state.panelPosition) applyPanelPosition(state.panelPosition, true); });
     };
-    document.getElementById('rr-pause').onclick = () => {
-      markInteraction();
-      state.paused = !state.paused;
-      GM_setValue(KEYS.paused, state.paused);
-      if (!state.paused) discoverChats();
-      refreshPanel();
-    };
+    document.getElementById('rr-pause').onclick = () => { markInteraction(); state.paused = !state.paused; GM_setValue(KEYS.paused, state.paused); if (!state.paused) discoverChats(); refreshPanel(); };
     const diagnostics = document.getElementById('rr-diagnostics-enabled');
     diagnostics.checked = state.clientDiagnosticsEnabled;
-    diagnostics.onchange = () => {
-      state.clientDiagnosticsEnabled = Boolean(diagnostics.checked);
-      GM_setValue(KEYS.clientDiagnosticsEnabled, state.clientDiagnosticsEnabled);
-      if (!state.clientDiagnosticsEnabled) saveStoredArray(KEYS.telemetryOutbox, []);
-      else drainTelemetry();
-      refreshPanel();
-    };
-    document.getElementById('rr-rescan').onclick = () => {
-      markInteraction();
-      const contexts = discoverChats();
-      setStatus(`Rescan found ${contexts.length} eligible public chat(s).`);
-    };
+    diagnostics.onchange = () => { state.clientDiagnosticsEnabled = Boolean(diagnostics.checked); GM_setValue(KEYS.clientDiagnosticsEnabled, state.clientDiagnosticsEnabled); if (!state.clientDiagnosticsEnabled) saveStoredArray(KEYS.telemetryOutbox, []); else drainTelemetry(); refreshPanel(); };
+    document.getElementById('rr-rescan').onclick = () => { markInteraction(); const contexts = discoverChats(); setStatus(`Rescan found ${contexts.length} eligible public chat(s).`); };
     const filter = document.getElementById('rr-live-filter');
     filter.value = String(GM_getValue(KEYS.liveFilter, 'all') || 'all');
-    filter.onchange = () => {
-      GM_setValue(KEYS.liveFilter, filter.value);
-      renderLiveCapture();
-    };
-    for (const radio of document.querySelectorAll('input[name="rr-payment-method"]')) {
-      radio.onchange = () => {
-        const amount = document.getElementById('rr-offer-amount');
-        if (radio.checked) amount.value = radio.value === 'cash' ? '500000' : '1';
-      };
-    }
+    filter.onchange = () => { GM_setValue(KEYS.liveFilter, filter.value); renderLiveCapture(); };
+    for (const radio of document.querySelectorAll('input[name="rr-payment-method"]')) radio.onchange = () => { const amount = document.getElementById('rr-offer-amount'); if (radio.checked) amount.value = radio.value === 'cash' ? '500000' : '1'; };
+    panel.querySelectorAll('[data-rr-tab]').forEach((button) => { button.onclick = () => activatePanelTab(button.getAttribute('data-rr-tab'), true); });
+    wirePanelDragging(panel);
+    activatePanelTab(state.panelTab, false);
+    requestAnimationFrame(() => applyPanelPosition(state.panelPosition, Boolean(state.panelPosition)));
     refreshPanel();
     renderActiveRequest();
   }
