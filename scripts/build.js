@@ -20,7 +20,6 @@ const requiredSupportModules = [
 ];
 const AUTO_UPDATE = 'https://reviverelay.voidsmithindustries.com/install/reviverelay-auto.meta.js';
 const AUTO_DOWNLOAD = 'https://reviverelay.voidsmithindustries.com/install/reviverelay-auto.user.js';
-const RAW_PREFIX = 'https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/';
 
 function git(...args) {
   return cp.execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
@@ -42,32 +41,54 @@ function ensureSource(text) {
   ]) {
     if (!text.includes(marker)) throw new Error(`Missing build marker ${marker}`);
   }
-
-  const requireRows = [...text.matchAll(/^\/\/ @require\s+(\S+)$/gm)].map(match => match[1]);
-  if (requireRows.length !== requiredSupportModules.length) throw new Error('Unexpected ReviveRelay @require count');
-  for (const relativePath of requiredSupportModules) {
-    const expected = `${RAW_PREFIX}__REVIVERELAY_GIT_COMMIT__/${relativePath}`;
-    if (!requireRows.includes(expected)) throw new Error(`Support dependency is not commit-templated: ${relativePath}`);
+  if (/^\/\/ @require\s+/m.test(text)) {
+    throw new Error('ReviveRelay release template must not use runtime @require dependencies');
+  }
+  if (!/ReviveRelay-Build-Commit:\s*__REVIVERELAY_GIT_COMMIT__/.test(text)) {
+    throw new Error('ReviveRelay release template is missing metadata build provenance');
   }
 }
 
+function splitUserscript(text) {
+  const marker = '// ==/UserScript==';
+  const end = text.indexOf(marker);
+  if (end < 0) throw new Error('Userscript metadata header missing');
+  const metadataEnd = end + marker.length;
+  return {
+    metadata: text.slice(0, metadataEnd),
+    body: text.slice(metadataEnd)
+  };
+}
+
+function bundledModule(relativePath) {
+  const modulePath = path.join(root, relativePath);
+  if (!fs.existsSync(modulePath)) throw new Error(`Required userscript support module not found: ${relativePath}`);
+  const content = fs.readFileSync(modulePath, 'utf8');
+  const separator = content.endsWith('\n') ? '' : '\n';
+  return `/* ReviveRelay bundled module: ${relativePath} */\n${content}${separator}/* ReviveRelay end bundled module: ${relativePath} */`;
+}
+
+function bundleSupportModules(text) {
+  const { metadata, body } = splitUserscript(text);
+  const modules = requiredSupportModules.map(bundledModule).join('\n\n');
+  return `${metadata}\n\n${modules}${body}`;
+}
+
 function variant(sourceText, { updateUrl, downloadUrl, channel, gitCommit }) {
-  const output = sourceText
+  const templated = sourceText
     .replaceAll('__REVIVERELAY_VERSION__', version)
     .replace('__REVIVERELAY_UPDATE_URL__', updateUrl)
     .replace('__REVIVERELAY_DOWNLOAD_URL__', downloadUrl)
     .replace('__REVIVERELAY_UPDATE_CHANNEL__', channel)
     .replaceAll('__REVIVERELAY_GIT_COMMIT__', gitCommit);
-  if (/__REVIVERELAY_(?:VERSION|UPDATE_URL|DOWNLOAD_URL|UPDATE_CHANNEL|GIT_COMMIT)__/.test(output)) {
+  if (/__REVIVERELAY_(?:VERSION|UPDATE_URL|DOWNLOAD_URL|UPDATE_CHANNEL|GIT_COMMIT)__/.test(templated)) {
     throw new Error('Unresolved ReviveRelay build marker');
   }
-  return output;
+  return bundleSupportModules(templated);
 }
 
 function metadataOnly(text) {
-  const end = text.indexOf('// ==/UserScript==');
-  if (end < 0) throw new Error('Userscript metadata header missing');
-  return `${text.slice(0, end + '// ==/UserScript=='.length)}\n`;
+  return `${splitUserscript(text).metadata}\n`;
 }
 
 if (!fs.existsSync(source)) throw new Error('Installable userscript not found.');
@@ -83,6 +104,15 @@ const manual = variant(sourceText, { updateUrl: 'none', downloadUrl: 'none', cha
 fs.writeFileSync(path.join(outDir, 'reviverelay-auto.user.js'), auto);
 fs.writeFileSync(path.join(outDir, 'reviverelay-auto.meta.js'), metadataOnly(auto));
 fs.writeFileSync(path.join(outDir, 'reviverelay-manual.user.js'), manual);
-console.log(`Built automatic/manual ReviveRelay client artifacts at ${gitCommit}`);
+console.log(`Built self-contained automatic/manual ReviveRelay client artifacts at ${gitCommit}`);
 
-module.exports = { variant, metadataOnly, ensureSource, currentGitCommit, requiredSupportModules };
+module.exports = {
+  variant,
+  metadataOnly,
+  ensureSource,
+  currentGitCommit,
+  requiredSupportModules,
+  splitUserscript,
+  bundleSupportModules,
+  bundledModule
+};

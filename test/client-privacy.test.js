@@ -42,19 +42,22 @@ test('legacy id-less chat may resolve only from an exact allowlisted public name
   assert.equal(resolvePublicChat(idlessChat, { getName: () => 'Mystery Room' }), null);
 });
 
-test('installable userscript declares and uses the shared public-channel policy', () => {
+test('installable userscript bundles and uses the shared public-channel policy', () => {
   const source = fs.readFileSync(path.resolve(__dirname, '..', 'torn-revive-chat-collector.user.js'), 'utf8');
+  const artifact = fs.readFileSync(path.resolve(__dirname, '..', 'dist', 'reviverelay-auto.user.js'), 'utf8');
 
-  assert.match(source, /@require\s+https:\/\/raw\.githubusercontent\.com\/R4G3RUNN3R\/torn-revive-chat-collector\/__REVIVERELAY_GIT_COMMIT__\/src\/public-channels\.js/);
-  assert.match(source, /@require\s+https:\/\/raw\.githubusercontent\.com\/R4G3RUNN3R\/torn-revive-chat-collector\/__REVIVERELAY_GIT_COMMIT__\/src\/client-chat-policy\.js/);
+  assert.match(artifact, /ReviveRelay bundled module: src\/public-channels\.js/);
+  assert.match(artifact, /ReviveRelay bundled module: src\/client-chat-policy\.js/);
+  assert.doesNotMatch(artifact, /^\/\/ @require\s+/m);
   assert.match(source, /TornRevivePublicChannels/);
   assert.match(source, /TornReviveClientChatPolicy/);
   assert.match(source, /findChatContexts\(document,\s*\{[\s\S]*acceptChat/);
 });
 
-test('install artifact declares the ReviveRelay API client without wildcard network permission', () => {
+test('install artifact bundles the ReviveRelay API client without wildcard network permission', () => {
   const source = fs.readFileSync(path.resolve(__dirname, '..', 'torn-revive-chat-collector.user.js'), 'utf8');
-  assert.match(source, /@require\s+https:\/\/raw\.githubusercontent\.com\/R4G3RUNN3R\/torn-revive-chat-collector\/__REVIVERELAY_GIT_COMMIT__\/src\/api-client\.js/);
+  const artifact = fs.readFileSync(path.resolve(__dirname, '..', 'dist', 'reviverelay-auto.user.js'), 'utf8');
+  assert.match(artifact, /ReviveRelay bundled module: src\/api-client\.js/);
   assert.match(source, /ReviveRelayApiClient/);
   assert.doesNotMatch(source, /@connect\s+\*/);
 });

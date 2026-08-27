@@ -19,34 +19,35 @@ function requireRows(text) {
   return [...text.matchAll(/^\/\/ @require\s+(\S+)$/gm)].map(match => match[1]);
 }
 
-test('tracked userscript templates every support dependency and telemetry build provenance from one immutable Git commit marker', () => {
+function marker(relativePath) {
+  return `/* ReviveRelay bundled module: ${relativePath} */`;
+}
+
+test('tracked userscript is a self-contained release template with build provenance and no runtime @require dependencies', () => {
   const source = fs.readFileSync('torn-revive-chat-collector.user.js', 'utf8');
-  const rows = requireRows(source);
-  assert.equal(rows.length, REQUIRED.length);
-  assert.doesNotMatch(source, /raw\.githubusercontent\.com\/R4G3RUNN3R\/torn-revive-chat-collector\/main\//);
-  for (const relativePath of REQUIRED) {
-    assert.ok(rows.includes(`https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/__REVIVERELAY_GIT_COMMIT__/${relativePath}`));
-  }
+  assert.equal(requireRows(source).length, 0);
+  assert.match(source, /ReviveRelay-Build-Commit:\s*__REVIVERELAY_GIT_COMMIT__/);
   assert.match(source, /const BUILD_COMMIT = '__REVIVERELAY_GIT_COMMIT__';/);
   assert.match(source, /buildCommit:\s*BUILD_COMMIT/);
 });
 
-test('built userscripts pin every support dependency and telemetry provenance to one 40-hex commit', () => {
+test('built userscripts embed all support modules and have zero external @require dependencies', () => {
   for (const filename of ['dist/reviverelay-auto.user.js', 'dist/reviverelay-manual.user.js']) {
     const text = fs.readFileSync(filename, 'utf8');
-    const rows = requireRows(text);
-    assert.equal(rows.length, REQUIRED.length);
-    assert.doesNotMatch(text, /\/main\/src\//);
-    const commits = new Set();
-    for (const row of rows) {
-      const match = row.match(/^https:\/\/raw\.githubusercontent\.com\/R4G3RUNN3R\/torn-revive-chat-collector\/([0-9a-f]{40})\/(src\/.+)$/);
-      assert.ok(match, `dependency is not immutable: ${row}`);
-      assert.ok(REQUIRED.includes(match[2]), `unexpected support module: ${match[2]}`);
-      commits.add(match[1]);
-    }
-    assert.equal(commits.size, 1);
-    const commit = [...commits][0];
+    assert.equal(requireRows(text).length, 0, `${filename} must not depend on external @require loading`);
+    const commit = text.match(/ReviveRelay-Build-Commit:\s*([0-9a-f]{40})/)?.[1];
+    assert.ok(commit, `${filename} must carry immutable build provenance`);
     assert.match(text, new RegExp(`const BUILD_COMMIT = '${commit}';`));
     assert.match(text, /buildCommit:\s*BUILD_COMMIT/);
+    for (const relativePath of REQUIRED) {
+      assert.equal(text.split(marker(relativePath)).length - 1, 1, `${relativePath} must be bundled exactly once`);
+    }
   }
+});
+
+test('automatic metadata contains no executable dependency URLs and keeps immutable build provenance', () => {
+  const meta = fs.readFileSync('dist/reviverelay-auto.meta.js', 'utf8');
+  assert.equal(requireRows(meta).length, 0);
+  assert.match(meta, /ReviveRelay-Build-Commit:\s*[0-9a-f]{40}/);
+  assert.doesNotMatch(meta, /raw\.githubusercontent\.com/);
 });
