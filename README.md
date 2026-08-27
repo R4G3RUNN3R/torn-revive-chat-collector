@@ -82,7 +82,7 @@ Operational error groups can be mirrored one-way to the private `Voidsmith Error
 
 ## Important source files
 
-- `torn-revive-chat-collector.user.js` - installable ReviveRelay userscript.
+- `torn-revive-chat-collector.user.js` - release-build template; do not install it directly because release-time Git commit markers are unresolved in source.
 - `src/chat-dom.js` - Torn chat discovery and virtualized-DOM adapter.
 - `src/public-channels.js` - canonical public-channel allowlist.
 - `src/client-chat-policy.js` - fail-closed client privacy policy.
@@ -112,7 +112,8 @@ Build and syntax-check the userscript:
 
 ```bash
 npm run build
-node --check dist/torn-revive-chat-collector.user.js
+node --check dist/reviverelay-auto.user.js
+node --check dist/reviverelay-manual.user.js
 ```
 
 No production API key, session token, database password, encryption key, or collected Torn content belongs in this repository.
@@ -120,6 +121,6 @@ No production API key, session token, database password, encryption key, or coll
 
 ## Client releases and updates
 
-ReviveRelay client version `0.4.0` introduces explicit automatic and manual release channels. Automatic installations use Tampermonkey's native `@updateURL`/`@downloadURL` behavior; manual installations disable native updates and receive a once-daily JSON manifest check plus an install link. ReviveRelay never downloads and `eval()`s executable updates and never rewrites its own userscript.
+ReviveRelay client version `0.4.1` hardens the automatic and manual release channels. Every generated `@require` URL is pinned to the exact 40-hex GitHub release commit, and client telemetry carries that same build commit. The release command rejects moving/stale dependency refs and verifies each pinned GitHub support module byte-for-byte against the committed local source before a manifest can be published. Automatic installations use Tampermonkey's native `@updateURL`/`@downloadURL` behavior; manual installations disable native updates and receive a once-daily JSON manifest check plus an install link. ReviveRelay never downloads and `eval()`s executable updates and never rewrites its own userscript.
 
-The API exposes the validated release manifest at `/v1/client/version`. Protected marketplace mutations require a supported `X-ReviveRelay-Version`; health, version discovery, authentication, `/v1/me`, telemetry and safe read-only routes remain available to old clients. Immutable client artifacts live under `/srv/voidsmith/torn-platform/reviverelay/releases/client/<version>/`. Public Caddy/DNS serving remains a separate cutover and is not enabled by this release.
+The API exposes the validated release manifest at `/v1/client/version`. Protected marketplace mutations require a supported `X-ReviveRelay-Version`; health, version discovery, authentication, `/v1/me`, telemetry and safe read-only routes remain available to old clients. Immutable client artifacts live under `/srv/voidsmith/torn-platform/reviverelay/releases/client/<version>/`. Only generated files from `dist/` are installable release artifacts; the tracked userscript source is a build template. Public Caddy/DNS serving remains a separate cutover and is not enabled by this release.

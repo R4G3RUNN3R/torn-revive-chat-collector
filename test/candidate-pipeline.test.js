@@ -127,8 +127,8 @@ test('installable userscript uses candidate pipeline and contains no raw Google 
   const source = fs.readFileSync(path.resolve(__dirname, '..', 'torn-revive-chat-collector.user.js'), 'utf8');
   const build = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'build.js'), 'utf8');
 
-  assert.match(source, /@require\s+https:\/\/raw\.githubusercontent\.com\/R4G3RUNN3R\/torn-revive-chat-collector\/main\/src\/revive-classifier\.js/);
-  assert.match(source, /@require\s+https:\/\/raw\.githubusercontent\.com\/R4G3RUNN3R\/torn-revive-chat-collector\/main\/src\/candidate-pipeline\.js/);
+  assert.match(source, /@require\s+https:\/\/raw\.githubusercontent\.com\/R4G3RUNN3R\/torn-revive-chat-collector\/__REVIVERELAY_GIT_COMMIT__\/src\/revive-classifier\.js/);
+  assert.match(source, /@require\s+https:\/\/raw\.githubusercontent\.com\/R4G3RUNN3R\/torn-revive-chat-collector\/__REVIVERELAY_GIT_COMMIT__\/src\/candidate-pipeline\.js/);
   assert.match(source, /ReviveRelayCandidatePipeline/);
   assert.match(source, /handlePublicMessage/);
   assert.doesNotMatch(source, /records:\s*rows\.map\(Core\.buildSheetRecord\)/);

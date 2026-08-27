@@ -12,16 +12,16 @@
 // @connect      reviverelay.voidsmithindustries.com
 // @updateURL    __REVIVERELAY_UPDATE_URL__
 // @downloadURL  __REVIVERELAY_DOWNLOAD_URL__
-// @require      https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/main/src/core.js
-// @require      https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/main/src/chat-dom.js
-// @require      https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/main/src/public-channels.js
-// @require      https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/main/src/client-chat-policy.js
-// @require      https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/main/src/api-client.js
-// @require      https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/main/src/versioning.js
-// @require      https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/main/src/update-manager.js
-// @require      https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/main/src/telemetry-client.js
-// @require      https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/main/src/revive-classifier.js
-// @require      https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/main/src/candidate-pipeline.js
+// @require      https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/__REVIVERELAY_GIT_COMMIT__/src/core.js
+// @require      https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/__REVIVERELAY_GIT_COMMIT__/src/chat-dom.js
+// @require      https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/__REVIVERELAY_GIT_COMMIT__/src/public-channels.js
+// @require      https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/__REVIVERELAY_GIT_COMMIT__/src/client-chat-policy.js
+// @require      https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/__REVIVERELAY_GIT_COMMIT__/src/api-client.js
+// @require      https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/__REVIVERELAY_GIT_COMMIT__/src/versioning.js
+// @require      https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/__REVIVERELAY_GIT_COMMIT__/src/update-manager.js
+// @require      https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/__REVIVERELAY_GIT_COMMIT__/src/telemetry-client.js
+// @require      https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/__REVIVERELAY_GIT_COMMIT__/src/revive-classifier.js
+// @require      https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/__REVIVERELAY_GIT_COMMIT__/src/candidate-pipeline.js
 // @run-at       document-idle
 // ==/UserScript==
 
@@ -43,6 +43,7 @@
 
   const VERSION = '__REVIVERELAY_VERSION__';
   const UPDATE_CHANNEL = '__REVIVERELAY_UPDATE_CHANNEL__';
+  const BUILD_COMMIT = '__REVIVERELAY_GIT_COMMIT__';
   const API_BASE_URL = 'https://reviverelay.voidsmithindustries.com';
   const DISCOVERY_EVERY_MS = 2_000;
   const OUTBOX_EVERY_MS = 5_000;
@@ -1160,7 +1161,7 @@
         getStoredQueue: () => readStoredArray(KEYS.telemetryOutbox),
         saveStoredQueue: (queue) => saveStoredArray(KEYS.telemetryOutbox, queue),
         version: VERSION,
-        buildCommit: '',
+        buildCommit: BUILD_COMMIT,
         now: Date.now
       });
       createPanel();
