@@ -1,0 +1,38 @@
+name: ReviveRelay UI 0.4.2 source sync
+
+on:
+  push:
+    branches:
+      - sync/reviverelay-ui-0.4.2-source
+    paths:
+      - .github/workflows/reviverelay-ui-042-sync.yml
+
+permissions:
+  contents: write
+
+jobs:
+  import-source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fetch and verify exact tested userscript source
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location \
+            https://reviverelay.voidsmithindustries.com/sync-ui-042-69192b3/torn-revive-chat-collector.user.js \
+            --output torn-revive-chat-collector.user.js
+          echo 'ce7621afef1414a133e72345a45152bc5c695185bb102cb455bfd364370ef51d  torn-revive-chat-collector.user.js' | sha256sum -c -
+          test "$(git hash-object torn-revive-chat-collector.user.js)" = '259c564e6dcae5d18bacedd84c2b87179402ebfe'
+      - name: Commit exact source to temporary branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add torn-revive-chat-collector.user.js
+          git diff --cached --quiet && { echo 'No source change to commit'; exit 1; }
+          git commit -m 'sync: import exact ReviveRelay 0.4.2 UI source'
+          git push origin HEAD:${GITHUB_REF_NAME}
