@@ -62,6 +62,32 @@ async function registerCandidateRoutes(app, { candidateRepository }) {
       candidate: result.candidate
     });
   });
+
+  app.get('/v1/candidates/recent', {
+    preHandler: app.authenticate,
+    config: {
+      rateLimit: RATE_LIMITS.REVIVER_QUEUE
+    }
+  }, async (_request, reply) => {
+    const freshSince = new Date(Date.now() - (10 * 60 * 1000));
+    const candidates = await candidateRepository.listRecentCandidates({
+      freshSince,
+      limit: 50
+    });
+    const sharedFeed = candidates.map(candidate => ({
+      id: candidate.id,
+      channelId: candidate.channelId,
+      channelName: candidate.channelName,
+      channelType: candidate.channelType,
+      senderId: candidate.senderId,
+      senderName: candidate.senderName,
+      text: candidate.text,
+      firstSeenAt: candidate.firstSeenAt,
+      lastSeenAt: candidate.lastSeenAt,
+      seenCount: candidate.seenCount
+    }));
+    return reply.code(200).send({ candidates: sharedFeed });
+  });
 }
 
 module.exports = {

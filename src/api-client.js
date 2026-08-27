@@ -136,6 +136,9 @@
       submitCandidate(candidate) {
         return call('POST', '/v1/candidates', candidate);
       },
+      getRecentCandidates() {
+        return call('GET', '/v1/candidates/recent');
+      },
       createRequest(payload) {
         return call('POST', '/v1/requests', payload);
       },

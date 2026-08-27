@@ -296,3 +296,17 @@ test('client version manifest route is fetched without requiring authentication'
   assert.equal(calls[0].url,'https://relay.example/v1/client/version');
   assert.equal(calls[0].headers.Authorization,undefined);
 });
+
+
+test('shared public candidate feed uses the authenticated recent-candidates route', async () => {
+  const calls = [];
+  const api = createApiClient({
+    baseUrl: 'https://relay.example',
+    getToken: () => 'session',
+    request: fakeRequest([{ status: 200, body: { candidates: [] } }], calls)
+  });
+  await api.getRecentCandidates();
+  assert.deepEqual(calls.map(c => [c.method, new URL(c.url).pathname, c.body]), [
+    ['GET', '/v1/candidates/recent', undefined]
+  ]);
+});

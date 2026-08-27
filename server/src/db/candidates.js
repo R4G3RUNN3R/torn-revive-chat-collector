@@ -206,15 +206,35 @@ async function upsertCandidate(pool, candidate, receivedAt = new Date()) {
   return upsertFallback(pool, candidate, receivedAt, fallbackBasisHash);
 }
 
+async function listRecentCandidates(pool, { freshSince, limit = 50 } = {}) {
+  if (!pool) throw new Error('PostgreSQL pool is required');
+  if (!(freshSince instanceof Date) || Number.isNaN(freshSince.getTime())) {
+    throw new Error('freshSince must be a valid Date');
+  }
+  const boundedLimit = Math.max(1, Math.min(100, Number(limit) || 50));
+  const result = await pool.query(`
+    SELECT *
+    FROM public_chat_candidates
+    WHERE last_seen_at >= $1
+    ORDER BY last_seen_at DESC, first_seen_at DESC
+    LIMIT $2
+  `, [freshSince, boundedLimit]);
+  return result.rows.map(rowToCandidate);
+}
+
 function createCandidateRepository(pool) {
   return {
     upsertCandidate(candidate, receivedAt) {
       return upsertCandidate(pool, candidate, receivedAt);
+    },
+    listRecentCandidates(options) {
+      return listRecentCandidates(pool, options);
     }
   };
 }
 
 module.exports = {
   upsertCandidate,
+  listRecentCandidates,
   createCandidateRepository
 };

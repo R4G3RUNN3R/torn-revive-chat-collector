@@ -95,3 +95,19 @@ test('stable canonical source identity is idempotent regardless of local capture
   assert.equal(first.candidate.id, second.candidate.id);
   assert.equal(second.candidate.seenCount, 2);
 });
+
+
+test('recent shared-candidate query returns only fresh rows newest first', async t => {
+  const candidatesModule = require('../../src/db/candidates');
+  assert.equal(typeof candidatesModule.listRecentCandidates, 'function', 'candidate repository must expose the shared-feed query');
+  const pool = await preparePool(t);
+  await upsertCandidate(pool, candidate({ senderId: '1', senderName: 'Old', text: 'old revive' }), new Date('2026-08-27T12:00:00Z'));
+  await upsertCandidate(pool, candidate({ senderId: '2', senderName: 'FreshA', text: 'fresh revive A' }), new Date('2026-08-27T12:09:00Z'));
+  await upsertCandidate(pool, candidate({ senderId: '3', senderName: 'FreshB', text: 'fresh revive B' }), new Date('2026-08-27T12:09:30Z'));
+
+  const rows = await candidatesModule.listRecentCandidates(pool, {
+    freshSince: new Date('2026-08-27T12:08:00Z'),
+    limit: 50
+  });
+  assert.deepEqual(rows.map(row => row.senderName), ['FreshB', 'FreshA']);
+});
