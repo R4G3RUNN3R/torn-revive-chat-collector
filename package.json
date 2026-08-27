@@ -5,6 +5,7 @@
   "description": "ReviveRelay public revive-candidate client and isolated direct-request backend for Torn.",
   "scripts": {
     "test": "npm run test:client && npm run test:server",
+    "pretest:client": "npm run build",
     "test:client": "node --test test",
     "test:server": "npm --prefix server test",
     "build": "node scripts/build.js",
