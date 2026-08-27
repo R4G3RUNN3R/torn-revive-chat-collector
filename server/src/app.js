@@ -8,7 +8,10 @@ const { registerMeRoute } = require('./routes/me');
 const { registerVerificationCredentialRoutes } = require('./routes/verification-credential');
 const { registerReviverRoutes } = require('./routes/revivers');
 const { registerTransactionRoutes } = require("./routes/transactions");
+const { registerTelemetryRoutes } = require("./routes/telemetry");
+const { registerClientVersionRoute } = require('./routes/client-version');
 const { installAuthentication } = require('./security/authenticate');
+const { createClientVersionPreHandler } = require('./security/client-version');
 
 function buildApp({
   config,
@@ -23,6 +26,8 @@ function buildApp({
   reviverRepository = null,
   transactionService = null,
   jobRepository = null,
+  errorTelemetryRepository = null,
+  releaseRegistry = null,
   logger = false
 }) {
   if (!config) throw new Error('config is required');
@@ -38,6 +43,10 @@ function buildApp({
     global: false
   });
 
+  if (releaseRegistry) {
+    app.addHook('preHandler', createClientVersionPreHandler({ releaseRegistry }));
+  }
+
   if (sessionRepository) {
     installAuthentication(app, {
       sessionRepository,
@@ -49,6 +58,18 @@ function buildApp({
   }
 
   app.get('/health', async () => ({ ok: true }));
+
+  if (releaseRegistry) {
+    app.register(async instance => {
+      await registerClientVersionRoute(instance, { releaseRegistry });
+    });
+  }
+
+  if (errorTelemetryRepository) {
+    app.register(async instance => {
+      await registerTelemetryRoutes(instance, { errorTelemetryRepository });
+    });
+  }
 
   if (verificationCredentialRepository) {
     if (!sessionRepository) throw new Error('verification credential routes require a sessionRepository');

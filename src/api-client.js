@@ -42,6 +42,9 @@
     if (status === 409) {
       return new ApiClientError('CONFLICT', { status, retryable: false, details });
     }
+    if (status === 426) {
+      return new ApiClientError('CLIENT_UPDATE_REQUIRED', { status, retryable: false, details });
+    }
     if (status === 422) {
       return new ApiClientError('INVALID_REQUEST', { status, retryable: false, details });
     }
@@ -84,7 +87,7 @@
     };
   }
 
-  function createApiClient({ baseUrl, getToken, request }) {
+  function createApiClient({ baseUrl, getToken, request, clientVersion = '', releaseChannel = '' }) {
     const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
     if (typeof request !== 'function') throw new Error('request transport is required');
     const readStoredToken = typeof getToken === 'function' ? getToken : () => '';
@@ -92,6 +95,10 @@
 
     async function call(method, path, body, options = {}) {
       const headers = { Accept: 'application/json' };
+      const normalizedVersion = String(clientVersion || '').trim();
+      const normalizedChannel = String(releaseChannel || '').trim();
+      if (normalizedVersion) headers['X-ReviveRelay-Version'] = normalizedVersion;
+      if (normalizedChannel) headers['X-ReviveRelay-Channel'] = normalizedChannel;
       if (body !== undefined) headers['Content-Type'] = 'application/json';
 
       if (options.auth !== false) {
@@ -140,6 +147,12 @@
       },
       getMe() {
         return call('GET', '/v1/me');
+      },
+      getClientVersionManifest() {
+        return call('GET', '/v1/client/version', undefined, { auth: false });
+      },
+      submitTelemetry(errors) {
+        return call('POST', '/v1/telemetry/errors', { errors: Array.isArray(errors) ? errors : [] });
       },
       getVerificationCredential() {
         return call('GET', '/v1/verification-credential');

@@ -20,7 +20,7 @@ function makeSessionRepository() {
   };
 }
 
-function makeApp(requestRepository, { credentialStatus = { id: 'cred-1', usable: true, capabilities: { requester: true, reviver: false } } } = {}) {
+function makeApp(requestRepository, { credentialStatus = { id: 'cred-1', usable: true, capabilities: { requester: true, reviver: false } }, releaseRegistry = null } = {}) {
   return buildApp({
     config: {
       API_KEY_ENCRYPTION_KEY: '88'.repeat(32),
@@ -31,7 +31,8 @@ function makeApp(requestRepository, { credentialStatus = { id: 'cred-1', usable:
     sessionRepository: makeSessionRepository(),
     requestRepository,
     verificationCredentialRepository: { async getStatus() { return credentialStatus; }, async bind() { throw new Error('not used'); }, async revoke() { return false; } },
-    logMetadataResolver: { async get() { return { categories: {} }; } }
+    logMetadataResolver: { async get() { return { categories: {} }; } },
+    releaseRegistry
   });
 }
 
@@ -218,4 +219,21 @@ test('active request lookup remains available after credential loss', async t =>
 
   const response = await app.inject({ method: 'GET', url: '/v1/requests/active', headers: { authorization: 'Bearer requester-token' } });
   assert.equal(response.statusCode, 200);
+});
+
+
+test('protected request mutations require a supported client while read-only active request remains available', async t => {
+  const releaseRegistry={latestVersion:'0.4.2',minimumVersion:'0.4.0',automatic:{installUrl:'https://reviverelay.voidsmithindustries.com/install/reviverelay-auto.user.js'},manual:{installUrl:'https://reviverelay.voidsmithindustries.com/install/reviverelay-manual.user.js'}};
+  const app=makeApp({
+    async createRequest(){ return {created:true,request:{id:VALID_REQUEST_ID,state:'AVAILABLE'}}; },
+    async getActiveRequest(){ return null; },
+    async cancelRequest(){ return {cancelled:true,request:{id:VALID_REQUEST_ID,state:'CANCELLED'}}; }
+  },{releaseRegistry});
+  t.after(()=>app.close());
+  const auth={authorization:'Bearer requester-token'};
+  const old=await app.inject({method:'POST',url:'/v1/requests',headers:{...auth,'x-reviverelay-version':'0.3.9','x-reviverelay-channel':'manual'},payload:{paymentMethod:'cash',offerAmount:500000}});
+  assert.equal(old.statusCode,426); assert.equal(old.json().error,'CLIENT_UPDATE_REQUIRED'); assert.equal(old.json().minimumVersion,'0.4.0');
+  const missing=await app.inject({method:'POST',url:'/v1/requests',headers:auth,payload:{paymentMethod:'cash',offerAmount:500000}}); assert.equal(missing.statusCode,426);
+  const current=await app.inject({method:'POST',url:'/v1/requests',headers:{...auth,'x-reviverelay-version':'0.4.0','x-reviverelay-channel':'automatic'},payload:{paymentMethod:'cash',offerAmount:500000}}); assert.equal(current.statusCode,201);
+  const readOnly=await app.inject({method:'GET',url:'/v1/requests/active',headers:auth}); assert.equal(readOnly.statusCode,200);
 });

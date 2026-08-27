@@ -26,8 +26,10 @@ services:
     environment:
       PORT: 3100
       DATABASE_URL: postgres://${REVIVERELAY_DB_USER:-reviverelay_app}:${REVIVERELAY_DB_PASSWORD}@reviverelay-db:5432/${REVIVERELAY_DB_NAME:-reviverelay}
+      REVIVERELAY_RELEASE_MANIFEST_FILE: /releases/client/manifest.json
     volumes:
       - ${REVIVERELAY_APP_DIR:-/srv/voidsmith/torn-platform/reviverelay/app}:/app:ro
+      - ${REVIVERELAY_CLIENT_RELEASE_DIR:-/srv/voidsmith/torn-platform/reviverelay/releases/client}:/releases/client:ro
     ports:
       - "127.0.0.1:18730:3100"
     depends_on:
@@ -46,8 +48,12 @@ services:
       - ${REVIVERELAY_ENV_FILE:-/srv/voidsmith/shared/secrets/reviverelay/runtime.env}
     environment:
       DATABASE_URL: postgres://${REVIVERELAY_DB_USER:-reviverelay_app}:${REVIVERELAY_DB_PASSWORD}@reviverelay-db:5432/${REVIVERELAY_DB_NAME:-reviverelay}
+      REVIVERELAY_GOOGLE_SERVICE_ACCOUNT_FILE: /run/secrets/reviverelay/google-service-account.json
+      REVIVERELAY_ERROR_SHEET_ID: ${REVIVERELAY_ERROR_SHEET_ID:-1HnaW1_PADiDwm6G-22o4TOxkrkgLbhQgzWzoEDd29dY}
+      REVIVERELAY_ERROR_SHEET_TAB: ${REVIVERELAY_ERROR_SHEET_TAB:-ReviveRelay Issues}
     volumes:
       - ${REVIVERELAY_APP_DIR:-/srv/voidsmith/torn-platform/reviverelay/app}:/app:ro
+      - ${REVIVERELAY_SECRET_DIR:-/srv/voidsmith/shared/secrets/reviverelay}:/run/secrets/reviverelay:ro
     depends_on:
       reviverelay-db:
         condition: service_healthy

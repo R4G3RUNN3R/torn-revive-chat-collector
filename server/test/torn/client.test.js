@@ -134,3 +134,53 @@ test('evidence methods encode bounded query parameters and keep key in header', 
     assert.doesNotMatch(call.url, /secret-key/);
   }
 });
+
+test('Torn client reports invalid-key, rate-limit, server, malformed and timeout classes without secrets or query strings', async () => {
+  const reports = [];
+  const telemetryReporter = {
+    async report(error, context) {
+      reports.push({ message: error.message, context });
+      return true;
+    }
+  };
+
+  const invalid = createTornClient({
+    telemetryReporter,
+    fetchImpl: async () => jsonResponse(401, { error: { code: 2, error: 'Incorrect key' } })
+  });
+  await assert.rejects(() => invalid.getKeyInfo('INVALID_KEY_SECRET'));
+
+  const limited = createTornClient({
+    telemetryReporter,
+    fetchImpl: async () => jsonResponse(429, { error: { code: 5, error: 'Too many requests' } })
+  });
+  await assert.rejects(() => limited.getUserRevives('RATE_LIMIT_KEY', { direction: 'incoming', from: 100, to: 200 }));
+
+  const server = createTornClient({
+    telemetryReporter,
+    fetchImpl: async () => jsonResponse(503, { error: 'unavailable' })
+  });
+  await assert.rejects(() => server.getUserProfile('SERVER_KEY'));
+
+  const malformed = createTornClient({
+    telemetryReporter,
+    fetchImpl: async () => ({ ok: true, status: 200, async json() { throw new SyntaxError('bad json'); } })
+  });
+  await assert.rejects(() => malformed.getLogCategories('MALFORMED_KEY'));
+
+  const timeout = createTornClient({
+    telemetryReporter,
+    fetchImpl: async url => { throw Object.assign(new Error(`timeout at ${url}?apiKey=TIMEOUT_KEY_SECRET`), { name: 'TimeoutError' }); }
+  });
+  await assert.rejects(() => timeout.getUserRevives('TIMEOUT_KEY_SECRET', { direction: 'outgoing', from: 300, to: 400 }));
+
+  assert.equal(reports.length, 5);
+  const serialized = JSON.stringify(reports);
+  assert.doesNotMatch(serialized, /INVALID_KEY_SECRET|RATE_LIMIT_KEY|SERVER_KEY|MALFORMED_KEY|TIMEOUT_KEY_SECRET|\?filters=|\?from=|apiKey=/);
+  assert.ok(reports.every(item => item.context.component === 'torn'));
+  assert.ok(reports.every(item => item.context.operation));
+  assert.equal(reports[1].context.httpStatus, 429);
+  assert.equal(reports[2].context.httpStatus, 503);
+  assert.equal(reports[3].context.httpStatus, 200);
+  assert.equal(reports[4].context.state, 'timeout');
+});

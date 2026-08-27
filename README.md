@@ -25,6 +25,8 @@ ReviveRelay uses an **allowlist**, not a blocklist. A chat must be positively re
 
 Non-candidate public messages are local-only and are not submitted to the VPS. Live Capture keeps at most 50 recent local events in memory.
 
+Optional client diagnostics send only bounded, sanitized technical error envelopes. They are enabled by default but can be disabled in the ReviveRelay panel. Raw chats, Torn API keys, bearer tokens, request bodies, and unrelated player data are excluded; the server sanitizes again on ingestion. Raw telemetry occurrences are retained for about 30 days while aggregate fingerprint/version statistics remain available for longer-term regression tracking.
+
 ## Identity and credentials
 
 The Stage 2 identity flow uses a minimally scoped Torn custom API key only to resolve the player's Torn identity. The backend verifies it with Torn, creates/updates the ReviveRelay user, issues an opaque ReviveRelay session token, and discards the supplied identity key.
@@ -76,6 +78,8 @@ Detailed deployment/isolation instructions are in `deploy/README.md`.
 
 The API origin is currently internal-only on `127.0.0.1:18730`. Public DNS/Caddy exposure is deliberately deferred until the remaining launch gates are complete.
 
+Operational error groups can be mirrored one-way to the private `Voidsmith Error Triage` Google Sheet. Only aggregate fields are exported; internal user IDs are never mirrored. Automatic sync owns columns A:N, while human workflow columns O:S (`Status`, `Owner`, `Notes`, `GitHub Issue`, `Fixed In`) are preserved. The Google service-account secret is mounted read-only into the ReviveRelay worker only.
+
 ## Important source files
 
 - `torn-revive-chat-collector.user.js` - installable ReviveRelay userscript.
@@ -112,3 +116,10 @@ node --check dist/torn-revive-chat-collector.user.js
 ```
 
 No production API key, session token, database password, encryption key, or collected Torn content belongs in this repository.
+
+
+## Client releases and updates
+
+ReviveRelay client version `0.4.0` introduces explicit automatic and manual release channels. Automatic installations use Tampermonkey's native `@updateURL`/`@downloadURL` behavior; manual installations disable native updates and receive a once-daily JSON manifest check plus an install link. ReviveRelay never downloads and `eval()`s executable updates and never rewrites its own userscript.
+
+The API exposes the validated release manifest at `/v1/client/version`. Protected marketplace mutations require a supported `X-ReviveRelay-Version`; health, version discovery, authentication, `/v1/me`, telemetry and safe read-only routes remain available to old clients. Immutable client artifacts live under `/srv/voidsmith/torn-platform/reviverelay/releases/client/<version>/`. Public Caddy/DNS serving remains a separate cutover and is not enabled by this release.

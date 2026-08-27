@@ -92,3 +92,37 @@ test('worker reschedules normal polling outcomes without marking failure or comp
   assert.equal(rescheduled[0][0],'job-1');
   assert.equal(rescheduled[0][1].runAt,runAt);
 });
+
+test('worker reports unknown job types and handler failures without passing job payloads', async () => {
+  const reports = [];
+  const failures = [];
+  const jobs = [
+    { id: 'job-unknown', type: 'unknown.type', payload: { apiKey: 'SECRET_UNKNOWN' } },
+    { id: 'job-failed', type: 'payment.verify', payload: { apiKey: 'SECRET_HANDLER' } }
+  ];
+  let claimed = false;
+  const runner = createWorkerRunner({
+    workerId: 'worker-telemetry-test',
+    jobRepository: {
+      async claimDueJobs() { if (claimed) return []; claimed = true; return jobs; },
+      async completeJob() {},
+      async failJob(id, error) { failures.push([id, error]); }
+    },
+    handlers: {
+      'payment.verify': async () => { throw new Error('handler failed token=TOPSECRET'); }
+    },
+    telemetryReporter: {
+      async report(error, context) { reports.push({ message: error.message, context }); return true; }
+    },
+    logger: { error() {}, info() {} },
+    sleep: async () => {}
+  });
+
+  await runner.runOnce();
+  assert.equal(failures.length, 2);
+  assert.equal(reports.length, 2);
+  assert.deepEqual(reports.map(item => item.context.jobType), ['unknown.type', 'payment.verify']);
+  assert.deepEqual(reports.map(item => item.context.component), ['worker', 'worker']);
+  assert.ok(reports.every(item => item.context.operation));
+  assert.doesNotMatch(JSON.stringify(reports.map(item => item.context)), /payload|SECRET_UNKNOWN|SECRET_HANDLER|apiKey/);
+});

@@ -78,3 +78,16 @@ The restore test never writes to another Voidsmith database.
 - Keep `PAID_TIER_ENABLED=false` until the protected transaction verification and compliance gates are complete.
 - Do not point the userscript at this API until HTTPS/DNS are verified.
 - Google Sheets may receive one-way administrative exports only; it is never authoritative.
+
+## Immutable client releases
+
+`deploy/publish-client-release.sh` publishes verified client artifacts into `/srv/voidsmith/torn-platform/reviverelay/releases/client/<version>/`. Existing version directories are never overwritten or deleted. Publication verifies the automatic/manual SHA-256 values from `release-manifest.json`, stages files into a temporary directory, atomically renames the immutable version, and only then advances `current` and the stable `manifest.json` copy.
+
+The later public mapping is deliberately separate from release creation:
+
+- `/install/reviverelay-auto.user.js` -> `releases/client/current/reviverelay-auto.user.js`
+- `/install/reviverelay-auto.meta.js` -> `releases/client/current/reviverelay-auto.meta.js`
+- `/install/reviverelay-manual.user.js` -> `releases/client/current/reviverelay-manual.user.js`
+- `/v1/client/version` -> API-validated `releases/client/manifest.json`
+
+No public Caddy/DNS route is created by the publish script.

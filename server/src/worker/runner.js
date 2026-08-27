@@ -6,6 +6,7 @@ function createWorkerRunner({
   handlers,
   sleep = defaultSleep,
   logger = console,
+  telemetryReporter = null,
   claimLimit = 10,
   idleMs = 1000
 }) {
@@ -21,6 +22,15 @@ function createWorkerRunner({
 
   const registry = handlers || {};
   let stopping = false;
+
+  async function reportFailure(error, context) {
+    if (!telemetryReporter || typeof telemetryReporter.report !== 'function') return false;
+    try {
+      return await telemetryReporter.report(error, { component: 'worker', ...context });
+    } catch (_) {
+      return false;
+    }
+  }
 
   async function runOnce() {
     if (stopping) return 0;
@@ -38,6 +48,10 @@ function createWorkerRunner({
         if (logger && typeof logger.error === 'function') {
           logger.error(message);
         }
+        await reportFailure(new Error('Unknown worker job type'), {
+          operation: 'job.dispatch',
+          jobType: String(job.type || 'unknown')
+        });
         await jobRepository.failJob(job.id, message, { terminal: true });
         continue;
       }
@@ -60,6 +74,10 @@ function createWorkerRunner({
         if (logger && typeof logger.error === 'function') {
           logger.error(`Job ${job.id} failed: ${message}`);
         }
+        await reportFailure(error, {
+          operation: 'job.handle',
+          jobType: String(job.type || 'unknown')
+        });
         await jobRepository.failJob(job.id, message, { terminal: false });
       }
     }

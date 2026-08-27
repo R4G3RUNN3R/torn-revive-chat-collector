@@ -17,6 +17,10 @@ const configSchema = z.object({
   ADMIN_API_TOKEN: z.string().min(1).optional(),
   SHEETS_MIRROR_URL: z.string().default(''),
   SHEETS_MIRROR_TOKEN: z.string().default(''),
+  REVIVERELAY_GOOGLE_SERVICE_ACCOUNT_FILE: z.string().default(''),
+  REVIVERELAY_ERROR_SHEET_ID: z.string().default(''),
+  REVIVERELAY_ERROR_SHEET_TAB: z.string().default('ReviveRelay Issues'),
+  REVIVERELAY_RELEASE_MANIFEST_FILE: z.string().default(''),
   PAID_TIER_ENABLED: booleanFromString.default(false)
 });
 

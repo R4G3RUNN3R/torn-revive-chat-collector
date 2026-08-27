@@ -1,6 +1,8 @@
 const { loadConfig } = require('./config');
 const { createPool } = require('./db/pool');
 const { createJobRepository, JOB_TYPES } = require('./db/jobs');
+const { createErrorTelemetryRepository } = require('./db/error-telemetry');
+const { createTelemetryReporter } = require('./telemetry/reporter');
 const { createVerificationCredentialRepository } = require('./db/verification-credentials');
 const { createPaymentRepository } = require('./db/payments');
 const { createRefundRepository } = require('./db/refunds');
@@ -13,6 +15,9 @@ const { createPaymentVerifyHandler } = require('./worker/payment-verify');
 const { createReviveVerifyHandler } = require('./worker/revive-verify');
 const { createRefundVerifyHandler } = require('./worker/refund-verify');
 const { createWorkerRunner } = require('./worker/runner');
+const { createGoogleSheetsClient } = require('./integrations/google-sheets');
+const { createSheetsMirrorHandler } = require('./worker/sheets-mirror');
+const { createTelemetryRetentionHandler } = require('./worker/telemetry-retention');
 
 function unimplementedHandler(stage, type) {
   return async () => {
@@ -20,7 +25,7 @@ function unimplementedHandler(stage, type) {
   };
 }
 
-function buildStageThreeHandlers({ paymentVerifyHandler, reviveVerifyHandler, refundVerifyHandler }) {
+function buildStageThreeHandlers({ paymentVerifyHandler, reviveVerifyHandler, refundVerifyHandler, sheetsMirrorHandler = null, telemetryRetentionHandler = null }) {
   if (typeof paymentVerifyHandler !== 'function') throw new Error('paymentVerifyHandler is required');
   if (typeof reviveVerifyHandler !== 'function') throw new Error('reviveVerifyHandler is required');
   if (typeof refundVerifyHandler !== 'function') throw new Error('refundVerifyHandler is required');
@@ -29,6 +34,8 @@ function buildStageThreeHandlers({ paymentVerifyHandler, reviveVerifyHandler, re
     if (type === 'payment.verify') return [type, paymentVerifyHandler];
     if (type === 'revive.verify') return [type, reviveVerifyHandler];
     if (type === 'refund.verify') return [type, refundVerifyHandler];
+    if (type === 'sheets.mirror' && typeof sheetsMirrorHandler === 'function') return [type, sheetsMirrorHandler];
+    if (type === 'telemetry.retention' && typeof telemetryRetentionHandler === 'function') return [type, telemetryRetentionHandler];
     return [type, unimplementedHandler('Stage 3', type)];
   }));
 }
@@ -36,6 +43,13 @@ function buildStageThreeHandlers({ paymentVerifyHandler, reviveVerifyHandler, re
 async function start() {
   const config = loadConfig(process.env);
   const pool = createPool(config.DATABASE_URL);
+  const errorTelemetryRepository = createErrorTelemetryRepository(pool);
+  const telemetryReporter = createTelemetryReporter({
+    repository: errorTelemetryRepository,
+    product: 'reviverelay',
+    version: process.env.REVIVERELAY_VERSION || '0.3.0',
+    buildCommit: process.env.REVIVERELAY_BUILD_COMMIT || null
+  });
   const jobRepository = createJobRepository(pool);
   const verificationCredentialRepository = createVerificationCredentialRepository(pool, {
     encryptionKeyHex: config.API_KEY_ENCRYPTION_KEY
@@ -44,7 +58,7 @@ async function start() {
   const refundRepository = createRefundRepository(pool);
   const reviveAttemptRepository = createReviveAttemptRepository(pool);
   const transactionService = createTransactionService(pool);
-  const tornClient = createTornClient({ baseUrl: config.TORN_API_BASE_URL });
+  const tornClient = createTornClient({ baseUrl: config.TORN_API_BASE_URL, telemetryReporter });
   const logMetadataResolver = createLogMetadataResolver({ tornClient });
   const evidenceService = createTornEvidenceService({
     tornClient,
@@ -67,11 +81,41 @@ async function start() {
     transactionService,
     evidenceService
   });
+  const sheetsConfigured = Boolean(
+    config.REVIVERELAY_GOOGLE_SERVICE_ACCOUNT_FILE && config.REVIVERELAY_ERROR_SHEET_ID
+  );
+  const sheetsMirrorHandler = sheetsConfigured ? createSheetsMirrorHandler({
+    telemetryRepository: errorTelemetryRepository,
+    sheetsClient: createGoogleSheetsClient({
+      credentialsPath: config.REVIVERELAY_GOOGLE_SERVICE_ACCOUNT_FILE,
+      spreadsheetId: config.REVIVERELAY_ERROR_SHEET_ID,
+      sheetName: config.REVIVERELAY_ERROR_SHEET_TAB
+    }),
+    telemetryReporter
+  }) : null;
+  if (sheetsMirrorHandler) {
+    await jobRepository.enqueueUniqueJob({
+      type: 'sheets.mirror',
+      runAt: new Date(),
+      dedupeKey: 'sheets.mirror:reviverelay-errors',
+      payload: {}
+    });
+  }
+  const telemetryRetentionHandler = createTelemetryRetentionHandler({
+    telemetryRepository: errorTelemetryRepository
+  });
+  await jobRepository.enqueueUniqueJob({
+    type: 'telemetry.retention',
+    runAt: new Date(),
+    dedupeKey: 'telemetry.retention:reviverelay-errors',
+    payload: {}
+  });
   const runner = createWorkerRunner({
     workerId: process.env.REVIVERELAY_WORKER_ID || `worker-${process.pid}`,
     jobRepository,
-    handlers: buildStageThreeHandlers({ paymentVerifyHandler, reviveVerifyHandler, refundVerifyHandler }),
-    logger: console
+    handlers: buildStageThreeHandlers({ paymentVerifyHandler, reviveVerifyHandler, refundVerifyHandler, sheetsMirrorHandler, telemetryRetentionHandler }),
+    logger: console,
+    telemetryReporter
   });
 
   const requestStop = signal => {
@@ -84,6 +128,9 @@ async function start() {
 
   try {
     await runner.run();
+  } catch (error) {
+    await telemetryReporter.report(error, { component: 'worker', operation: 'worker.run' });
+    throw error;
   } finally {
     await pool.end();
   }

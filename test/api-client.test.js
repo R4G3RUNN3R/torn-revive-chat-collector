@@ -281,3 +281,18 @@ test('retry response client rejects any value other than accept or decline befor
   assert.throws(()=>api.respondRetry('223e4567-e89b-12d3-a456-426614174000','COMPLETED'),/accept or decline/i);
   assert.equal(calls,0);
 });
+
+test('API client sends version/channel headers and maps HTTP 426 explicitly', async () => {
+  const calls=[];
+  const api=createApiClient({baseUrl:'https://relay.example',getToken:()=>'',clientVersion:'0.4.0',releaseChannel:'manual',request:fakeRequest([{status:426,body:{error:'CLIENT_UPDATE_REQUIRED',minimumVersion:'0.4.1'}}],calls)});
+  await assert.rejects(()=>api.createRequest({paymentMethod:'cash',offerAmount:500000}), error => error instanceof ApiClientError && error.code==='CLIENT_UPDATE_REQUIRED' && error.status===426);
+  assert.equal(calls[0].headers['X-ReviveRelay-Version'],'0.4.0');
+  assert.equal(calls[0].headers['X-ReviveRelay-Channel'],'manual');
+});
+
+test('client version manifest route is fetched without requiring authentication', async () => {
+  const calls=[]; const api=createApiClient({baseUrl:'https://relay.example',getToken:()=> 'secret',clientVersion:'0.4.0',releaseChannel:'manual',request:fakeRequest([{status:200,body:{latestVersion:'0.4.0'}}],calls)});
+  await api.getClientVersionManifest();
+  assert.equal(calls[0].url,'https://relay.example/v1/client/version');
+  assert.equal(calls[0].headers.Authorization,undefined);
+});

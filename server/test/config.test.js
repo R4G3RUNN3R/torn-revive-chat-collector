@@ -27,3 +27,17 @@ test('loadConfig accepts a complete development environment', () => {
   assert.equal(cfg.PORT, 3100);
   assert.equal(cfg.PAID_TIER_ENABLED, false);
 });
+
+test('Google error mirror configuration defaults safely and accepts explicit ReviveRelay values', () => {
+  const base = { NODE_ENV:'test', DATABASE_URL:'postgres://x:y@localhost/z', API_KEY_ENCRYPTION_KEY:'a'.repeat(64), SESSION_TOKEN_PEPPER:'pepper' };
+  const defaults=loadConfig(base);
+  assert.equal(defaults.REVIVERELAY_GOOGLE_SERVICE_ACCOUNT_FILE,'');
+  assert.equal(defaults.REVIVERELAY_ERROR_SHEET_ID,'');
+  assert.equal(defaults.REVIVERELAY_ERROR_SHEET_TAB,'ReviveRelay Issues');
+  assert.equal(defaults.REVIVERELAY_RELEASE_MANIFEST_FILE,'');
+  const explicit=loadConfig({...base,
+    REVIVERELAY_GOOGLE_SERVICE_ACCOUNT_FILE:'/run/secrets/reviverelay-google-service-account.json',
+    REVIVERELAY_ERROR_SHEET_ID:'sheet123', REVIVERELAY_ERROR_SHEET_TAB:'ReviveRelay Issues'
+  });
+  assert.equal(explicit.REVIVERELAY_ERROR_SHEET_ID,'sheet123');
+});

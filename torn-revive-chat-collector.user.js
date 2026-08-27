@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ReviveRelay
 // @namespace    r4g3runn3r.torn.reviverelay
-// @version      0.3.0
+// @version      __REVIVERELAY_VERSION__
 // @description  Public-channel revive request detection and direct ReviveRelay requester workflow for Torn.
 // @author       R4G3RUNN3R
 // @match        https://www.torn.com/*
@@ -10,11 +10,16 @@
 // @grant        GM_xmlhttpRequest
 // @grant        GM_addStyle
 // @connect      reviverelay.voidsmithindustries.com
+// @updateURL    __REVIVERELAY_UPDATE_URL__
+// @downloadURL  __REVIVERELAY_DOWNLOAD_URL__
 // @require      https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/main/src/core.js
 // @require      https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/main/src/chat-dom.js
 // @require      https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/main/src/public-channels.js
 // @require      https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/main/src/client-chat-policy.js
 // @require      https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/main/src/api-client.js
+// @require      https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/main/src/versioning.js
+// @require      https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/main/src/update-manager.js
+// @require      https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/main/src/telemetry-client.js
 // @require      https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/main/src/revive-classifier.js
 // @require      https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector/main/src/candidate-pipeline.js
 // @run-at       document-idle
@@ -31,12 +36,17 @@
   const PublicChannels = globalThis.TornRevivePublicChannels;
   const ClientChatPolicy = globalThis.TornReviveClientChatPolicy;
   const ReviveRelayApiClient = globalThis.ReviveRelayApiClient;
+  const ReviveRelayVersioning = globalThis.ReviveRelayVersioning;
+  const ReviveRelayUpdateManager = globalThis.ReviveRelayUpdateManager;
+  const ReviveRelayTelemetryClient = globalThis.ReviveRelayTelemetryClient;
   const ReviveRelayCandidatePipeline = globalThis.ReviveRelayCandidatePipeline;
 
-  const VERSION = '0.3.0';
+  const VERSION = '__REVIVERELAY_VERSION__';
+  const UPDATE_CHANNEL = '__REVIVERELAY_UPDATE_CHANNEL__';
   const API_BASE_URL = 'https://reviverelay.voidsmithindustries.com';
   const DISCOVERY_EVERY_MS = 2_000;
   const OUTBOX_EVERY_MS = 5_000;
+  const TELEMETRY_EVERY_MS = 30_000;
   const ACTIVE_REQUEST_EVERY_MS = 10_000;
   const ACTIVE_WINDOW_MS = 60_000;
   const MAX_LIVE_EVENTS = 50;
@@ -45,6 +55,9 @@
     sessionToken: 'reviverelay_session_token',
     publicIdentity: 'reviverelay_public_identity',
     candidateOutbox: 'reviverelay_candidate_outbox',
+    telemetryOutbox: 'reviverelay_telemetry_outbox',
+    clientDiagnosticsEnabled: 'reviverelay_client_diagnostics_enabled',
+    updateState: 'reviverelay_update_state',
     deadLetters: 'reviverelay_candidate_dead_letters',
     paused: 'reviverelay_paused',
     minimized: 'reviverelay_minimized',
@@ -53,6 +66,11 @@
 
   const state = {
     api: null,
+    telemetry: null,
+    telemetryTimer: null,
+    clientDiagnosticsEnabled: GM_getValue(KEYS.clientDiagnosticsEnabled, true) !== false,
+    updateManager: null,
+    updateResult: null,
     sessionToken: String(GM_getValue(KEYS.sessionToken, '') || ''),
     identity: GM_getValue(KEYS.publicIdentity, null) || null,
     rootObserver: null,
@@ -93,6 +111,54 @@
 
   function saveStoredArray(key, value) {
     GM_setValue(key, Array.isArray(value) ? value : []);
+  }
+
+  function reportClientError(error, operation, context = {}) {
+    if (!state.clientDiagnosticsEnabled || !state.telemetry) return false;
+    return state.telemetry.captureError(error, { operation, ...context });
+  }
+
+  async function drainTelemetry() {
+    if (!state.clientDiagnosticsEnabled || !state.telemetry) return { sent: 0, remaining: 0 };
+    return state.telemetry.drain();
+  }
+
+  function clientSupported() {
+    return state.updateResult?.supported !== false;
+  }
+
+  function formatLastChecked(value) {
+    const stamp = Number(value || 0);
+    return stamp ? new Date(stamp).toLocaleString() : 'Never';
+  }
+
+  function renderUpdateStatus() {
+    const result = state.updateResult || {};
+    const manifest = result.manifest || state.updateManager?.getState?.().lastManifest || null;
+    const values = {
+      'rr-update-current': VERSION,
+      'rr-update-channel': UPDATE_CHANNEL === 'automatic' ? 'Automatic' : 'Manual',
+      'rr-update-latest': manifest?.latestVersion || 'Unknown',
+      'rr-update-checked': formatLastChecked(result.lastCheckedAt || state.updateManager?.getState?.().lastCheckedAt)
+    };
+    for (const [id, value] of Object.entries(values)) { const el=document.getElementById(id); if(el) el.textContent=String(value); }
+    const banner=document.getElementById('rr-update-banner');
+    if (banner) {
+      if (result.error) banner.innerHTML='<div class="rr-muted">Version check unavailable. Gameplay continues normally.</div>';
+      else if (result.supported === false) banner.innerHTML=`<div class="rr-warning"><strong>Update required.</strong> Minimum supported version is ${escapeHtml(result.minimumVersion || '')}.</div>`;
+      else if (result.updateAvailable && !result.dismissed) banner.innerHTML=`<div class="rr-warning">ReviveRelay ${escapeHtml(result.latestVersion || '')} is available.${result.mandatory ? ' This update is required for protected actions.' : ''}</div>${result.mandatory ? '' : '<button id="rr-update-dismiss" type="button">Dismiss this version</button>'}`;
+      else banner.innerHTML='<div class="rr-muted">Client version is current or no newer release is known.</div>';
+      const dismiss=document.getElementById('rr-update-dismiss'); if(dismiss) dismiss.onclick=()=>{if(state.updateManager?.dismiss(result.latestVersion)){state.updateResult={...result,dismissed:true};renderUpdateStatus();}};
+    }
+    const switchButton=document.getElementById('rr-update-switch');
+    if(switchButton) switchButton.textContent=UPDATE_CHANNEL==='automatic'?'Switch to Manual':'Switch to Automatic';
+  }
+
+  async function checkForUpdates(force = false) {
+    if (!state.updateManager) return;
+    state.updateResult = await state.updateManager.check({ force });
+    renderUpdateStatus();
+    refreshPanel();
   }
 
   function visibleAndFocused() {
@@ -271,6 +337,7 @@
       state.stats.queued = result.pending.length;
       state.stats.deadLetters = deadLetters.length;
     } catch (error) {
+      reportClientError(error, 'candidate.outbox.drain');
       console.warn('[ReviveRelay] Candidate outbox drain failed', error?.code || error?.message || error);
     } finally {
       state.draining = false;
@@ -426,7 +493,10 @@
       return true;
     } catch (error) {
       if (error?.code === 'AUTH_REQUIRED') clearSession();
-      else console.warn('[ReviveRelay] Session restore failed', error?.code || error?.message || error);
+      else {
+        reportClientError(error, 'session.restore');
+        console.warn('[ReviveRelay] Session restore failed', error?.code || error?.message || error);
+      }
       return false;
     }
   }
@@ -452,6 +522,7 @@
       setStatus(`Connected as ${state.identity?.name || state.identity?.tornId || 'Torn player'}. Identity key discarded by server.`);
       await refreshMarketplaceState();
     } catch (error) {
+      reportClientError(error, 'identity.connect');
       setStatus(`Connection failed: ${error?.code || 'REQUEST_FAILED'}`, true);
     } finally {
       apiKeyInput.value = '';
@@ -493,6 +564,7 @@
       setStatus('Protected revive request is active.');
       await refreshMarketplaceState();
     } catch (error) {
+      reportClientError(error, 'request.create');
       setStatus(`Request failed: ${error?.code || 'REQUEST_FAILED'}`, true);
     }
   }
@@ -524,7 +596,10 @@
       state.verificationCredential = result?.credential || null;
     } catch (error) {
       if (error?.code === 'AUTH_REQUIRED') clearSession();
-      else console.warn('[ReviveRelay] Verification credential refresh failed', error?.code || error?.message || error);
+      else {
+        reportClientError(error, 'verification.refresh');
+        console.warn('[ReviveRelay] Verification credential refresh failed', error?.code || error?.message || error);
+      }
     }
     renderVerificationCredential();
     refreshPanel();
@@ -543,6 +618,7 @@
       state.verificationCredential = result?.credential || null;
       setStatus('Transaction-verification key validated and encrypted server-side.');
     } catch (error) {
+      reportClientError(error, 'verification.bind');
       setStatus(`Verification key failed: ${error?.code || 'REQUEST_FAILED'}`, true);
     } finally {
       verificationKeyInput.value = '';
@@ -558,6 +634,7 @@
       state.reviverQueue = [];
       setStatus('Transaction-verification key revoked. Existing transactions remain visible.');
     } catch (error) {
+      reportClientError(error, 'verification.revoke');
       setStatus(`Revoke failed: ${error?.code || 'REQUEST_FAILED'}`, true);
     }
     renderVerificationCredential();
@@ -593,7 +670,10 @@
     } catch (error) {
       if (error?.code === 'TRANSACTION_NOT_FOUND') state.activeTransaction = null;
       else if (error?.code === 'AUTH_REQUIRED') clearSession();
-      else console.warn('[ReviveRelay] Transaction refresh failed', error?.code || error?.message || error);
+      else {
+        reportClientError(error, 'transaction.refresh');
+        console.warn('[ReviveRelay] Transaction refresh failed', error?.code || error?.message || error);
+      }
     }
     renderActiveTransaction();
   }
@@ -609,6 +689,7 @@
       state.reviverQueue = Array.isArray(result?.requests) ? result.requests : [];
     } catch (error) {
       if (!['REVIVER_REQUIRED','VERIFICATION_CREDENTIAL_REQUIRED','VERIFICATION_CREDENTIAL_INVALID','VERIFICATION_CREDENTIAL_INSUFFICIENT'].includes(error?.code)) {
+        reportClientError(error, 'reviver.queue.refresh');
         console.warn('[ReviveRelay] Reviver queue refresh failed', error?.code || error?.message || error);
       }
       state.reviverQueue = [];
@@ -636,6 +717,7 @@
       setStatus('Registered as a ReviveRelay reviver.');
       await refreshReviverQueue();
     } catch (error) {
+      reportClientError(error, 'reviver.register');
       setStatus(`Reviver registration failed: ${error?.code || 'REQUEST_FAILED'}`, true);
     }
   }
@@ -648,6 +730,7 @@
       setStatus('Revive request accepted. Payment window is now active.');
       await refreshMarketplaceState();
     } catch (error) {
+      reportClientError(error, 'request.accept');
       setStatus(`Accept failed: ${error?.code || 'REQUEST_FAILED'}`, true);
       await refreshReviverQueue();
     }
@@ -667,6 +750,7 @@
       setStatus('Transaction action submitted.');
       await refreshActiveTransaction();
     } catch (error) {
+      reportClientError(error, 'transaction.action');
       setStatus(`Transaction action failed: ${error?.code || 'REQUEST_FAILED'}`, true);
       await refreshActiveTransaction();
     }
@@ -689,6 +773,7 @@
     const requester = tx.requester ? `${tx.requester.name || 'Requester'} [${tx.requester.tornId}]` : '';
     const reviver = tx.reviver ? `${tx.reviver.name || 'Reviver'} [${tx.reviver.tornId}]` : '';
     let actions = '';
+    if (!clientSupported()) { box.innerHTML = `<div><strong>${escapeHtml(tx.state || '')}</strong></div><div class="rr-warning">Update ReviveRelay to use protected transaction actions.</div>`; return; }
     if (['WAITING_FOR_PAYMENT','PAYMENT_RECONCILING'].includes(tx.state)) actions += '<button data-rr-tx-action="check-payment">Check payment</button>';
     if (tx.participantRole === 'requester' && tx.state === 'FAILED_ATTEMPT_CHOICE') actions += '<button data-rr-tx-action="retry-request">Retry</button><button data-rr-tx-action="request-refund">Request refund</button>';
     if (tx.participantRole === 'reviver' && tx.state === 'RETRY_OFFERED') actions += '<button data-rr-tx-action="retry-accept">Accept retry</button><button data-rr-tx-action="retry-decline">Decline retry</button>';
@@ -706,7 +791,7 @@
   function renderReviverMarketplace() {
     const box = document.getElementById('rr-reviver-queue');
     if (!box) return;
-    const canRevive = hasCredentialCapability('reviver');
+    const canRevive = hasCredentialCapability('reviver') && clientSupported();
     const isReviver = Array.isArray(state.identity?.roles) && state.identity.roles.includes('reviver');
     if (!canRevive) {
       box.innerHTML = '<div class="rr-warning">Bind a reviver-capable verification key to enable the queue and Accept.</div>';
@@ -739,7 +824,10 @@
       renderActiveRequest();
     } catch (error) {
       if (error?.code === 'AUTH_REQUIRED') clearSession();
-      else console.warn('[ReviveRelay] Active request refresh failed', error?.code || error?.message || error);
+      else {
+        reportClientError(error, 'request.refresh');
+        console.warn('[ReviveRelay] Active request refresh failed', error?.code || error?.message || error);
+      }
     }
   }
 
@@ -750,6 +838,7 @@
       setStatus('Revive request cancelled.');
       await refreshActiveRequest();
     } catch (error) {
+      reportClientError(error, 'request.cancel');
       setStatus(`Cancel failed: ${error?.code || 'REQUEST_FAILED'}`, true);
       await refreshActiveRequest();
     }
@@ -829,6 +918,10 @@
     const minimize = document.getElementById('rr-minimize');
     if (minimize) minimize.textContent = state.minimized ? '+' : '−';
     const pause = document.getElementById('rr-pause');
+    document.getElementById('rr-update-check').onclick = () => checkForUpdates(true);
+    document.getElementById('rr-update-switch').onclick = () => state.updateManager?.switchChannel(UPDATE_CHANNEL === 'automatic' ? 'manual' : 'automatic');
+    const diagnostics = document.getElementById('rr-diagnostics-enabled');
+    if (diagnostics) diagnostics.checked = state.clientDiagnosticsEnabled;
     if (pause) pause.textContent = state.paused ? 'Resume collection' : 'Pause collection';
     const onboarding = document.getElementById('rr-onboarding');
     if (onboarding) onboarding.style.display = state.sessionToken ? 'none' : '';
@@ -840,12 +933,13 @@
     if (reviver) reviver.style.display = state.sessionToken ? '' : 'none';
     const requestButton = document.getElementById('rr-request');
     if (requestButton) {
-      requestButton.disabled = !state.sessionToken || !hasCredentialCapability('requester');
-      requestButton.title = requestButton.disabled ? 'Requester-capable verification key required' : '';
+      requestButton.disabled = !state.sessionToken || !hasCredentialCapability('requester') || !clientSupported();
+      requestButton.title = !clientSupported() ? 'ReviveRelay update required' : (requestButton.disabled ? 'Requester-capable verification key required' : '');
     }
     renderVerificationCredential();
     renderReviverMarketplace();
     renderActiveTransaction();
+    renderUpdateStatus();
   }
 
   function createPanel() {
@@ -853,7 +947,7 @@
       #rr-panel{position:fixed;right:16px;bottom:16px;z-index:1000000;width:390px;max-height:82vh;background:#171b20;color:#e7edf3;border:1px solid #3d4650;border-radius:8px;box-shadow:0 8px 28px #0008;font:12px/1.35 Arial,sans-serif;overflow:hidden}
       #rr-header{display:flex;align-items:center;padding:8px 10px;background:#262c33;font-weight:700;gap:8px}#rr-header span{flex:1}
       #rr-body{padding:10px;max-height:calc(82vh - 38px);overflow:auto}.rr-grid{display:grid;grid-template-columns:1fr auto;gap:4px 8px;margin-bottom:10px}.rr-grid strong{text-align:right}
-      #rr-panel input,#rr-panel textarea,#rr-panel select{width:100%;box-sizing:border-box;margin:3px 0 7px;padding:6px;background:#0f1317;color:#e7edf3;border:1px solid #47525e;border-radius:4px}#rr-panel input[type=radio]{width:auto;margin-right:4px}
+      #rr-panel input,#rr-panel textarea,#rr-panel select{width:100%;box-sizing:border-box;margin:3px 0 7px;padding:6px;background:#0f1317;color:#e7edf3;border:1px solid #47525e;border-radius:4px}#rr-panel input[type=radio],#rr-panel input[type=checkbox]{width:auto;margin-right:4px}
       .rr-actions{display:flex;flex-wrap:wrap;gap:5px}.rr-actions button,#rr-panel button{background:#39434d;color:#fff;border:1px solid #566472;border-radius:4px;padding:5px 8px;cursor:pointer}.rr-actions button:hover,#rr-panel button:hover{filter:brightness(1.12)}
       #rr-status{margin-top:8px;color:#9bd5a5;word-break:break-word}#rr-status.error{color:#ff9d9d}.rr-muted{color:#aeb7c0;font-size:10px}.rr-warning{color:#e6c46b;font-size:10px;margin:6px 0}.rr-section{border-top:1px solid #333b44;padding-top:9px;margin-top:9px}.rr-section h4{margin:0 0 6px}.rr-market-row{border-top:1px solid #2b3239;padding:6px 0;word-break:break-word}.rr-live-row{border-top:1px solid #2b3239;padding:5px 0;word-break:break-word}
     `);
@@ -927,6 +1021,20 @@
           <div id="rr-live-events"><div class="rr-muted">No local events yet.</div></div>
         </div>
 
+        <div class="rr-section">
+          <h4>Updates</h4>
+          <div class="rr-grid"><span>Current Version</span><strong id="rr-update-current">${VERSION}</strong><span>Channel</span><strong id="rr-update-channel"></strong><span>Latest Version</span><strong id="rr-update-latest">Unknown</strong><span>Last Checked</span><strong id="rr-update-checked">Never</strong></div>
+          <div id="rr-update-banner" class="rr-muted">Version check pending.</div>
+          <div class="rr-actions"><button id="rr-update-check" type="button">Check Now</button><button id="rr-update-switch" type="button">Switch Channel</button></div>
+          <div class="rr-muted">Automatic uses Tampermonkey's native update mechanism. Manual only notifies and opens the installer; ReviveRelay never rewrites or evals itself.</div>
+        </div>
+
+        <div class="rr-section">
+          <h4>Diagnostics</h4>
+          <label><input id="rr-diagnostics-enabled" type="checkbox">Send sanitized error diagnostics</label>
+          <div class="rr-muted">Optional. Sends bounded technical error details only. Chat text, Torn keys, request bodies and raw payloads are never included.</div>
+        </div>
+
         <div class="rr-section rr-actions">
           <button id="rr-pause" type="button">Pause collection</button>
           <button id="rr-rescan" type="button">Rescan public chats</button>
@@ -961,6 +1069,15 @@
       if (!state.paused) discoverChats();
       refreshPanel();
     };
+    const diagnostics = document.getElementById('rr-diagnostics-enabled');
+    diagnostics.checked = state.clientDiagnosticsEnabled;
+    diagnostics.onchange = () => {
+      state.clientDiagnosticsEnabled = Boolean(diagnostics.checked);
+      GM_setValue(KEYS.clientDiagnosticsEnabled, state.clientDiagnosticsEnabled);
+      if (!state.clientDiagnosticsEnabled) saveStoredArray(KEYS.telemetryOutbox, []);
+      else drainTelemetry();
+      refreshPanel();
+    };
     document.getElementById('rr-rescan').onclick = () => {
       markInteraction();
       const contexts = discoverChats();
@@ -990,6 +1107,7 @@
       refreshPanel();
       queueDiscoveryAndScan();
       drainCandidateOutbox();
+      drainTelemetry();
     });
     window.addEventListener('blur', refreshPanel);
     document.addEventListener('visibilitychange', () => {
@@ -997,13 +1115,24 @@
       if (document.visibilityState === 'visible') {
         queueDiscoveryAndScan();
         drainCandidateOutbox();
+        drainTelemetry();
       }
+    });
+  }
+
+  function installTelemetryListeners() {
+    window.addEventListener('error', (event) => {
+      reportClientError(event.error || new Error(event.message || 'Window error'), 'window.error');
+    });
+    window.addEventListener('unhandledrejection', (event) => {
+      const error = event.reason instanceof Error ? event.reason : new Error(String(event.reason || 'Unhandled rejection'));
+      reportClientError(error, 'unhandledrejection');
     });
   }
 
   async function init() {
     if (!Core || !ChatDom || !PublicChannels || !ClientChatPolicy ||
-        !ReviveRelayApiClient || !ReviveRelayCandidatePipeline) {
+        !ReviveRelayApiClient || !ReviveRelayVersioning || !ReviveRelayUpdateManager || !ReviveRelayTelemetryClient || !ReviveRelayCandidatePipeline) {
       console.error('[ReviveRelay] Required dependency unavailable.');
       return;
     }
@@ -1013,18 +1142,42 @@
       state.api = ReviveRelayApiClient.createApiClient({
         baseUrl: API_BASE_URL,
         getToken: () => String(GM_getValue(KEYS.sessionToken, '') || ''),
-        request
+        request,
+        clientVersion: VERSION,
+        releaseChannel: UPDATE_CHANNEL
+      });
+      state.updateManager = ReviveRelayUpdateManager.createUpdateManager({
+        currentVersion: VERSION,
+        channel: UPDATE_CHANNEL,
+        fetchManifest: () => state.api.getClientVersionManifest(),
+        getState: () => GM_getValue(KEYS.updateState, {}) || {},
+        saveState: (value) => GM_setValue(KEYS.updateState, value),
+        now: Date.now,
+        openUrl: (url) => window.open(url, '_blank', 'noopener')
+      });
+      state.telemetry = ReviveRelayTelemetryClient.createTelemetryClient({
+        submit: (payload) => state.api.submitTelemetry(payload.errors),
+        getStoredQueue: () => readStoredArray(KEYS.telemetryOutbox),
+        saveStoredQueue: (queue) => saveStoredArray(KEYS.telemetryOutbox, queue),
+        version: VERSION,
+        buildCommit: '',
+        now: Date.now
       });
       createPanel();
+      if (visibleAndFocused()) await checkForUpdates(false);
       installInteractionListeners();
+      installTelemetryListeners();
+      state.telemetryTimer = setInterval(drainTelemetry, TELEMETRY_EVERY_MS);
       if (visibleAndFocused()) state.lastInteractionAt = Date.now();
       installRootObserver();
       discoverChats();
       await restoreSession();
       await drainCandidateOutbox();
+      await drainTelemetry();
       setStatus(state.sessionToken ? 'ReviveRelay connected.' : 'ReviveRelay ready. Connect to submit candidates or request a revive.');
       refreshPanel();
     } catch (error) {
+      reportClientError(error, 'init');
       console.error('[ReviveRelay] Initialization failed', error);
       if (!document.getElementById('rr-panel')) createPanel();
       setStatus(`Initialization failed: ${error.message}`, true);
