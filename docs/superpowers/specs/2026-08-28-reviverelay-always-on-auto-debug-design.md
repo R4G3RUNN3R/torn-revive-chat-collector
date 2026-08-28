@@ -1,7 +1,7 @@
 # ReviveRelay Always-On Auto-Debug Architecture Design
 
 Date: 2026-08-28
-Status: Approved architecture, pending written-spec review
+Status: Approved written specification
 Repository: `R4G3RUNN3R/torn-revive-chat-collector`
 Spec branch: `spec/reviverelay-auto-debug`
 Server baseline: current `main` at `b9c8017cc95d612ebe03a578040d00f56f7580eb`
