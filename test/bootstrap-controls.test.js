@@ -22,3 +22,15 @@ test('canonical source carries the accepted shared-feed delta only in the main u
   assert.match(source, /ReviveRelayApiClient\.createGmRequestAdapter\(GM_xmlhttpRequest\)/);
   assert.match(source, /@run-at\s+document-idle/);
 });
+
+test('Control B build is self-contained, document-idle, current-version, and contains no transport observer', () => {
+  const built = fs.readFileSync('dist/reviverelay-manual.user.js', 'utf8');
+  const packageVersion = require('../package.json').version;
+  assert.equal((built.match(/^\/\/ @require\s+/gm) || []).length, 0);
+  assert.match(built, /@run-at\s+document-idle/);
+  assert.match(built, new RegExp(`@version\\s+${packageVersion.replace(/\\./g, '\\\\.')}\\b`));
+  assert.doesNotMatch(built, /ReviveRelayTransportObserver|transport_hook_anomaly|\/v1\/telemetry\/debug/);
+  for (const relativePath of Object.keys(manifest.supportHashes)) {
+    assert.equal(built.split(`/* ReviveRelay bundled module: ${relativePath} */`).length - 1, 1);
+  }
+});
