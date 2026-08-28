@@ -1,0 +1,17 @@
+{
+  "version": "0.4.5",
+  "derivedFromCommit": "90dc48071f7fa65e2baa156159b6e969659ac125",
+  "artifactSha256": "fbfc6a27395b5d3cfa7bd0b3ebcab96e4be856d71d9772881e127eebb848fee9",
+  "supportHashes": {
+    "src/core.js": "d3de50932244fc6c8acbc48c4243e7fb7158b456e6f3943daee530100f539147",
+    "src/chat-dom.js": "5decc73d73a46f1aa926d00ed898f18f246a28b76533a56af7dd133f1651bcd6",
+    "src/public-channels.js": "0abc56e7506bcd235a771957f63fe76953065d2c7a37e02600ea8bc3c8a50a88",
+    "src/client-chat-policy.js": "2235c3cd14b29ab5137fb4a050b89f6c79a5736133f0d8c601e426d6d3df5bd5",
+    "src/api-client.js": "9660f1dad2dc20ed227330710aaf51c251ce44cbe28456eeb08b8776ff2e75b6",
+    "src/versioning.js": "ffe8f8342d38c2588e36c17c1c2cd78f37b2e91f09544b5cd8c07d21e8b4c2ed",
+    "src/update-manager.js": "3b9ba77a38d5c5a53b031130de0dd59eab3088e44fc1274fbe3a6e9ea7fbb3a8",
+    "src/telemetry-client.js": "8f746f2e8c28eeab9d74bb08918a684e72677106850a40b27f1974d05b4c60ad",
+    "src/revive-classifier.js": "5a2e27c74599b4f75a84699213b8a0269dd7f8ed3a92d73e80ecae49f5fc5014",
+    "src/candidate-pipeline.js": "a224d2741108e3876c66d635806b2bf4f7a5f4af65386baaca92fbb965a24a3e"
+  }
+}
