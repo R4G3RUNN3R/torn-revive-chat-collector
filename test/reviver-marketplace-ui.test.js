@@ -35,7 +35,8 @@ test('session identity merges server roles so reviver registration becomes visib
 
 test('Reviver tab has a central shared public-chat request feed independent of protected marketplace capability', () => {
   assert.match(source, /Shared public chat requests/i);
-  assert.match(source, /getRecentCandidates\(/);
+  assert.match(source, /fetchRecentPublicCandidates\(/);
+  assert.match(source, /\/v1\/candidates\/recent/);
   assert.match(source, /rr-public-candidate-feed/);
   assert.match(source, /open.*profile|profile.*open/i);
 });

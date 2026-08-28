@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const crypto = require('node:crypto');
 const path = require('node:path');
 
-const fixturePath = path.resolve(__dirname, 'fixtures/client/reviverelay-0.4.5-from-0.4.2.user.js');
+const fixturePath = path.resolve(__dirname, 'fixtures/client/reviverelay-0.4.5-from-0.4.2.user.txt');
 const manifestPath = path.resolve(__dirname, 'fixtures/client/reviverelay-0.4.5-baseline.json');
 
 function sha256(file) {

@@ -677,6 +677,27 @@
     renderActiveTransaction();
   }
 
+  async function fetchRecentPublicCandidates() {
+    if (!state.sessionToken) return { candidates: [] };
+    const request = ReviveRelayApiClient.createGmRequestAdapter(GM_xmlhttpRequest);
+    const response = await request({
+      method: 'GET',
+      url: `${API_BASE_URL}/v1/candidates/recent`,
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${state.sessionToken}`,
+        'X-ReviveRelay-Version': VERSION,
+        'X-ReviveRelay-Channel': UPDATE_CHANNEL
+      }
+    });
+    const status = Number(response?.status || 0);
+    if (status >= 200 && status < 300) return response?.body || {};
+    const error = new Error(status === 401 || status === 403 ? 'AUTH_REQUIRED' : 'REQUEST_FAILED');
+    error.code = status === 401 || status === 403 ? 'AUTH_REQUIRED' : 'REQUEST_FAILED';
+    error.status = status;
+    throw error;
+  }
+
   async function refreshPublicCandidateFeed() {
     if (!state.sessionToken) {
       state.publicCandidateFeed = [];
@@ -684,7 +705,7 @@
       return;
     }
     try {
-      const result = await state.api.getRecentCandidates();
+      const result = await fetchRecentPublicCandidates();
       state.publicCandidateFeed = Array.isArray(result?.candidates) ? result.candidates : [];
     } catch (error) {
       if (error?.code === 'AUTH_REQUIRED') clearSession();
