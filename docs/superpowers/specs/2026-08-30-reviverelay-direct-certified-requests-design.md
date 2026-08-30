@@ -1,6 +1,6 @@
 # ReviveRelay Direct Certified Requests Design
 
-Status: User-approved architecture, written specification pending review
+Status: Approved written specification
 Date: 2026-08-30
 Repository: `R4G3RUNN3R/torn-revive-chat-collector`
 Supersedes for future implementation: `2026-08-28-reviverelay-always-on-auto-debug-design.md`
