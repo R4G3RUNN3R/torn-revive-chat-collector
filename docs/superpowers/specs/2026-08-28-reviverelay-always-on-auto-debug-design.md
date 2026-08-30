@@ -1,3 +1,5 @@
+> **SUPERSEDED 2026-08-30:** Production ReviveRelay is moving to direct certified requests with no chat listening. See `2026-08-30-reviverelay-direct-certified-requests-design.md`. Historical evidence and completed Control B work remain useful.
+
 # ReviveRelay Always-On Auto-Debug Architecture Design
 
 Date: 2026-08-28

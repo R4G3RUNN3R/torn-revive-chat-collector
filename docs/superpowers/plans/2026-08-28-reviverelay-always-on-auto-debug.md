@@ -1,3 +1,5 @@
+> **SUPERSEDED 2026-08-30:** Do not execute remaining WebSocket/Auto-Debug tasks. ReviveRelay is moving to direct certified requests with no chat listening. See the 2026-08-30 direct-request design. Completed baseline/Control B work remains valid.
+
 # ReviveRelay Always-On Auto-Debug Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
