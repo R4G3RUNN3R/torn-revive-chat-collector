@@ -132,13 +132,12 @@ test('Stage 1 API smoke: privacy, request uniqueness, and accept race hold end t
         score: 99
       }
     });
-    assert.equal(forbiddenCandidate.statusCode, 422);
-    assert.equal(forbiddenCandidate.json().error, 'CHANNEL_NOT_ALLOWED');
+    assert.equal(forbiddenCandidate.statusCode, 404);
 
     let candidateCount = await pool.query('SELECT COUNT(*)::int AS count FROM public_chat_candidates');
     assert.equal(candidateCount.rows[0].count, 0);
 
-    const validCandidate = await app.inject({
+    const formerlyValidCandidate = await app.inject({
       method: 'POST',
       url: '/v1/candidates',
       headers: { authorization: `Bearer ${requesterToken}` },
@@ -154,11 +153,10 @@ test('Stage 1 API smoke: privacy, request uniqueness, and accept race hold end t
         reasons: ['revive phrase']
       }
     });
-    assert.equal(validCandidate.statusCode, 201);
-    assert.equal(validCandidate.json().duplicate, false);
+    assert.equal(formerlyValidCandidate.statusCode, 404);
 
     candidateCount = await pool.query('SELECT COUNT(*)::int AS count FROM public_chat_candidates');
-    assert.equal(candidateCount.rows[0].count, 1);
+    assert.equal(candidateCount.rows[0].count, 0);
 
     const firstRequest = await app.inject({
       method: 'POST',

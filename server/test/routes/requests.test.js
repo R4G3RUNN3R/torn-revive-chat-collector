@@ -190,23 +190,64 @@ test('POST cancel rejects malformed request ids before repository access', async
 });
 
 
-test('POST /v1/requests requires a usable requester-capable transaction credential', async t => {
+test('POST /v1/requests requires session auth but not requester transaction credential', async t => {
   let calls = 0;
   const app = makeApp({
-    async createRequest() { calls += 1; },
+    async createRequest(input) {
+      calls += 1;
+      return {
+        created: true,
+        request: {
+          id: VALID_REQUEST_ID,
+          requesterId: input.requesterId,
+          paymentMethod: input.paymentMethod,
+          offerAmount: input.offerAmount,
+          comment: input.comment,
+          state: 'AVAILABLE',
+          origin: 'reviverelay_direct',
+          certified: true
+        }
+      };
+    },
     async getActiveRequest() { return null; },
     async cancelRequest() { return { cancelled: false, reason: 'NOT_FOUND' }; }
   }, { credentialStatus: null });
   t.after(() => app.close());
 
   const response = await app.inject({
-    method: 'POST', url: '/v1/requests',
+    method: 'POST',
+    url: '/v1/requests',
     headers: { authorization: 'Bearer requester-token' },
-    payload: { paymentMethod: 'xanax', offerAmount: 1 }
+    payload: { paymentMethod: 'xanax', offerAmount: 1, comment: 'Please revive' }
   });
-  assert.equal(response.statusCode, 409);
-  assert.equal(response.json().error, 'VERIFICATION_CREDENTIAL_REQUIRED');
-  assert.equal(calls, 0);
+
+  assert.equal(response.statusCode, 201);
+  assert.equal(calls, 1);
+  assert.equal(response.json().request.origin, 'reviverelay_direct');
+});
+
+test('POST /v1/requests never trusts client-supplied certification or origin', async t => {
+  let seen = null;
+  const app = makeApp({
+    async createRequest(input) {
+      seen = input;
+      return { created: true, request: { id: VALID_REQUEST_ID, state: 'AVAILABLE', origin: 'reviverelay_direct' } };
+    },
+    async getActiveRequest() { return null; },
+    async cancelRequest() { return { cancelled: false, reason: 'NOT_FOUND' }; }
+  });
+  t.after(() => app.close());
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/v1/requests',
+    headers: { authorization: 'Bearer requester-token' },
+    payload: { paymentMethod: 'cash', offerAmount: 500000, origin: 'public_chat', certified: false }
+  });
+
+  assert.equal(response.statusCode, 201);
+  assert.equal(Object.hasOwn(seen, 'origin'), false);
+  assert.equal(Object.hasOwn(seen, 'certified'), false);
 });
 
 test('active request lookup remains available after credential loss', async t => {

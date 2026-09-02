@@ -1,7 +1,6 @@
 const Fastify = require('fastify');
 const fastifyRateLimit = require('@fastify/rate-limit');
 const { registerAuthRoute } = require('./routes/auth');
-const { registerCandidateRoutes } = require('./routes/candidates');
 const { registerRequestRoutes } = require('./routes/requests');
 const { registerReviverQueueRoutes } = require('./routes/reviver-queue');
 const { registerMeRoute } = require('./routes/me');
@@ -101,22 +100,12 @@ function buildApp({
     });
   });
 
-  if (candidateRepository) {
-    if (!sessionRepository) {
-      throw new Error('candidate routes require a sessionRepository');
-    }
-    app.register(async instance => {
-      await registerCandidateRoutes(instance, { candidateRepository });
-    });
-  }
-
   if (requestRepository) {
-    if (!verificationCredentialRepository) throw new Error('request routes require a verificationCredentialRepository');
     if (!sessionRepository) {
       throw new Error('request routes require a sessionRepository');
     }
     app.register(async instance => {
-      await registerRequestRoutes(instance, { requestRepository, verificationCredentialRepository });
+      await registerRequestRoutes(instance, { requestRepository });
     });
   }
 

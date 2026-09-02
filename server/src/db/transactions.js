@@ -30,13 +30,14 @@ function rowToTransaction(row) {
 function rowToQueueRequest(row) {
   return {
     id: row.id,
-    requesterId: row.requester_id,
     requesterTornId: row.requester_torn_id == null ? null : Number(row.requester_torn_id),
     requesterName: row.requester_name,
     paymentMethod: row.payment_method,
     offerAmount: Number(row.offer_amount),
     comment: row.comment,
     state: row.state,
+    origin: row.origin,
+    certified: row.origin === 'reviverelay_direct',
     createdAt: row.created_at
   };
 }
@@ -198,6 +199,7 @@ async function listAvailableRequests(pool, limit = 100) {
       r.offer_amount,
       r.comment,
       r.state,
+      r.origin,
       r.created_at
     FROM revive_requests r
     JOIN users u ON u.id = r.requester_id

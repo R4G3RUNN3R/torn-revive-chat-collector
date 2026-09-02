@@ -1,11 +1,10 @@
 const { z } = require('zod');
 const { validateOffer } = require('../domain/request');
 const { RATE_LIMITS } = require('../security/rate-limits');
-const { assertCredentialCapability } = require('../security/verification-credential');
 
 const requestIdSchema = z.string().uuid();
 
-async function registerRequestRoutes(app, { requestRepository, verificationCredentialRepository }) {
+async function registerRequestRoutes(app, { requestRepository }) {
   if (!requestRepository ||
       typeof requestRepository.createRequest !== 'function' ||
       typeof requestRepository.getActiveRequest !== 'function' ||
@@ -15,25 +14,8 @@ async function registerRequestRoutes(app, { requestRepository, verificationCrede
   if (typeof app.authenticate !== 'function') {
     throw new Error('request routes require session authentication');
   }
-  if (!verificationCredentialRepository || typeof verificationCredentialRepository.getStatus !== 'function') {
-    throw new Error('request routes require verificationCredentialRepository');
-  }
-
-  async function requireRequesterCredential(request, reply) {
-    try {
-      const status = await verificationCredentialRepository.getStatus(request.reviveRelayUser.userId);
-      assertCredentialCapability(status, 'requester');
-    } catch (error) {
-      const code = error && error.code;
-      if (['VERIFICATION_CREDENTIAL_REQUIRED','VERIFICATION_CREDENTIAL_INSUFFICIENT','VERIFICATION_CREDENTIAL_INVALID'].includes(code)) {
-        return reply.code(409).send({ error: code });
-      }
-      throw error;
-    }
-  }
-
   app.post('/v1/requests', {
-    preHandler: [app.authenticate, requireRequesterCredential],
+    preHandler: app.authenticate,
     config: {
       rateLimit: RATE_LIMITS.REQUEST_WRITE
     }
