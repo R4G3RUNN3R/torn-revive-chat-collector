@@ -10,6 +10,7 @@ const { registerReviverRoutes } = require('./routes/revivers');
 const { registerTransactionRoutes } = require("./routes/transactions");
 const { registerTelemetryRoutes } = require("./routes/telemetry");
 const { registerClientVersionRoute } = require('./routes/client-version');
+const { registerAdminProRoutes } = require('./routes/admin-pro');
 const { installAuthentication } = require('./security/authenticate');
 const { createClientVersionPreHandler } = require('./security/client-version');
 
@@ -65,6 +66,15 @@ function buildApp({
   }
 
   app.get('/health', async () => ({ ok: true }));
+
+  if (config.ADMIN_API_TOKEN) {
+    if (!entitlementRepository || typeof identityRepository.findByTornId!=='function') {
+      throw new Error('admin Pro routes require entitlement repository and identity lookup');
+    }
+    app.register(async instance => {
+      await registerAdminProRoutes(instance,{config,identityRepository,entitlementRepository});
+    });
+  }
 
   if (releaseRegistry) {
     app.register(async instance => {

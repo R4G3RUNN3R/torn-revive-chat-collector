@@ -164,14 +164,107 @@ async function activatePaid(pool, input) {
   }
 }
 
-async function revoke(pool, { userId, reason, now = new Date() }) {
+function auditDetails({operatorTornId,reason,previousStatus,newStatus}) {
+  const operator=Number(operatorTornId);
+  return {
+    operatorTornId:Number.isSafeInteger(operator) && operator>0 ? operator : null,
+    reason,
+    previousState:previousStatus.state,
+    previousValidUntil:previousStatus.validUntil ? previousStatus.validUntil.toISOString() : null,
+    newState:newStatus.state,
+    newValidUntil:newStatus.validUntil ? newStatus.validUntil.toISOString() : null
+  };
+}
+
+async function writeOperatorAudit(client,{userId,action,operatorTornId,reason,previousStatus,newStatus,now}) {
+  await client.query(`
+    INSERT INTO audit_events (
+      actor_type, actor_id, entity_type, entity_id, action, details, created_at
+    ) VALUES ('operator',NULL,'pro_entitlement',$1,$2,$3::jsonb,$4)
+  `,[userId,action,JSON.stringify(auditDetails({operatorTornId,reason,previousStatus,newStatus})),now]);
+}
+
+async function grantManual(pool,{userId,months,reason,operatorTornId=null,now=new Date()}) {
+  assertDate(now,'INVALID_GRANT_DATE');
+  if (!Number.isInteger(months) || months<1 || months>12) throw new Error('INVALID_GRANT_MONTHS');
+  if (typeof reason!=='string' || !reason.trim()) throw new Error('GRANT_REASON_REQUIRED');
+  const client=await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const current=await ensureLockedRow(client,userId);
+    const previousStatus=statusFromRow(current,now);
+    const base=maxDate(now,current.paid_until,current.trial_ends_at);
+    const validUntil=extendCalendarDuration(base,months);
+    const updated=await client.query(`
+      UPDATE pro_entitlements
+      SET paid_started_at=COALESCE(paid_started_at,$2),
+          paid_until=$3,
+          ever_paid=true,
+          revoked_at=NULL,
+          revoke_reason=NULL,
+          updated_at=$2
+      WHERE user_id=$1
+      RETURNING *
+    `,[userId,now,validUntil]);
+    const newStatus=statusFromRow(updated.rows[0],now);
+    await writeOperatorAudit(client,{
+      userId,action:'pro.manual_grant',operatorTornId,reason:reason.trim(),previousStatus,newStatus,now
+    });
+    await client.query('COMMIT');
+    return newStatus;
+  } catch(error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function correctExpiry(pool,{userId,validUntil,reason,operatorTornId=null,now=new Date()}) {
+  assertDate(now,'INVALID_CORRECTION_DATE');
+  assertDate(validUntil,'INVALID_VALID_UNTIL');
+  if (typeof reason!=='string' || !reason.trim()) throw new Error('CORRECTION_REASON_REQUIRED');
+  const maximum=extendCalendarDuration(now,24);
+  if (validUntil.getTime()>maximum.getTime()) throw new Error('VALID_UNTIL_TOO_FAR');
+  const client=await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const current=await ensureLockedRow(client,userId);
+    const previousStatus=statusFromRow(current,now);
+    const updated=await client.query(`
+      UPDATE pro_entitlements
+      SET paid_started_at=COALESCE(paid_started_at,$2),
+          paid_until=$3,
+          ever_paid=true,
+          revoked_at=NULL,
+          revoke_reason=NULL,
+          updated_at=$2
+      WHERE user_id=$1
+      RETURNING *
+    `,[userId,now,validUntil]);
+    const newStatus=statusFromRow(updated.rows[0],now);
+    await writeOperatorAudit(client,{
+      userId,action:'pro.expiry_corrected',operatorTornId,reason:reason.trim(),previousStatus,newStatus,now
+    });
+    await client.query('COMMIT');
+    return newStatus;
+  } catch(error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function revoke(pool, { userId, reason, operatorTornId=null, now = new Date() }) {
   assertDate(now, 'INVALID_REVOKE_DATE');
   if (typeof reason !== 'string' || !reason.trim()) throw new Error('REVOKE_REASON_REQUIRED');
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await ensureLockedRow(client, userId);
+    const current=await ensureLockedRow(client, userId);
+    const previousStatus=statusFromRow(current,now);
     const updated = await client.query(`
       UPDATE pro_entitlements
       SET revoked_at = $2,
@@ -180,15 +273,12 @@ async function revoke(pool, { userId, reason, now = new Date() }) {
       WHERE user_id = $1
       RETURNING *
     `, [userId, now, reason.trim()]);
-
-    await client.query(`
-      INSERT INTO audit_events (
-        actor_type, actor_id, entity_type, entity_id, action, details, created_at
-      ) VALUES ('system', NULL, 'pro_entitlement', $1, 'pro.revoked', $2::jsonb, $3)
-    `, [userId, JSON.stringify({ reason: reason.trim() }), now]);
-
+    const newStatus=statusFromRow(updated.rows[0],now);
+    await writeOperatorAudit(client,{
+      userId,action:'pro.revoked',operatorTornId,reason:reason.trim(),previousStatus,newStatus,now
+    });
     await client.query('COMMIT');
-    return statusFromRow(updated.rows[0], now);
+    return newStatus;
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;
@@ -206,6 +296,8 @@ function createProEntitlementRepository(pool) {
     startTrial(input) { return startTrial(pool, input); },
     hasEverPaid(userId) { return hasEverPaid(pool, userId); },
     activatePaid(input) { return activatePaid(pool, input); },
+    grantManual(input) { return grantManual(pool, input); },
+    correctExpiry(input) { return correctExpiry(pool, input); },
     revoke(input) { return revoke(pool, input); }
   };
 }
@@ -218,6 +310,8 @@ module.exports = {
   hasEverPaid,
   activatePaidWithClient,
   activatePaid,
+  grantManual,
+  correctExpiry,
   revoke,
   createProEntitlementRepository
 };
