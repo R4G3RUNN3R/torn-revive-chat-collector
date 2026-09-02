@@ -11,11 +11,11 @@ test('reviver marketplace supports registration queue and accept', () => {
   assert.match(source, /acceptRequest\(/);
 });
 
-test('reviver queue and Accept are unavailable without server-validated reviver capability', () => {
-  assert.match(source, /reviver/i);
-  assert.match(source, /capabilit(?:y|ies)/i);
+test('reviver queue and Accept require active Pro, reviver role and server-validated capability', () => {
+  assert.match(source, /isProActive\(\)/);
+  assert.match(source, /hasRole\(['"]reviver['"]\)/);
+  assert.match(source, /hasCredentialCapability\(['"]reviver['"]\)/);
   assert.match(source, /rr-reviver-queue/);
-  assert.match(source, /disabled/i);
 });
 
 test('client exposes only named transaction actions and never submits arbitrary state', () => {
@@ -33,10 +33,9 @@ test('session identity merges server roles so reviver registration becomes visib
 });
 
 
-test('Reviver tab has a central shared public-chat request feed independent of protected marketplace capability', () => {
-  assert.match(source, /Shared public chat requests/i);
-  assert.match(source, /fetchRecentPublicCandidates\(/);
-  assert.match(source, /\/v1\/candidates\/recent/);
-  assert.match(source, /rr-public-candidate-feed/);
-  assert.match(source, /open.*profile|profile.*open/i);
+test('Reviver tab uses only server-certified direct requests and has no chat candidate feed', () => {
+  assert.match(source, /Certified revive queue/i);
+  assert.match(source, /CERTIFIED REQUEST/);
+  assert.match(source, /request\?\.certified === true/);
+  assert.doesNotMatch(source, /Shared public chat requests|fetchRecentPublicCandidates|\/v1\/candidates|rr-public-candidate-feed/i);
 });

@@ -100,7 +100,7 @@ function parsePinnedArtifact(text) {
   const commit = provenanceMatches[0][1];
 
   const buildCommitMatch = source.match(/const BUILD_COMMIT = '([0-9a-f]{40})';/);
-  const isExecutableArtifact = source.includes('if (window.__REVIVERELAY_ACTIVE__)');
+  const isExecutableArtifact = source.includes('/* ReviveRelay bundled module: src/core.js */');
   if (isExecutableArtifact && !buildCommitMatch) {
     throw new Error('Release userscript is missing telemetry build provenance');
   }

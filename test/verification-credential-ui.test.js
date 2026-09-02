@@ -11,11 +11,14 @@ test('transaction verification key is password-only, cleared after bind, and nev
   assert.doesNotMatch(source, /GM_setValue\([^\n]*(?:verification|api)[_-]?key/i);
 });
 
-test('protected requester controls are capability gated by server credential status', () => {
-  assert.match(source, /verificationCredential/);
-  assert.match(source, /capabilit(?:y|ies)/i);
-  assert.match(source, /requester/i);
-  assert.match(source, /rr-request[^\n]*disabled|requestButton\.disabled/i);
+test('free requester request creation is not credential gated while reviver protected actions are', () => {
+  const requestStart=source.indexOf('async function requestReviveFromSidebar()');
+  const requestEnd=source.indexOf('async function cancelActiveRequest()',requestStart);
+  const requestFn=requestStart>=0 && requestEnd>requestStart ? source.slice(requestStart,requestEnd) : '';
+  assert.ok(requestFn.length>0);
+  assert.doesNotMatch(requestFn,/verificationCredential|hasCredentialCapability/);
+  assert.match(source,/hasCredentialCapability\(['"]reviver['"]\)/);
+  assert.match(source,/acceptMarketplaceRequest/);
 });
 
 test('credential UI exposes bind rebind and revoke without redisplaying plaintext', () => {

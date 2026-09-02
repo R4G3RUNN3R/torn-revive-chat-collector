@@ -14,13 +14,13 @@ for (const [relativePath, expected] of Object.entries(manifest.supportHashes)) {
   });
 }
 
-test('canonical source carries the accepted shared-feed delta only in the main userscript', () => {
+test('canonical 0.5.0 source keeps the proven document-idle bootstrap but is direct-only', () => {
   const source = fs.readFileSync('torn-revive-chat-collector.user.js', 'utf8');
-  assert.match(source, /async function fetchRecentPublicCandidates\(/);
-  assert.match(source, /\/v1\/candidates\/recent/);
-  assert.match(source, /Shared public chat requests/);
-  assert.match(source, /ReviveRelayApiClient\.createGmRequestAdapter\(GM_xmlhttpRequest\)/);
   assert.match(source, /@run-at\s+document-idle/);
+  assert.match(source, /ReviveRelay → Revive Me!/);
+  assert.match(source, /ReviveRelayRequestPreset/);
+  assert.match(source, /ReviveRelayProClient/);
+  assert.doesNotMatch(source, /fetchRecentPublicCandidates|\/v1\/candidates|Shared public chat requests/);
 });
 
 test('Control B build is self-contained, document-idle, current-version, and contains no transport observer', () => {

@@ -42,29 +42,24 @@ test('legacy id-less chat may resolve only from an exact allowlisted public name
   assert.equal(resolvePublicChat(idlessChat, { getName: () => 'Mystery Room' }), null);
 });
 
-test('installable userscript bundles and uses the shared public-channel policy', () => {
+test('production main runtime never imports or invokes chat discovery/classification modules', () => {
   const source = fs.readFileSync(path.resolve(__dirname, '..', 'torn-revive-chat-collector.user.js'), 'utf8');
-  const artifact = fs.readFileSync(path.resolve(__dirname, '..', 'dist', 'reviverelay-auto.user.js'), 'utf8');
-
-  assert.match(artifact, /ReviveRelay bundled module: src\/public-channels\.js/);
-  assert.match(artifact, /ReviveRelay bundled module: src\/client-chat-policy\.js/);
-  assert.doesNotMatch(artifact, /^\/\/ @require\s+/m);
-  assert.match(source, /TornRevivePublicChannels/);
-  assert.match(source, /TornReviveClientChatPolicy/);
-  assert.match(source, /findChatContexts\(document,\s*\{[\s\S]*acceptChat/);
+  for (const token of [
+    'TornReviveChatDom',
+    'TornRevivePublicChannels',
+    'TornReviveClientChatPolicy',
+    'ReviveRelayCandidatePipeline',
+    'discoverChats(',
+    'handlePublicMessage(',
+    '/v1/candidates'
+  ]) assert.equal(source.includes(token), false, token);
 });
 
-test('install artifact bundles the ReviveRelay API client without wildcard network permission', () => {
+test('production source uses direct API/sidebar modules without wildcard network permission', () => {
   const source = fs.readFileSync(path.resolve(__dirname, '..', 'torn-revive-chat-collector.user.js'), 'utf8');
-  const artifact = fs.readFileSync(path.resolve(__dirname, '..', 'dist', 'reviverelay-auto.user.js'), 'utf8');
-  assert.match(artifact, /ReviveRelay bundled module: src\/api-client\.js/);
   assert.match(source, /ReviveRelayApiClient/);
+  assert.match(source, /ReviveRelayRequestPreset/);
+  assert.match(source, /ReviveRelaySidebarAction/);
+  assert.match(source, /ReviveRelayProClient/);
   assert.doesNotMatch(source, /@connect\s+\*/);
-});
-
-test('build verifies the userscript support modules exist', () => {
-  const source = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'build.js'), 'utf8');
-  assert.match(source, /public-channels\.js/);
-  assert.match(source, /client-chat-policy\.js/);
-  assert.match(source, /api-client\.js/);
 });
