@@ -114,42 +114,48 @@ async function hasEverPaid(pool, userId) {
   return result.rowCount === 1 && result.rows[0].ever_paid === true;
 }
 
-async function activatePaid(pool, { userId, invoiceId, months, paidAt = new Date() }) {
+async function activatePaidWithClient(client, { userId, invoiceId, months, paidAt = new Date() }) {
   assertDate(paidAt, 'INVALID_PAID_DATE');
   if (!Number.isInteger(months) || months <= 0) throw new Error('INVALID_MONTH_COUNT');
   if (typeof invoiceId !== 'string' || !invoiceId.trim()) throw new Error('INVALID_INVOICE_ID');
+  if (!client || typeof client.query !== 'function') throw new Error('PostgreSQL client is required');
 
+  const current = await ensureLockedRow(client, userId);
+  const base = maxDate(paidAt, current.paid_until, current.trial_ends_at);
+  const validUntil = extendCalendarDuration(base, months);
+
+  const updated = await client.query(`
+    UPDATE pro_entitlements
+    SET paid_started_at = COALESCE(paid_started_at, $2),
+        paid_until = $3,
+        ever_paid = true,
+        updated_at = $2
+    WHERE user_id = $1
+    RETURNING *
+  `, [userId, paidAt, validUntil]);
+
+  await client.query(`
+    INSERT INTO audit_events (
+      actor_type, actor_id, entity_type, entity_id, action, details, created_at
+    ) VALUES (
+      'system', NULL, 'pro_entitlement', $1, 'pro.paid_activated', $2::jsonb, $3
+    )
+  `, [userId, JSON.stringify({
+    invoiceId: invoiceId.trim(),
+    months,
+    validUntil: validUntil.toISOString()
+  }), paidAt]);
+
+  return statusFromRow(updated.rows[0], paidAt);
+}
+
+async function activatePaid(pool, input) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const current = await ensureLockedRow(client, userId);
-    const base = maxDate(paidAt, current.paid_until, current.trial_ends_at);
-    const validUntil = extendCalendarDuration(base, months);
-
-    const updated = await client.query(`
-      UPDATE pro_entitlements
-      SET paid_started_at = COALESCE(paid_started_at, $2),
-          paid_until = $3,
-          ever_paid = true,
-          updated_at = $2
-      WHERE user_id = $1
-      RETURNING *
-    `, [userId, paidAt, validUntil]);
-
-    await client.query(`
-      INSERT INTO audit_events (
-        actor_type, actor_id, entity_type, entity_id, action, details, created_at
-      ) VALUES (
-        'system', NULL, 'pro_entitlement', $1, 'pro.paid_activated', $2::jsonb, $3
-      )
-    `, [userId, JSON.stringify({
-      invoiceId: invoiceId.trim(),
-      months,
-      validUntil: validUntil.toISOString()
-    }), paidAt]);
-
+    const status = await activatePaidWithClient(client, input);
     await client.query('COMMIT');
-    return statusFromRow(updated.rows[0], paidAt);
+    return status;
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;
@@ -210,6 +216,7 @@ module.exports = {
   getStatus,
   startTrial,
   hasEverPaid,
+  activatePaidWithClient,
   activatePaid,
   revoke,
   createProEntitlementRepository

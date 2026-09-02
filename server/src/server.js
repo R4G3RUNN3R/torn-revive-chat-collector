@@ -10,6 +10,7 @@ const { createTransactionService } = require("./domain/transaction-service");
 const { createVerificationCredentialRepository } = require('./db/verification-credentials');
 const { createReviverRepository } = require('./db/revivers');
 const { createProEntitlementRepository } = require('./db/pro-entitlements');
+const { createProInvoiceRepository } = require('./db/pro-invoices');
 const { createErrorTelemetryRepository } = require('./db/error-telemetry');
 const { createTelemetryReporter } = require('./telemetry/reporter');
 const { loadReleaseManifest } = require('./release/registry');
@@ -35,6 +36,7 @@ async function start() {
   });
   const reviverRepository = createReviverRepository(pool);
   const entitlementRepository = createProEntitlementRepository(pool);
+  const proInvoiceRepository = createProInvoiceRepository(pool);
   const errorTelemetryRepository = createErrorTelemetryRepository(pool);
   const telemetryReporter = createTelemetryReporter({
     repository: errorTelemetryRepository,
@@ -53,6 +55,7 @@ async function start() {
     identityRepository,
     sessionRepository,
     entitlementRepository,
+    proInvoiceRepository,
     candidateRepository,
     requestRepository,
     transactionRepository,

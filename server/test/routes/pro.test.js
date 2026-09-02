@@ -106,3 +106,77 @@ test('/v1/me projects only public Pro entitlement state', async t => {
   });
   assert.doesNotMatch(response.body,/everPaid|revokeReason|invoice|payment/i);
 });
+
+
+function makeBillingApp({ enabled=true, invoiceRepository } = {}) {
+  return buildApp({
+    config:{
+      API_KEY_ENCRYPTION_KEY:'cc'.repeat(32),
+      SESSION_TOKEN_PEPPER:'billing-test-pepper',
+      PAID_TIER_ENABLED:enabled,
+      PRO_RECEIVER_TORN_ID:999999
+    },
+    tornClient:{async getKeyInfo(){throw new Error('not used');}},
+    identityRepository:{async bindIdentity(){throw new Error('not used');}},
+    sessionRepository:sessionRepository(),
+    entitlementRepository:{
+      async getStatus(){return {state:'NONE',trialEligible:true,trialStartedAt:null,validUntil:null};},
+      async startTrial(){throw new Error('not used');}
+    },
+    proInvoiceRepository:invoiceRepository
+  });
+}
+
+test('Pro invoice creation is unavailable while paid tier is disabled', async t => {
+  const app=makeBillingApp({enabled:false,invoiceRepository:{
+    async createInvoice(){throw new Error('must not be called');},
+    async getInvoiceForUser(){return null;}
+  }});
+  t.after(()=>app.close());
+  const response=await app.inject({method:'POST',url:'/v1/pro/invoices',headers:AUTH,payload:{planId:'monthly',currency:'cash'}});
+  assert.equal(response.statusCode,503);
+  assert.equal(response.json().error,'PAID_TIER_DISABLED');
+});
+
+test('strict invoice route rejects client price or duration injection', async t => {
+  const app=makeBillingApp({invoiceRepository:{
+    async createInvoice(){throw new Error('must not be called');},
+    async getInvoiceForUser(){return null;}
+  }});
+  t.after(()=>app.close());
+  const response=await app.inject({
+    method:'POST',url:'/v1/pro/invoices',headers:AUTH,
+    payload:{planId:'monthly',currency:'cash',expectedAmount:1,entitlementMonths:120}
+  });
+  assert.equal(response.statusCode,422);
+  assert.equal(response.json().error,'INVALID_INVOICE_REQUEST');
+});
+
+test('valid invoice response uses authenticated Torn identity and exposes only safe payment target', async t => {
+  let seen=null;
+  const invoice={
+    id:'66666666-6666-4666-8666-666666666666',
+    planId:'monthly',currency:'cash',expectedAmount:10000000,entitlementMonths:1,state:'PENDING',
+    createdAt:new Date('2026-09-02T12:00:00Z'),expiresAt:new Date('2026-09-03T12:00:00Z'),paidAt:null
+  };
+  const app=makeBillingApp({invoiceRepository:{
+    async createInvoice(input){seen=input;return invoice;},
+    async getInvoiceForUser({invoiceId,userId}){assert.equal(userId,'user-pro');return invoiceId===invoice.id?invoice:null;}
+  }});
+  t.after(()=>app.close());
+  const created=await app.inject({method:'POST',url:'/v1/pro/invoices',headers:AUTH,payload:{planId:'monthly',currency:'cash'}});
+  assert.equal(created.statusCode,201);
+  assert.equal(seen.userId,'user-pro');
+  assert.equal(seen.tornId,777001);
+  assert.equal(seen.planId,'monthly');
+  assert.equal(seen.currency,'cash');
+  assert.equal(Object.hasOwn(seen,'expectedAmount'),false);
+  assert.deepEqual(created.json().paymentTarget,{tornId:999999});
+  assert.equal(created.json().invoice.expectedAmount,10000000);
+  assert.doesNotMatch(created.body,/api.?key|secret|ciphertext/i);
+
+  const fetched=await app.inject({method:'GET',url:`/v1/pro/invoices/${invoice.id}`,headers:AUTH});
+  assert.equal(fetched.statusCode,200);
+  assert.equal(fetched.json().invoice.id,invoice.id);
+  assert.deepEqual(fetched.json().paymentTarget,{tornId:999999});
+});

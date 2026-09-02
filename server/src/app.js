@@ -19,6 +19,7 @@ function buildApp({
   identityRepository,
   sessionRepository = null,
   entitlementRepository = null,
+  proInvoiceRepository = null,
   candidateRepository = null,
   requestRepository = null,
   transactionRepository = null,
@@ -58,7 +59,7 @@ function buildApp({
     });
     if (entitlementRepository) {
       app.register(async instance => {
-        await registerProRoutes(instance, { entitlementRepository });
+        await registerProRoutes(instance, { entitlementRepository, proInvoiceRepository, config });
       });
     }
   }
