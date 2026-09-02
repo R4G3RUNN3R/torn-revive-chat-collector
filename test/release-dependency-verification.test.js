@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const cp = require('node:child_process');
 const releaseClient = require('../scripts/release-client');
+const { DIRECT_SUPPORT_MODULES } = require('../scripts/client-modules');
 
 function currentCommit() {
   return cp.execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
@@ -20,7 +21,7 @@ test('release validation accepts self-contained artifacts, rejects runtime @requ
     expectedCommit: head
   });
   assert.equal(validated.commit, head);
-  assert.equal(validated.dependencies.length, 10);
+  assert.deepEqual(validated.dependencies.map(item => item.relativePath), [...DIRECT_SUPPORT_MODULES]);
 
   const withRuntimeRequire = auto.replace(
     '// @run-at       document-idle',
@@ -37,7 +38,7 @@ test('release validation accepts self-contained artifacts, rejects runtime @requ
   }), /stale|commit|provenance/i);
 });
 
-test('release verification still compares all ten GitHub source modules byte-for-byte with committed local source', async () => {
+test('release verification compares every direct support module byte-for-byte with committed local source', async () => {
   assert.equal(typeof releaseClient.verifyPinnedDependencyBytes, 'function');
   const auto = fs.readFileSync('dist/reviverelay-auto.user.js', 'utf8');
   const head = currentCommit();
@@ -56,7 +57,7 @@ test('release verification still compares all ten GitHub source modules byte-for
       };
     }
   }));
-  assert.equal(requested.length, 10);
+  assert.equal(requested.length, DIRECT_SUPPORT_MODULES.length);
 
   let changedOne = false;
   await assert.rejects(() => releaseClient.verifyPinnedDependencyBytes({

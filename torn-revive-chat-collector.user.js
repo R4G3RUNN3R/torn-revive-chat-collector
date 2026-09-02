@@ -52,19 +52,19 @@
   });
 
   const Core = globalThis.TornReviveChatCollectorCore;
-  const ApiClient = globalThis.ReviveRelayApiClient;
+  const DirectApiClient = globalThis.ReviveRelayDirectApiClient;
   const UpdateManager = globalThis.ReviveRelayUpdateManager;
   const TelemetryClient = globalThis.ReviveRelayTelemetryClient;
   const RequestPreset = globalThis.ReviveRelayRequestPreset;
   const SidebarAction = globalThis.ReviveRelaySidebarAction;
   const ProClient = globalThis.ReviveRelayProClient;
 
-  if (!Core || !ApiClient || !UpdateManager || !TelemetryClient || !RequestPreset || !SidebarAction || !ProClient) {
+  if (!Core || !DirectApiClient || !UpdateManager || !TelemetryClient || !RequestPreset || !SidebarAction || !ProClient) {
     console.error('[ReviveRelay] Required direct-runtime dependency unavailable.');
     return;
   }
 
-  const requestTransport = ApiClient.createGmRequestAdapter(GM_xmlhttpRequest);
+  const requestTransport = DirectApiClient.createGmRequestAdapter(GM_xmlhttpRequest);
   const state = {
     api: null,
     proApi: null,
@@ -102,7 +102,7 @@
   let telemetryTimer = null;
   let clockTimer = null;
 
-  state.api = ApiClient.createApiClient({
+  state.api = DirectApiClient.createDirectApiClient({
     baseUrl: API_BASE,
     getToken: () => state.sessionToken,
     request: requestTransport,

@@ -2,18 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 
-const REQUIRED = [
-  'src/core.js',
-  'src/chat-dom.js',
-  'src/public-channels.js',
-  'src/client-chat-policy.js',
-  'src/api-client.js',
-  'src/versioning.js',
-  'src/update-manager.js',
-  'src/telemetry-client.js',
-  'src/revive-classifier.js',
-  'src/candidate-pipeline.js'
-];
+const { DIRECT_SUPPORT_MODULES: REQUIRED } = require('../scripts/client-modules');
 
 function requireRows(text) {
   return [...text.matchAll(/^\/\/ @require\s+(\S+)$/gm)].map(match => match[1]);

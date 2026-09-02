@@ -57,7 +57,8 @@ test('production main runtime never imports or invokes chat discovery/classifica
 
 test('production source uses direct API/sidebar modules without wildcard network permission', () => {
   const source = fs.readFileSync(path.resolve(__dirname, '..', 'torn-revive-chat-collector.user.js'), 'utf8');
-  assert.match(source, /ReviveRelayApiClient/);
+  assert.match(source, /ReviveRelayDirectApiClient/);
+  assert.doesNotMatch(source, /ReviveRelayApiClient/);
   assert.match(source, /ReviveRelayRequestPreset/);
   assert.match(source, /ReviveRelaySidebarAction/);
   assert.match(source, /ReviveRelayProClient/);

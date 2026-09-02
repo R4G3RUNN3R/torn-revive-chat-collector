@@ -2,6 +2,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const cp = require('node:child_process');
+const { DIRECT_SUPPORT_MODULES } = require('./client-modules');
 const { validateReleaseManifest } = require('../server/src/domain/client-version');
 
 const root = path.resolve(__dirname, '..');
@@ -10,18 +11,7 @@ const URLS = {
   autoMeta: 'https://reviverelay.voidsmithindustries.com/install/reviverelay-auto.meta.js',
   manualInstall: 'https://reviverelay.voidsmithindustries.com/install/reviverelay-manual.user.js'
 };
-const REQUIRED_SUPPORT_MODULES = [
-  'src/core.js',
-  'src/chat-dom.js',
-  'src/public-channels.js',
-  'src/client-chat-policy.js',
-  'src/api-client.js',
-  'src/versioning.js',
-  'src/update-manager.js',
-  'src/telemetry-client.js',
-  'src/revive-classifier.js',
-  'src/candidate-pipeline.js'
-];
+const REQUIRED_SUPPORT_MODULES = DIRECT_SUPPORT_MODULES;
 const RAW_BASE = 'https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector';
 
 function buildReleaseManifest({ version, minimumVersion, mandatory = false, releaseNotes, releasedAt, gitCommit, autoSha256, manualSha256 }) {

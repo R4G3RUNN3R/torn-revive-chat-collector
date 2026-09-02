@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const crypto = require('node:crypto');
 const manifest = require('./fixtures/client/reviverelay-0.4.5-baseline.json');
+const { DIRECT_SUPPORT_MODULES } = require('../scripts/client-modules');
 
 function sha(path) {
   return crypto.createHash('sha256').update(fs.readFileSync(path)).digest('hex');
@@ -23,14 +24,17 @@ test('canonical 0.5.0 source keeps the proven document-idle bootstrap but is dir
   assert.doesNotMatch(source, /fetchRecentPublicCandidates|\/v1\/candidates|Shared public chat requests/);
 });
 
-test('Control B build is self-contained, document-idle, current-version, and contains no transport observer', () => {
+test('0.5.0 build is self-contained, document-idle, current-version, and direct-only', () => {
   const built = fs.readFileSync('dist/reviverelay-manual.user.js', 'utf8');
   const packageVersion = require('../package.json').version;
   assert.equal((built.match(/^\/\/ @require\s+/gm) || []).length, 0);
   assert.match(built, /@run-at\s+document-idle/);
-  assert.match(built, new RegExp(`@version\\s+${packageVersion.replace(/\\./g, '\\\\.')}\\b`));
+  assert.match(built, new RegExp(`@version\\s+${packageVersion.replace(/\./g, '\\.')}\\b`));
   assert.doesNotMatch(built, /ReviveRelayTransportObserver|transport_hook_anomaly|\/v1\/telemetry\/debug/);
-  for (const relativePath of Object.keys(manifest.supportHashes)) {
+  for (const relativePath of DIRECT_SUPPORT_MODULES) {
     assert.equal(built.split(`/* ReviveRelay bundled module: ${relativePath} */`).length - 1, 1);
+  }
+  for (const relativePath of Object.keys(manifest.supportHashes).filter(path => !DIRECT_SUPPORT_MODULES.includes(path))) {
+    assert.equal(built.includes(`/* ReviveRelay bundled module: ${relativePath} */`), false);
   }
 });
