@@ -28,7 +28,7 @@ test('GET /v1/me rejects a missing session', async t => {
   assert.equal(response.json().error, 'AUTH_REQUIRED');
 });
 
-test('GET /v1/me returns only authenticated public identity and roles', async t => {
+test('GET /v1/me returns authenticated public identity, roles and safe Pro state', async t => {
   const app = appWithSession({
     sessionId: 'session-1',
     userId: 'user-1',
@@ -48,7 +48,8 @@ test('GET /v1/me returns only authenticated public identity and roles', async t 
   assert.equal(response.statusCode, 200);
   assert.deepEqual(response.json(), {
     user: { tornId: 24680, name: 'TestReviver' },
-    roles: ['requester', 'reviver']
+    roles: ['requester', 'reviver'],
+    pro: { state:'NONE', trialEligible:true, trialStartedAt:null, validUntil:null }
   });
   assert.doesNotMatch(response.body, /apiKey|ciphertext|authTag|access_scope/i);
 });

@@ -4,6 +4,7 @@ const { registerAuthRoute } = require('./routes/auth');
 const { registerRequestRoutes } = require('./routes/requests');
 const { registerReviverQueueRoutes } = require('./routes/reviver-queue');
 const { registerMeRoute } = require('./routes/me');
+const { registerProRoutes } = require('./routes/pro');
 const { registerVerificationCredentialRoutes } = require('./routes/verification-credential');
 const { registerReviverRoutes } = require('./routes/revivers');
 const { registerTransactionRoutes } = require("./routes/transactions");
@@ -17,6 +18,7 @@ function buildApp({
   tornClient,
   identityRepository,
   sessionRepository = null,
+  entitlementRepository = null,
   candidateRepository = null,
   requestRepository = null,
   transactionRepository = null,
@@ -52,8 +54,13 @@ function buildApp({
       pepper: config.SESSION_TOKEN_PEPPER
     });
     app.register(async instance => {
-      await registerMeRoute(instance);
+      await registerMeRoute(instance, { entitlementRepository });
     });
+    if (entitlementRepository) {
+      app.register(async instance => {
+        await registerProRoutes(instance, { entitlementRepository });
+      });
+    }
   }
 
   app.get('/health', async () => ({ ok: true }));
@@ -83,11 +90,15 @@ function buildApp({
   }
 
   if (reviverRepository) {
-    if (!sessionRepository || !verificationCredentialRepository) {
-      throw new Error('reviver registration requires session and verification credential repositories');
+    if (!sessionRepository || !verificationCredentialRepository || !entitlementRepository) {
+      throw new Error('reviver registration requires session, entitlement and verification credential repositories');
     }
     app.register(async instance => {
-      await registerReviverRoutes(instance, { verificationCredentialRepository, reviverRepository });
+      await registerReviverRoutes(instance, {
+        verificationCredentialRepository,
+        reviverRepository,
+        entitlementRepository
+      });
     });
   }
 
@@ -111,11 +122,16 @@ function buildApp({
 
   if (transactionRepository) {
     if (!verificationCredentialRepository) throw new Error('reviver queue routes require a verificationCredentialRepository');
+    if (!entitlementRepository) throw new Error('reviver queue routes require an entitlementRepository');
     if (!sessionRepository) {
       throw new Error('reviver queue routes require a sessionRepository');
     }
     app.register(async instance => {
-      await registerReviverQueueRoutes(instance, { transactionRepository, verificationCredentialRepository });
+      await registerReviverQueueRoutes(instance, {
+        transactionRepository,
+        verificationCredentialRepository,
+        entitlementRepository
+      });
     });
   }
 

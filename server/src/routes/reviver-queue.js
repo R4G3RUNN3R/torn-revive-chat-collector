@@ -1,10 +1,11 @@
 const { z } = require('zod');
 const { RATE_LIMITS } = require('../security/rate-limits');
 const { assertCredentialCapability } = require('../security/verification-credential');
+const { requireActivePro } = require('../security/pro-access');
 
 const requestIdSchema = z.string().uuid();
 
-async function registerReviverQueueRoutes(app, { transactionRepository, verificationCredentialRepository }) {
+async function registerReviverQueueRoutes(app, { transactionRepository, verificationCredentialRepository, entitlementRepository }) {
   if (!transactionRepository ||
       typeof transactionRepository.listAvailableRequests !== 'function' ||
       typeof transactionRepository.acceptRequest !== 'function') {
@@ -16,6 +17,7 @@ async function registerReviverQueueRoutes(app, { transactionRepository, verifica
   if (!verificationCredentialRepository || typeof verificationCredentialRepository.getStatus !== 'function') {
     throw new Error('reviver queue routes require verificationCredentialRepository');
   }
+  const requirePro = requireActivePro(entitlementRepository);
 
   async function requireReviver(request, reply) {
     const user = request.reviveRelayUser;
@@ -38,7 +40,7 @@ async function registerReviverQueueRoutes(app, { transactionRepository, verifica
   }
 
   app.get('/v1/reviver/queue', {
-    preHandler: [app.authenticate, requireReviver, requireReviverCredential],
+    preHandler: [app.authenticate, requirePro, requireReviver, requireReviverCredential],
     config: {
       rateLimit: RATE_LIMITS.REVIVER_QUEUE
     }
@@ -48,7 +50,7 @@ async function registerReviverQueueRoutes(app, { transactionRepository, verifica
   });
 
   app.post('/v1/requests/:id/accept', {
-    preHandler: [app.authenticate, requireReviver, requireReviverCredential],
+    preHandler: [app.authenticate, requirePro, requireReviver, requireReviverCredential],
     config: {
       rateLimit: RATE_LIMITS.ACCEPT
     }

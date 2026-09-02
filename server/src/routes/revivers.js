@@ -1,4 +1,5 @@
 const { assertCredentialCapability } = require('../security/verification-credential');
+const { requireActivePro } = require('../security/pro-access');
 
 function sendCredentialError(reply, error) {
   const code = error && error.code;
@@ -8,14 +9,15 @@ function sendCredentialError(reply, error) {
   throw error;
 }
 
-async function registerReviverRoutes(app, { verificationCredentialRepository, reviverRepository }) {
+async function registerReviverRoutes(app, { verificationCredentialRepository, reviverRepository, entitlementRepository }) {
   if (typeof app.authenticate !== 'function') throw new Error('reviver routes require session authentication');
   if (!verificationCredentialRepository || typeof verificationCredentialRepository.getStatus !== 'function') {
     throw new Error('verificationCredentialRepository is required');
   }
   if (!reviverRepository || typeof reviverRepository.register !== 'function') throw new Error('reviverRepository is required');
+  const requirePro = requireActivePro(entitlementRepository);
 
-  app.post('/v1/reviver/register', { preHandler: app.authenticate }, async (request, reply) => {
+  app.post('/v1/reviver/register', { preHandler: [app.authenticate, requirePro] }, async (request, reply) => {
     try {
       const status = await verificationCredentialRepository.getStatus(request.reviveRelayUser.userId);
       assertCredentialCapability(status, 'reviver');

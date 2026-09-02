@@ -9,6 +9,7 @@ const { createJobRepository } = require("./db/jobs");
 const { createTransactionService } = require("./domain/transaction-service");
 const { createVerificationCredentialRepository } = require('./db/verification-credentials');
 const { createReviverRepository } = require('./db/revivers');
+const { createProEntitlementRepository } = require('./db/pro-entitlements');
 const { createErrorTelemetryRepository } = require('./db/error-telemetry');
 const { createTelemetryReporter } = require('./telemetry/reporter');
 const { loadReleaseManifest } = require('./release/registry');
@@ -33,6 +34,7 @@ async function start() {
     encryptionKeyHex: config.API_KEY_ENCRYPTION_KEY
   });
   const reviverRepository = createReviverRepository(pool);
+  const entitlementRepository = createProEntitlementRepository(pool);
   const errorTelemetryRepository = createErrorTelemetryRepository(pool);
   const telemetryReporter = createTelemetryReporter({
     repository: errorTelemetryRepository,
@@ -50,6 +52,7 @@ async function start() {
     tornClient,
     identityRepository,
     sessionRepository,
+    entitlementRepository,
     candidateRepository,
     requestRepository,
     transactionRepository,

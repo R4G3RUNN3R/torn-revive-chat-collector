@@ -8,6 +8,10 @@ function makeApp({ credentialStatus, registerResult }) {
     tornClient:{ async getKeyInfo(){throw new Error('not used');} },
     identityRepository:{ async bindIdentity(){} },
     sessionRepository:{ async findByTokenHash(){return { sessionId:'s',userId:'u1',tornId:123,expiresAt:null,revokedAt:null,reviverStanding:null,activeBan:false };} },
+    entitlementRepository:{
+      async getStatus(){return {state:'ACTIVE',trialEligible:false,trialStartedAt:null,validUntil:new Date('2027-01-01T00:00:00Z')};},
+      async startTrial(){throw new Error('not used');}
+    },
     verificationCredentialRepository:{ async getStatus(){return credentialStatus;}, async bind(){throw new Error('not used');}, async revoke(){return false;} },
     logMetadataResolver:{ async get(){ return { categories:{} }; } },
     reviverRepository:{ async register(input){ assert.equal(input.userId,'u1'); return registerResult; } }

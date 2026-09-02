@@ -30,6 +30,10 @@ function makeApp(transactionRepository, options = {}) {
     tornClient: { async getKeyInfo() { throw new Error('not used'); } },
     identityRepository: { async bindIdentity() {} },
     sessionRepository: makeSessionRepository(options),
+    entitlementRepository: {
+      async getStatus() { return { state:'ACTIVE', trialEligible:false, trialStartedAt:null, validUntil:new Date('2027-01-01T00:00:00Z') }; },
+      async startTrial() { throw new Error('not used'); }
+    },
     transactionRepository,
     verificationCredentialRepository: { async getStatus() { return credentialStatus; }, async bind() { throw new Error('not used'); }, async revoke() { return false; } },
     logMetadataResolver: { async get() { return { categories: {} }; } }

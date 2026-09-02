@@ -94,6 +94,18 @@ test('Stage 1 API smoke: privacy, request uniqueness, and accept race hold end t
         }
       },
       sessionRepository: createSessionRepository(pool),
+      entitlementRepository: {
+        async getStatus(userId) {
+          const active = userId === reviverAId || userId === reviverBId;
+          return {
+            state: active ? 'ACTIVE' : 'NONE',
+            trialEligible: !active,
+            trialStartedAt: null,
+            validUntil: active ? new Date('2027-01-01T00:00:00Z') : null
+          };
+        },
+        async startTrial() { throw new Error('trial activation is not part of this smoke flow'); }
+      },
       candidateRepository: createCandidateRepository(pool),
       requestRepository: createRequestRepository(pool),
       transactionRepository: createTransactionRepository(pool),
