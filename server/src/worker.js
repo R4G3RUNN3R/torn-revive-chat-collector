@@ -6,14 +6,17 @@ const { createTelemetryReporter } = require('./telemetry/reporter');
 const { createVerificationCredentialRepository } = require('./db/verification-credentials');
 const { createPaymentRepository } = require('./db/payments');
 const { createRefundRepository } = require('./db/refunds');
+const { createProInvoiceRepository } = require('./db/pro-invoices');
 const { createReviveAttemptRepository } = require('./db/revive-attempts');
 const { createTransactionService } = require('./domain/transaction-service');
 const { createTornClient } = require('./torn/client');
 const { createLogMetadataResolver } = require('./torn/log-metadata');
 const { createTornEvidenceService } = require('./torn/evidence');
+const { createProBillingEvidenceService } = require('./torn/pro-billing-evidence');
 const { createPaymentVerifyHandler } = require('./worker/payment-verify');
 const { createReviveVerifyHandler } = require('./worker/revive-verify');
 const { createRefundVerifyHandler } = require('./worker/refund-verify');
+const { createSubscriptionScanHandler } = require('./worker/subscription-scan');
 const { createWorkerRunner } = require('./worker/runner');
 const { createGoogleSheetsClient } = require('./integrations/google-sheets');
 const { createSheetsMirrorHandler } = require('./worker/sheets-mirror');
@@ -25,7 +28,7 @@ function unimplementedHandler(stage, type) {
   };
 }
 
-function buildStageThreeHandlers({ paymentVerifyHandler, reviveVerifyHandler, refundVerifyHandler, sheetsMirrorHandler = null, telemetryRetentionHandler = null }) {
+function buildStageThreeHandlers({ paymentVerifyHandler, reviveVerifyHandler, refundVerifyHandler, sheetsMirrorHandler = null, telemetryRetentionHandler = null, subscriptionScanHandler = null }) {
   if (typeof paymentVerifyHandler !== 'function') throw new Error('paymentVerifyHandler is required');
   if (typeof reviveVerifyHandler !== 'function') throw new Error('reviveVerifyHandler is required');
   if (typeof refundVerifyHandler !== 'function') throw new Error('refundVerifyHandler is required');
@@ -34,6 +37,7 @@ function buildStageThreeHandlers({ paymentVerifyHandler, reviveVerifyHandler, re
     if (type === 'payment.verify') return [type, paymentVerifyHandler];
     if (type === 'revive.verify') return [type, reviveVerifyHandler];
     if (type === 'refund.verify') return [type, refundVerifyHandler];
+    if (type === 'subscription.scan' && typeof subscriptionScanHandler === 'function') return [type, subscriptionScanHandler];
     if (type === 'sheets.mirror' && typeof sheetsMirrorHandler === 'function') return [type, sheetsMirrorHandler];
     if (type === 'telemetry.retention' && typeof telemetryRetentionHandler === 'function') return [type, telemetryRetentionHandler];
     return [type, unimplementedHandler('Stage 3', type)];
@@ -56,6 +60,7 @@ async function start() {
   });
   const paymentRepository = createPaymentRepository(pool);
   const refundRepository = createRefundRepository(pool);
+  const proInvoiceRepository = createProInvoiceRepository(pool);
   const reviveAttemptRepository = createReviveAttemptRepository(pool);
   const transactionService = createTransactionService(pool);
   const tornClient = createTornClient({ baseUrl: config.TORN_API_BASE_URL, telemetryReporter });
@@ -65,6 +70,26 @@ async function start() {
     verificationCredentialRepository,
     logMetadataResolver
   });
+  let subscriptionScanHandler = null;
+  if (config.PAID_TIER_ENABLED) {
+    const proBillingEvidenceService = createProBillingEvidenceService({
+      tornClient,
+      logMetadataResolver,
+      receiverApiKey: config.PRO_RECEIVER_API_KEY,
+      receiverTornId: config.PRO_RECEIVER_TORN_ID
+    });
+    await proBillingEvidenceService.validateCredential();
+    subscriptionScanHandler = createSubscriptionScanHandler({
+      invoiceRepository: proInvoiceRepository,
+      evidenceService: proBillingEvidenceService
+    });
+    await jobRepository.enqueueUniqueJob({
+      type: 'subscription.scan',
+      runAt: new Date(),
+      dedupeKey: 'subscription.scan:reviver-pro',
+      payload: {}
+    });
+  }
   const paymentVerifyHandler = createPaymentVerifyHandler({
     paymentRepository,
     transactionService,
@@ -113,7 +138,14 @@ async function start() {
   const runner = createWorkerRunner({
     workerId: process.env.REVIVERELAY_WORKER_ID || `worker-${process.pid}`,
     jobRepository,
-    handlers: buildStageThreeHandlers({ paymentVerifyHandler, reviveVerifyHandler, refundVerifyHandler, sheetsMirrorHandler, telemetryRetentionHandler }),
+    handlers: buildStageThreeHandlers({
+      paymentVerifyHandler,
+      reviveVerifyHandler,
+      refundVerifyHandler,
+      sheetsMirrorHandler,
+      telemetryRetentionHandler,
+      subscriptionScanHandler
+    }),
     logger: console,
     telemetryReporter
   });

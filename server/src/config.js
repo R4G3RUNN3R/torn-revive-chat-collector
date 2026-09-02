@@ -5,6 +5,16 @@ const booleanFromString = z.preprocess(
   z.boolean()
 );
 
+const optionalPositiveInteger = z.preprocess(
+  value => value === '' || value === null || value === undefined ? undefined : value,
+  z.coerce.number().int().positive().optional()
+);
+
+const optionalSecret = z.preprocess(
+  value => value === '' || value === null || value === undefined ? undefined : value,
+  z.string().min(1).max(128).optional()
+);
+
 const configSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().min(1).max(65535).default(3100),
@@ -21,7 +31,17 @@ const configSchema = z.object({
   REVIVERELAY_ERROR_SHEET_ID: z.string().default(''),
   REVIVERELAY_ERROR_SHEET_TAB: z.string().default('ReviveRelay Issues'),
   REVIVERELAY_RELEASE_MANIFEST_FILE: z.string().default(''),
-  PAID_TIER_ENABLED: booleanFromString.default(false)
+  PAID_TIER_ENABLED: booleanFromString.default(false),
+  PRO_RECEIVER_TORN_ID: optionalPositiveInteger,
+  PRO_RECEIVER_API_KEY: optionalSecret
+}).superRefine((value, ctx) => {
+  if (value.PAID_TIER_ENABLED !== true) return;
+  if (!value.PRO_RECEIVER_TORN_ID) {
+    ctx.addIssue({ code:z.ZodIssueCode.custom, path:['PRO_RECEIVER_TORN_ID'], message:'PRO_RECEIVER_TORN_ID is required when PAID_TIER_ENABLED=true' });
+  }
+  if (!value.PRO_RECEIVER_API_KEY) {
+    ctx.addIssue({ code:z.ZodIssueCode.custom, path:['PRO_RECEIVER_API_KEY'], message:'PRO_RECEIVER_API_KEY is required when PAID_TIER_ENABLED=true' });
+  }
 });
 
 function loadConfig(env = process.env) {

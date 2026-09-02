@@ -115,3 +115,26 @@ test('payment evidence must exactly match invoice owner, currency, amount and 24
     assert.equal((await repo.getInvoiceForUser({invoiceId:invoice.id,userId})).state,'PENDING');
   });
 });
+
+
+test('one Torn log ID cannot activate two Pro invoices', async () => {
+  await withDisposableDatabase('pro_invoice_reuse', async pool => {
+    const userId=await insertUser(pool,920007,'Reuse User');
+    const repo=createProInvoiceRepository(pool);
+    const first=await repo.createInvoice({userId,tornId:920007,planId:'monthly',currency:'cash',now:new Date('2026-09-02T10:00:00Z')});
+    const common={
+      tornLogId:'single-money-log',senderTornId:920007,currency:'cash',amount:10000000,
+      evidenceAt:new Date('2026-09-02T10:05:00Z'),paidAt:new Date('2026-09-02T10:06:00Z')
+    };
+    assert.equal((await repo.markPaidWithEvidence({invoiceId:first.id,...common})).paid,true);
+
+    const second=await repo.createInvoice({userId,tornId:920007,planId:'monthly',currency:'cash',now:new Date('2026-09-02T10:04:00Z')});
+    const reused=await repo.markPaidWithEvidence({invoiceId:second.id,...common,paidAt:new Date('2026-09-02T10:07:00Z')});
+    assert.equal(reused.paid,false);
+    assert.equal(reused.reason,'EVIDENCE_ALREADY_USED');
+    assert.equal((await repo.getInvoiceForUser({invoiceId:second.id,userId})).state,'PENDING');
+
+    const entitlement=await pool.query('SELECT paid_until FROM pro_entitlements WHERE user_id=$1',[userId]);
+    assert.equal(entitlement.rows[0].paid_until.toISOString(),'2026-10-02T10:06:00.000Z');
+  });
+});
