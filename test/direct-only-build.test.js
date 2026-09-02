@@ -33,6 +33,15 @@ test('canonical direct module inventory is exact and immutable', () => {
   assert.equal(Object.isFrozen(DIRECT_SUPPORT_MODULES), true);
 });
 
+test('main bootstrap consumes the exact core global exported by src/core.js', () => {
+  const coreSource = fs.readFileSync(path.resolve(__dirname, '..', 'src', 'core.js'), 'utf8');
+  const mainSource = fs.readFileSync(path.resolve(__dirname, '..', 'torn-revive-chat-collector.user.js'), 'utf8');
+
+  assert.match(coreSource, /root\.TornReviveCore\s*=\s*api/);
+  assert.match(mainSource, /const Core = globalThis\.TornReviveCore;/);
+  assert.doesNotMatch(mainSource, /TornReviveChatCollectorCore/);
+});
+
 test('0.5.0 production bundles contain direct support exactly once and zero legacy chat/candidate modules', () => {
   for (const filename of ['reviverelay-auto.user.js', 'reviverelay-manual.user.js']) {
     const built = fs.readFileSync(path.resolve(__dirname, '..', 'dist', filename), 'utf8');

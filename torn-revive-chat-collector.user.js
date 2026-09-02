@@ -51,7 +51,7 @@
     telemetryOutbox: 'reviverelay_telemetry_outbox'
   });
 
-  const Core = globalThis.TornReviveChatCollectorCore;
+  const Core = globalThis.TornReviveCore;
   const DirectApiClient = globalThis.ReviveRelayDirectApiClient;
   const UpdateManager = globalThis.ReviveRelayUpdateManager;
   const TelemetryClient = globalThis.ReviveRelayTelemetryClient;
