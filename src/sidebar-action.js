@@ -131,10 +131,13 @@
         if (!action && node.parentNode === target) action = node;
         else if (typeof node.remove === 'function') node.remove();
       }
-      if (!action) {
-        action = createAction();
-        target.appendChild(action);
-      }
+      if (!action) action = createAction();
+
+      const nativeChildren = Array.from(target.children || []).filter(node => node !== action);
+      const nearTopAnchor = nativeChildren[1] || nativeChildren[0] || null;
+      if (nearTopAnchor && typeof target.insertBefore === 'function') target.insertBefore(action, nearTopAnchor);
+      else if (action.parentNode !== target) target.appendChild(action);
+
       applyState(action, resolvedState());
       attachObserver(target);
       return action;

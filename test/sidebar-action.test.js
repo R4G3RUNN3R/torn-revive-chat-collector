@@ -15,7 +15,8 @@ class FakeElement {
     this.disabled=false;
     this.listeners=new Map();
   }
-  appendChild(child){ child.parentNode=this; this.children.push(child); return child; }
+  appendChild(child){ if(child.parentNode) child.remove(); child.parentNode=this; this.children.push(child); return child; }
+  insertBefore(child,anchor){ if(child.parentNode) child.remove(); const index=this.children.indexOf(anchor); if(index<0)return this.appendChild(child); child.parentNode=this; this.children.splice(index,0,child); return child; }
   remove(){ if(!this.parentNode)return; const a=this.parentNode.children; const i=a.indexOf(this); if(i>=0)a.splice(i,1); this.parentNode=null; }
   setAttribute(name,value){ this.attributes.set(name,String(value)); if(name==='data-reviverelay-sidebar-action') this.dataset.reviverelaySidebarAction=String(value); }
   getAttribute(name){ return this.attributes.has(name)?this.attributes.get(name):null; }
@@ -118,4 +119,23 @@ test('observer is bounded to sidebar/navigation ancestor and destroy removes its
   controller.destroy();
   assert.equal(FakeMutationObserver.instances[0].disconnected,true);
   assert.equal(document.querySelectorAll('[data-reviverelay-sidebar-action]').length,0);
+});
+
+
+test('ReviveRelay action is placed near the top of the Torn sidebar rather than appended at the bottom', () => {
+  FakeMutationObserver.instances=[];
+  const document=new FakeDocument();
+  for (const name of ['home','items','city','job','crimes']) {
+    const node=new FakeElement('a');
+    node.textContent=name;
+    document.sidebar.appendChild(node);
+  }
+  const window=makeWindow();
+  const controller=createSidebarController({document,window,label:'ReviveRelay → Revive Me!',onActivate(){},getState:()=> 'READY'});
+  controller.reconcile();
+  const action=document.querySelectorAll('[data-reviverelay-sidebar-action]')[0];
+  assert.equal(document.sidebar.children.indexOf(action),1);
+  assert.equal(document.sidebar.children.at(-1)===action,false);
+  controller.reconcile();
+  assert.equal(document.sidebar.children.indexOf(action),1);
 });

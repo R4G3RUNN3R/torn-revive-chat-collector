@@ -37,3 +37,24 @@ test('transaction countdowns derive from server-provided timestamps rather than 
   assert.doesNotMatch(source, /paymentDeadline\s*=\s*new Date\(Date\.now\(\)\s*\+\s*3\s*\*\s*60/);
   assert.doesNotMatch(source, /refundDeadline\s*=\s*new Date\(Date\.now\(\)\s*\+\s*10\s*\*\s*60/);
 });
+
+
+test('tabs use an explicit ReviveRelay display class so inactive pages cannot merge in Torn CSS', () => {
+  assert.match(source, /rr-panel-content\{display:none!important/);
+  assert.match(source, /rr-panel-content\.rr-panel-active\{display:block!important/);
+  assert.match(source, /classList\.toggle\(['"]rr-panel-active['"],\s*selected\)/);
+  assert.doesNotMatch(source, /section\.hidden\s*=/);
+});
+
+test('background polling updates live state without rebuilding Settings form controls', () => {
+  assert.match(source, /function renderLiveState\(\)/);
+  assert.match(source, /id=[\"']rr-invoice-status[\"'][^>]*>\$\{renderInvoice\(\)\}<\/div>/);
+  const timers = source.match(/function startTimers\(\)\s*\{([\s\S]*?)\n\s*\}\n\n\s*async function init/)?.[1] || '';
+  assert.ok(timers.length > 0);
+  assert.match(timers, /refreshActiveRequest\(\)\.then\(renderLiveState\)/);
+  assert.match(timers, /refreshProState[\s\S]*?then\(renderLiveState\)/);
+  assert.match(timers, /refreshReviverQueue\(\)\.then\(renderLiveState\)/);
+  assert.match(timers, /refreshCurrentInvoice\(\)\.then\(renderLiveState\)/);
+  assert.doesNotMatch(timers, /then\(renderAll\)/);
+  assert.doesNotMatch(timers, /\) renderAll\(\)/);
+});

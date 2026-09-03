@@ -834,7 +834,7 @@
         <select id="rr-pro-plan">${selectedPlanOptions()}</select>
         <select id="rr-pro-currency"><option value="xanax">Xanax</option><option value="cash">Torn cash</option></select>
         <button id="rr-create-pro-invoice">Create Pro invoice</button>
-      </div>${renderInvoice()}` : '<div class="rr-muted">Connect ReviveRelay to view Pro plans.</div>'}
+      </div><div id="rr-invoice-status">${renderInvoice()}</div>` : '<div class="rr-muted">Connect ReviveRelay to view Pro plans.</div>'}
     </div>
     <div class="rr-card" id="rr-verification">
       <div class="rr-card-title">Reviver transaction verification</div>
@@ -878,15 +878,26 @@
     }
   }
 
-  function renderAll() {
+  function renderInvoiceStatus() {
+    const target = document.getElementById('rr-invoice-status');
+    if (target) target.innerHTML = renderInvoice();
+  }
+
+  function renderLiveState() {
     if (!panel) return;
     renderSummary();
     renderRequestPanel();
     renderReviverPanel();
     renderActivityPanel();
-    renderSettingsPanel();
+    renderInvoiceStatus();
     renderStatus();
     updateTabVisibility();
+  }
+
+  function renderAll() {
+    if (!panel) return;
+    renderLiveState();
+    renderSettingsPanel();
   }
 
   function updateTabVisibility() {
@@ -897,7 +908,9 @@
       button.classList.toggle('rr-tab-active', selected);
     }
     for (const section of panel.querySelectorAll('[data-rr-panel]')) {
-      section.hidden = section.dataset.rrPanel !== state.panelTab;
+      const selected = section.dataset.rrPanel === state.panelTab;
+      section.classList.toggle('rr-panel-active', selected);
+      section.setAttribute('aria-hidden', selected ? 'false' : 'true');
     }
   }
 
@@ -978,7 +991,7 @@
 
   async function checkUpdates(force = false) {
     updateResult = await state.updateManager.check({ force });
-    renderSettingsPanel();
+    if (force) renderSettingsPanel();
   }
 
   function switchUpdateChannel() {
@@ -996,7 +1009,7 @@
       #rr-body{overflow:auto;max-height:calc(100vh - 58px)}.rr-tabs{display:grid;grid-template-columns:repeat(4,1fr);border-bottom:1px solid #303840;background:#12171c}
       .rr-tabs button{border:0;border-right:1px solid #2a3239;background:transparent;color:#87939d;padding:8px 4px;font:inherit}.rr-tabs button:last-child{border-right:0}.rr-tabs .rr-tab-active{color:#f0f4f7;background:#1d252c}
       .rr-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:#303840}.rr-summary>div{background:#151b20;padding:7px;text-align:center}.rr-summary span{display:block;color:#76838d;font-size:9px}.rr-summary strong{font-size:11px}
-      .rr-panel-content{padding:8px}.rr-card{background:#171d22;border:1px solid #303a42;border-radius:7px;padding:9px;margin-bottom:8px}.rr-card-title{font-weight:800;margin-bottom:6px;color:#eef2f5}
+      .rr-panel-content{display:none!important;padding:8px}.rr-panel-content.rr-panel-active{display:block!important}.rr-card{background:#171d22;border:1px solid #303a42;border-radius:7px;padding:9px;margin-bottom:8px}.rr-card-title{font-weight:800;margin-bottom:6px;color:#eef2f5}
       .rr-kv{display:flex;justify-content:space-between;gap:12px;padding:3px 0}.rr-kv span{color:#85919b}.rr-kv strong{text-align:right}.rr-muted{color:#798690;font-size:10px}.rr-status{padding:6px 9px;color:#8fa9ba;border-top:1px solid #303840;min-height:16px}.rr-status-error{color:#e4a1a1}
       .rr-actions,.rr-form-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}.rr-label{display:block;color:#9aa6af;margin:7px 0 3px}.rr-card input,.rr-card select,.rr-card textarea{box-sizing:border-box;width:100%;border:1px solid #3a4650;background:#0f1418;color:#e0e5e9;border-radius:5px;padding:6px;font:inherit}.rr-card button{border:1px solid #48545e;background:#242d34;color:#e6ebee;border-radius:5px;padding:5px 8px;font:inherit;cursor:pointer}.rr-card button:disabled{opacity:.45;cursor:not-allowed}
       .rr-certified-card{border-color:#806c3b;box-shadow:inset 3px 0 0 #b89a52}.rr-certified-line,.rr-queue-head{display:flex;align-items:center;justify-content:space-between;gap:8px}.rr-star{color:#d5b461}.rr-chip{font-size:8px;border:1px solid #88743e;color:#d9bc72;border-radius:8px;padding:1px 5px}.rr-offer{font-size:15px;font-weight:800;margin-top:7px}.rr-comment{margin:4px 0;color:#bcc5cc}.rr-deadlines{margin-top:6px}.rr-deadlines>div{display:flex;justify-content:space-between;color:#8e9aa3}.rr-invoice{margin-top:7px;padding-top:7px;border-top:1px solid #313a42}
@@ -1050,7 +1063,7 @@
       if (target.id === 'rr-save-preset') return saveRequestPreset();
       if (target.id === 'rr-start-trial' || target.id === 'rr-start-trial-inline') return startProTrial();
       if (target.id === 'rr-create-pro-invoice') return createProInvoice();
-      if (target.id === 'rr-refresh-invoice') return refreshCurrentInvoice().then(renderAll).catch(error => handleApiFailure(error, 'pro.invoice.refresh'));
+      if (target.id === 'rr-refresh-invoice') return refreshCurrentInvoice().then(renderLiveState).catch(error => handleApiFailure(error, 'pro.invoice.refresh'));
       if (target.id === 'rr-bind-verification') return bindVerificationKey();
       if (target.id === 'rr-revoke-verification') return revokeVerificationKey();
       if (target.id === 'rr-register-reviver') return registerMarketplaceReviver();
@@ -1105,19 +1118,19 @@
   function startTimers() {
     requestTimer = setInterval(() => {
       if (!state.sessionToken) return;
-      refreshActiveRequest().then(renderAll).catch(error => handleApiFailure(error, 'poll.request'));
+      refreshActiveRequest().then(renderLiveState).catch(error => handleApiFailure(error, 'poll.request'));
     }, REQUEST_POLL_MS);
     proTimer = setInterval(() => {
       if (!state.sessionToken) return;
-      refreshProState({ includePlans: false }).then(() => refreshVerificationCredential()).then(renderAll).catch(error => handleApiFailure(error, 'poll.pro'));
+      refreshProState({ includePlans: false }).then(() => refreshVerificationCredential()).then(renderLiveState).catch(error => handleApiFailure(error, 'poll.pro'));
     }, PRO_POLL_MS);
     queueTimer = setInterval(() => {
       if (!state.sessionToken || !isProActive()) return;
-      refreshReviverQueue().then(renderAll).catch(error => handleApiFailure(error, 'poll.queue'));
+      refreshReviverQueue().then(renderLiveState).catch(error => handleApiFailure(error, 'poll.queue'));
     }, QUEUE_POLL_MS);
     invoiceTimer = setInterval(() => {
       if (state.minimized || document.visibilityState !== 'visible' || state.currentInvoice?.state !== 'PENDING') return;
-      refreshCurrentInvoice().then(renderAll).catch(error => handleApiFailure(error, 'poll.invoice'));
+      refreshCurrentInvoice().then(renderLiveState).catch(error => handleApiFailure(error, 'poll.invoice'));
     }, INVOICE_POLL_MS);
     sidebarTimer = setInterval(refreshSidebarState, SIDEBAR_RECONCILE_MS);
     telemetryTimer = setInterval(() => {
@@ -1125,7 +1138,7 @@
       state.telemetry.drain().catch(() => {});
     }, TELEMETRY_DRAIN_MS);
     clockTimer = setInterval(() => {
-      if (!state.minimized && (state.activeTransaction || state.reviverQueue.length)) renderAll();
+      if (!state.minimized && (state.activeTransaction || state.reviverQueue.length)) renderLiveState();
     }, 1000);
   }
 
