@@ -67,20 +67,31 @@
         button.style.display = 'flex';
         button.style.alignItems = 'center';
         button.style.gap = '8px';
-        button.style.width = '100%';
+        button.style.width = 'calc(100% - 12px)';
         button.style.boxSizing = 'border-box';
-        button.style.border = '0';
-        button.style.background = 'transparent';
-        button.style.color = 'inherit';
+        button.style.border = '1px solid #d04a4a';
+        button.style.background = '#a4161a';
+        button.style.color = '#fff';
         button.style.font = 'inherit';
-        button.style.padding = '7px 10px';
+        button.style.fontWeight = '700';
+        button.style.padding = '6px 8px';
+        button.style.margin = '4px 6px';
+        button.style.borderRadius = '5px';
         button.style.textAlign = 'left';
+        button.style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,.12)';
       }
 
       const icon = document.createElement('span');
       icon.setAttribute('data-rr-sidebar-icon', '1');
       icon.setAttribute('aria-hidden', 'true');
       icon.textContent = '✚';
+      if (icon.style) {
+        icon.style.color = '#fff';
+        icon.style.fontWeight = '900';
+        icon.style.fontSize = '14px';
+        icon.style.lineHeight = '1';
+        icon.style.flexShrink = '0';
+      }
 
       const text = document.createElement('span');
       text.setAttribute('data-rr-sidebar-label', '1');

@@ -82,6 +82,7 @@
     currentInvoice: null,
     submittingRequest: false,
     sidebarController: null,
+    settingsOpen: false,
     minimized: Boolean(GM_getValue(KEYS.minimized, false)),
     panelPosition: GM_getValue(KEYS.panelPosition, null),
     panelTab: Core.normalizePanelTab(GM_getValue(KEYS.panelTab, 'request'))
@@ -516,14 +517,14 @@
     const verificationKeyInput = document.getElementById('rr-verification-key');
     const key = String(verificationKeyInput?.value || '').trim();
     if (!key) {
-      setStatus('Enter a restricted reviver verification key.', true);
+      setStatus('Paste your restricted Torn API key for Reviver Verification.', true);
       return;
     }
     try {
       const result = await state.api.bindVerificationCredential(key);
       if (verificationKeyInput) verificationKeyInput.value = '';
       state.verificationCredential = result?.credential || null;
-      setStatus('Reviver transaction verification key bound.');
+      setStatus('Reviver Verification connected.');
       await refreshMe();
       await refreshReviverQueue();
       renderAll();
@@ -538,7 +539,7 @@
       await state.api.revokeVerificationCredential();
       state.verificationCredential = null;
       state.reviverQueue = [];
-      setStatus('Reviver transaction verification key revoked.');
+      setStatus('Reviver Verification disconnected.');
       renderAll();
     } catch (error) {
       handleApiFailure(error, 'verification.revoke', 'Verification key could not be revoked.');
@@ -615,8 +616,10 @@
       requestReviveFromSidebar();
       return;
     }
-    if (currentState === 'SETUP_REQUIRED') activatePanelTab(state.sessionToken ? 'settings' : 'request');
-    else activatePanelTab('request');
+    if (currentState === 'SETUP_REQUIRED') {
+      if (state.sessionToken) openSettingsDrawer();
+      else activatePanelTab('request');
+    } else activatePanelTab('request');
   }
 
   function transactionDeadlineRows(transaction) {
@@ -725,15 +728,15 @@
       target.innerHTML = `<div class="rr-card rr-pro-gate">
         <div class="rr-card-title">Reviver Pro required</div>
         <p>The certified request queue, notifications and Accept are Reviver Pro features.</p>
-        ${state.proStatus?.trialEligible ? '<button id="rr-start-trial-inline">Start 7-day Reviver Pro trial</button>' : '<button data-rr-open-settings>Open Pro plans</button>'}
+        ${state.proStatus?.trialEligible ? '<button id="rr-start-trial-inline">Start 7-day Reviver Pro trial</button>' : '<button data-rr-open-pro>Open ReviveRelay Pro</button>'}
       </div>`;
       return;
     }
     if (!hasCredentialCapability('reviver')) {
       target.innerHTML = `<div class="rr-card">
-        <div class="rr-card-title">Finish reviver verification</div>
-        <p>Bind the restricted transaction verification key in Settings before the queue can be used.</p>
-        <button data-rr-open-settings>Open Settings</button>
+        <div class="rr-card-title">Finish Reviver Verification</div>
+        <p>Connect the limited Torn API access needed to confirm revives and payments.</p>
+        <button data-rr-open-settings>Set up Reviver Verification</button>
       </div>`;
       return;
     }
@@ -787,81 +790,120 @@
 
   function renderVerificationSettings() {
     if (!state.sessionToken) return '<div class="rr-muted">Connect ReviveRelay first.</div>';
-    if (!isProActive()) return '<div class="rr-muted">Reviver transaction verification becomes available with an active Reviver Pro trial or subscription.</div>';
+    if (!isProActive()) return '<div class="rr-muted">Reviver Verification becomes available with an active Reviver Pro trial or subscription.</div>';
     const credential = state.verificationCredential;
     const usable = Boolean(credential?.usable);
     const reviver = Boolean(credential?.capabilities?.reviver);
-    return `<div class="rr-kv"><span>Status</span><strong>${usable ? 'Bound' : 'Not bound'}</strong></div>
-      <div class="rr-kv"><span>Reviver capability</span><strong>${reviver ? 'Validated' : 'Not validated'}</strong></div>
-      <label class="rr-label" for="rr-verification-key">Restricted transaction verification key</label>
-      <input id="rr-verification-key" type="password" autocomplete="off" placeholder="Never stored in Tampermonkey">
+    return `<div class="rr-kv"><span>Status</span><strong>${usable ? 'Connected' : 'Not connected'}</strong></div>
+      <div class="rr-kv"><span>Reviver access</span><strong>${reviver ? 'Ready' : 'Not ready'}</strong></div>
+      <p class="rr-muted">ReviveRelay uses limited Torn API access to confirm your revives and payments automatically. This key is sent to ReviveRelay for secure verification and is never stored in Tampermonkey.</p>
+      <div class="rr-permission-list">
+        <strong>Required Torn access</strong>
+        <span>Revives</span><span>Money incoming</span><span>Money outgoing</span><span>Items incoming</span><span>Items outgoing</span>
+      </div>
+      <p class="rr-muted">Use a restricted custom Torn API key. Do not grant messages, faction, company, or unrelated access.</p>
+      <label class="rr-label" for="rr-verification-key">Torn API key for Reviver Verification</label>
+      <input id="rr-verification-key" type="password" autocomplete="off" placeholder="Paste restricted Torn API key">
       <div class="rr-actions">
-        <button id="rr-bind-verification">${credential ? 'Rebind verification key' : 'Bind verification key'}</button>
+        <button id="rr-bind-verification">${credential ? 'Replace verification key' : 'Connect Torn API key'}</button>
         ${credential ? '<button id="rr-revoke-verification">Revoke verification key</button>' : ''}
       </div>`;
   }
 
-  function renderSettingsPanel() {
-    const target = document.getElementById('rr-settings-content');
+  function renderProPanel() {
+    const target = document.getElementById('rr-pro-content');
     if (!target) return;
-    const validation = RequestPreset.validatePreset(state.preset);
-    const preset = validation.ok ? validation.preset : { paymentMethod: 'cash', offerAmount: 500000, comment: '' };
     const proState = state.proStatus?.state || 'NONE';
     const trialButton = state.sessionToken && state.proStatus?.trialEligible
       ? '<button id="rr-start-trial">Start 7-day Reviver Pro trial</button>' : '';
-    target.innerHTML = `<div class="rr-card">
-      <div class="rr-card-title">Revive Me preset</div>
-      <p>This preset powers <strong>ReviveRelay → Revive Me!</strong> in Torn's left sidebar.</p>
-      <label class="rr-label" for="rr-preset-method">Payment</label>
-      <select id="rr-preset-method">
-        <option value="cash" ${preset.paymentMethod === 'cash' ? 'selected' : ''}>Cash</option>
-        <option value="xanax" ${preset.paymentMethod === 'xanax' ? 'selected' : ''}>Xanax</option>
-      </select>
-      <label class="rr-label" for="rr-preset-amount">Amount</label>
-      <input id="rr-preset-amount" type="number" min="1" step="1" value="${escapeHtml(preset.offerAmount)}">
-      <div class="rr-muted">Minimum: $500,000 Cash or 1 Xanax.</div>
-      <label class="rr-label" for="rr-preset-comment">Default message</label>
-      <textarea id="rr-preset-comment" maxlength="500" rows="2">${escapeHtml(preset.comment || '')}</textarea>
-      <button id="rr-save-preset">Save Revive Me preset</button>
-    </div>
-    <div class="rr-card" id="rr-pro-settings">
-      <div class="rr-card-title">Reviver Pro</div>
-      <div class="rr-kv"><span>Status</span><strong>${escapeHtml(proState)}</strong></div>
-      ${state.proStatus?.validUntil ? `<div class="rr-kv"><span>Valid until</span><strong>${escapeHtml(formatDate(state.proStatus.validUntil))}</strong></div>` : ''}
+    target.innerHTML = `<div class="rr-card" id="rr-pro-settings">
+      <div class="rr-card-title">ReviveRelay Pro</div>
+      <p>Pro unlocks the certified reviver queue, request notifications and Accept controls.</p>
+      <div class="rr-kv"><span>Status</span><strong id="rr-pro-state">${escapeHtml(proState)}</strong></div>
+      <div class="rr-kv"><span>Valid until</span><strong id="rr-pro-valid-until">${escapeHtml(state.proStatus?.validUntil ? formatDate(state.proStatus.validUntil) : '—')}</strong></div>
       ${trialButton}
-      <p class="rr-muted">Launch reference: ${PRO_LAUNCH_REFERENCE.map(escapeHtml).join(' · ')}. Checkout values are always loaded from the server plan catalog.</p>
+    </div>
+    <div class="rr-card">
+      <div class="rr-card-title">Subscription</div>
+      <p class="rr-muted">${PRO_LAUNCH_REFERENCE.map(escapeHtml).join(' · ')}</p>
       ${state.sessionToken ? `<div class="rr-form-row">
         <select id="rr-pro-plan">${selectedPlanOptions()}</select>
         <select id="rr-pro-currency"><option value="xanax">Xanax</option><option value="cash">Torn cash</option></select>
         <button id="rr-create-pro-invoice">Create Pro invoice</button>
       </div><div id="rr-invoice-status">${renderInvoice()}</div>` : '<div class="rr-muted">Connect ReviveRelay to view Pro plans.</div>'}
-    </div>
-    <div class="rr-card" id="rr-verification">
-      <div class="rr-card-title">Reviver transaction verification</div>
-      ${renderVerificationSettings()}
-    </div>
-    <div class="rr-card">
-      <div class="rr-card-title">Account & controls</div>
-      <div class="rr-kv"><span>Connection</span><strong>${state.sessionToken ? 'Connected' : 'Disconnected'}</strong></div>
-      <div class="rr-actions">
-        <button id="rr-refresh">Refresh</button>
-        ${state.sessionToken ? '<button id="rr-disconnect">Disconnect</button>' : ''}
-      </div>
-    </div>
-    <div class="rr-card">
-      <div class="rr-card-title">Updates</div>
-      <div class="rr-kv"><span>Current</span><strong id="rr-update-current">${escapeHtml(VERSION)}</strong></div>
-      <div class="rr-kv"><span>Channel</span><strong id="rr-update-channel">${escapeHtml(UPDATE_CHANNEL)}</strong></div>
-      <div class="rr-kv"><span>Latest</span><strong id="rr-update-latest">${escapeHtml(updateResult?.latestVersion || 'Unknown')}</strong></div>
-      <div class="rr-kv"><span>Checked</span><strong id="rr-update-checked">${escapeHtml(updateResult?.lastCheckedAt ? formatDate(updateResult.lastCheckedAt) : 'Not yet')}</strong></div>
-      <div id="rr-update-banner">${updateResult?.updateAvailable ? `Update ${escapeHtml(updateResult.latestVersion)} available.` : ''}</div>
-      <div class="rr-actions"><button id="rr-update-check">Check updates</button><button id="rr-update-switch">Switch update channel</button></div>
-    </div>
-    <div class="rr-card">
-      <div class="rr-card-title">Sanitized diagnostics</div>
-      <label><input id="rr-diagnostics-enabled" type="checkbox" ${GM_getValue(KEYS.clientDiagnosticsEnabled, false) ? 'checked' : ''}> Send sanitized ReviveRelay error diagnostics</label>
-      <p class="rr-muted">Diagnostics exclude API keys, bearer tokens, payment receiver credentials and public chat content.</p>
     </div>`;
+  }
+
+  function renderProStatus() {
+    const stateTarget = document.getElementById('rr-pro-state');
+    const validTarget = document.getElementById('rr-pro-valid-until');
+    if (stateTarget) stateTarget.textContent = state.proStatus?.state || 'NONE';
+    if (validTarget) validTarget.textContent = state.proStatus?.validUntil ? formatDate(state.proStatus.validUntil) : '—';
+  }
+
+  function renderSettingsDrawer() {
+    const target = document.getElementById('rr-settings-drawer-content');
+    if (!target) return;
+    const validation = RequestPreset.validatePreset(state.preset);
+    const preset = validation.ok ? validation.preset : { paymentMethod: 'cash', offerAmount: 500000, comment: '' };
+    const verificationOpen = state.sessionToken && isProActive() && !hasCredentialCapability('reviver') ? ' open' : '';
+    target.innerHTML = `<div class="rr-settings-heading">
+      <div><strong>Settings</strong><span>Keep the everyday stuff simple. Advanced controls stay out of the way.</span></div>
+      <button id="rr-settings-close" type="button" aria-label="Close ReviveRelay settings">Close</button>
+    </div>
+    <details class="rr-settings-section" open>
+      <summary>Revive Me preset</summary>
+      <div class="rr-settings-body">
+        <p>This powers the red <strong>ReviveRelay → Revive Me!</strong> sidebar button.</p>
+        <label class="rr-label" for="rr-preset-method">Payment</label>
+        <select id="rr-preset-method">
+          <option value="cash" ${preset.paymentMethod === 'cash' ? 'selected' : ''}>Cash</option>
+          <option value="xanax" ${preset.paymentMethod === 'xanax' ? 'selected' : ''}>Xanax</option>
+        </select>
+        <label class="rr-label" for="rr-preset-amount">Amount</label>
+        <input id="rr-preset-amount" type="number" min="1" step="1" value="${escapeHtml(preset.offerAmount)}">
+        <div class="rr-muted">Minimum: $500,000 Cash or 1 Xanax.</div>
+        <label class="rr-label" for="rr-preset-comment">Default message</label>
+        <textarea id="rr-preset-comment" maxlength="500" rows="2">${escapeHtml(preset.comment || '')}</textarea>
+        <button id="rr-save-preset">Save Revive Me preset</button>
+      </div>
+    </details>
+    <details class="rr-settings-section"${verificationOpen}>
+      <summary>Reviver Verification</summary>
+      <div class="rr-settings-body">${renderVerificationSettings()}</div>
+    </details>
+    <details class="rr-settings-section">
+      <summary>Notifications</summary>
+      <div class="rr-settings-body">
+        <p>Certified-request desktop notifications are enabled automatically while Reviver Pro is active and your reviver setup is complete.</p>
+        <p class="rr-muted">ReviveRelay never auto-accepts a request.</p>
+      </div>
+    </details>
+    <details class="rr-settings-section">
+      <summary>Account</summary>
+      <div class="rr-settings-body">
+        <div class="rr-kv"><span>Connection</span><strong>${state.sessionToken ? 'Connected' : 'Disconnected'}</strong></div>
+        <div class="rr-actions"><button id="rr-refresh">Refresh</button>${state.sessionToken ? '<button id="rr-disconnect">Disconnect</button>' : ''}</div>
+      </div>
+    </details>
+    <details class="rr-settings-section">
+      <summary>Updates</summary>
+      <div class="rr-settings-body">
+        <div class="rr-kv"><span>Current</span><strong id="rr-update-current">${escapeHtml(VERSION)}</strong></div>
+        <div class="rr-kv"><span>Channel</span><strong id="rr-update-channel">${escapeHtml(UPDATE_CHANNEL)}</strong></div>
+        <div class="rr-kv"><span>Latest</span><strong id="rr-update-latest">${escapeHtml(updateResult?.latestVersion || 'Unknown')}</strong></div>
+        <div class="rr-kv"><span>Checked</span><strong id="rr-update-checked">${escapeHtml(updateResult?.lastCheckedAt ? formatDate(updateResult.lastCheckedAt) : 'Not yet')}</strong></div>
+        <div id="rr-update-banner">${updateResult?.updateAvailable ? `Update ${escapeHtml(updateResult.latestVersion)} available.` : ''}</div>
+        <div class="rr-actions"><button id="rr-update-check">Check updates</button><button id="rr-update-switch">Switch update channel</button></div>
+      </div>
+    </details>
+    <details class="rr-settings-section">
+      <summary>Diagnostics / Advanced</summary>
+      <div class="rr-settings-body">
+        <label><input id="rr-diagnostics-enabled" type="checkbox" ${GM_getValue(KEYS.clientDiagnosticsEnabled, false) ? 'checked' : ''}> Send sanitized ReviveRelay error diagnostics</label>
+        <p class="rr-muted">Diagnostics exclude API keys, bearer tokens, payment receiver credentials and public chat content.</p>
+      </div>
+    </details>`;
   }
 
   function renderSummary() {
@@ -889,6 +931,7 @@
     renderRequestPanel();
     renderReviverPanel();
     renderActivityPanel();
+    renderProStatus();
     renderInvoiceStatus();
     renderStatus();
     updateTabVisibility();
@@ -897,24 +940,57 @@
   function renderAll() {
     if (!panel) return;
     renderLiveState();
-    renderSettingsPanel();
+    renderProPanel();
+    renderSettingsDrawer();
+    updateTabVisibility();
   }
 
   function updateTabVisibility() {
     if (!panel) return;
+    const drawer = panel.querySelector('#rr-settings-drawer');
+    const gear = panel.querySelector('#rr-settings-toggle');
     for (const button of panel.querySelectorAll('[data-rr-tab]')) {
-      const selected = button.dataset.rrTab === state.panelTab;
+      const selected = !state.settingsOpen && button.dataset.rrTab === state.panelTab;
       button.setAttribute('aria-selected', selected ? 'true' : 'false');
       button.classList.toggle('rr-tab-active', selected);
     }
     for (const section of panel.querySelectorAll('[data-rr-panel]')) {
-      const selected = section.dataset.rrPanel === state.panelTab;
+      const selected = !state.settingsOpen && section.dataset.rrPanel === state.panelTab;
       section.classList.toggle('rr-panel-active', selected);
       section.setAttribute('aria-hidden', selected ? 'false' : 'true');
     }
+    if (drawer) {
+      drawer.classList.toggle('rr-settings-open', state.settingsOpen);
+      drawer.setAttribute('aria-hidden', state.settingsOpen ? 'false' : 'true');
+    }
+    if (gear) gear.setAttribute('aria-expanded', state.settingsOpen ? 'true' : 'false');
+  }
+
+  function openSettingsDrawer() {
+    if (state.minimized) {
+      state.minimized = false;
+      GM_setValue(KEYS.minimized, state.minimized);
+      if (body) body.style.display = '';
+    }
+    state.settingsOpen = true;
+    renderSettingsDrawer();
+    updateTabVisibility();
+  }
+
+  function toggleSettingsDrawer() {
+    const opening = !state.settingsOpen;
+    if (opening && state.minimized) {
+      state.minimized = false;
+      GM_setValue(KEYS.minimized, state.minimized);
+      if (body) body.style.display = '';
+    }
+    state.settingsOpen = opening;
+    if (state.settingsOpen) renderSettingsDrawer();
+    updateTabVisibility();
   }
 
   function activatePanelTab(tab) {
+    state.settingsOpen = false;
     state.panelTab = Core.normalizePanelTab(tab);
     GM_setValue(KEYS.panelTab, state.panelTab);
     if (state.minimized) {
@@ -991,7 +1067,7 @@
 
   async function checkUpdates(force = false) {
     updateResult = await state.updateManager.check({ force });
-    if (force) renderSettingsPanel();
+    if (force) renderSettingsDrawer();
   }
 
   function switchUpdateChannel() {
@@ -1005,13 +1081,16 @@
       #rr-header{display:flex;align-items:center;gap:9px;padding:9px 10px;background:#171d23;border-bottom:1px solid #343d45;cursor:move;user-select:none}
       .rr-brand{font-weight:800;letter-spacing:.06em}.rr-brand small{display:block;font-size:9px;color:#7f8b95;font-weight:500}.rr-spacer{flex:1}
       #rr-connection-pill{font-size:9px;padding:2px 6px;border-radius:8px;background:#3a2424;color:#eaa}.rr-connected{background:#21382d!important;color:#9ed8b6!important}
-      #rr-minimize{border:1px solid #46515b;background:#20272e;color:#d9e0e6;border-radius:5px;padding:2px 7px}
+      #rr-settings-toggle,#rr-minimize{border:1px solid #46515b;background:#20272e;color:#d9e0e6;border-radius:5px;padding:2px 7px;cursor:pointer}
+      #rr-settings-toggle{font-size:14px;line-height:1.2;padding:3px 7px}
       #rr-body{overflow:auto;max-height:calc(100vh - 58px)}.rr-tabs{display:grid;grid-template-columns:repeat(4,1fr);border-bottom:1px solid #303840;background:#12171c}
       .rr-tabs button{border:0;border-right:1px solid #2a3239;background:transparent;color:#87939d;padding:8px 4px;font:inherit}.rr-tabs button:last-child{border-right:0}.rr-tabs .rr-tab-active{color:#f0f4f7;background:#1d252c}
       .rr-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:#303840}.rr-summary>div{background:#151b20;padding:7px;text-align:center}.rr-summary span{display:block;color:#76838d;font-size:9px}.rr-summary strong{font-size:11px}
       .rr-panel-content{display:none!important;padding:8px}.rr-panel-content.rr-panel-active{display:block!important}.rr-card{background:#171d22;border:1px solid #303a42;border-radius:7px;padding:9px;margin-bottom:8px}.rr-card-title{font-weight:800;margin-bottom:6px;color:#eef2f5}
+      .rr-settings-drawer{display:none;padding:8px}.rr-settings-drawer.rr-settings-open{display:block}.rr-settings-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:2px 1px 8px}.rr-settings-heading strong{display:block;font-size:13px}.rr-settings-heading span{display:block;color:#7f8b95;font-size:9px;margin-top:2px}.rr-settings-heading button{border:1px solid #48545e;background:#242d34;color:#e6ebee;border-radius:5px;padding:4px 7px;cursor:pointer}
+      .rr-settings-section{background:#171d22;border:1px solid #303a42;border-radius:7px;margin-bottom:7px;overflow:hidden}.rr-settings-section>summary{cursor:pointer;list-style:none;padding:9px;font-weight:800;color:#eef2f5}.rr-settings-section>summary::-webkit-details-marker{display:none}.rr-settings-section>summary:after{content:'+';float:right;color:#7f8b95}.rr-settings-section[open]>summary:after{content:'−'}.rr-settings-body{padding:0 9px 9px;border-top:1px solid #283139}.rr-settings-body p{margin:8px 0}.rr-permission-list{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin:8px 0;padding:7px;border:1px solid #303a42;border-radius:5px;background:#11161b}.rr-permission-list strong{grid-column:1/-1}.rr-permission-list span{font-size:10px;color:#aeb8c0}
       .rr-kv{display:flex;justify-content:space-between;gap:12px;padding:3px 0}.rr-kv span{color:#85919b}.rr-kv strong{text-align:right}.rr-muted{color:#798690;font-size:10px}.rr-status{padding:6px 9px;color:#8fa9ba;border-top:1px solid #303840;min-height:16px}.rr-status-error{color:#e4a1a1}
-      .rr-actions,.rr-form-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}.rr-label{display:block;color:#9aa6af;margin:7px 0 3px}.rr-card input,.rr-card select,.rr-card textarea{box-sizing:border-box;width:100%;border:1px solid #3a4650;background:#0f1418;color:#e0e5e9;border-radius:5px;padding:6px;font:inherit}.rr-card button{border:1px solid #48545e;background:#242d34;color:#e6ebee;border-radius:5px;padding:5px 8px;font:inherit;cursor:pointer}.rr-card button:disabled{opacity:.45;cursor:not-allowed}
+      .rr-actions,.rr-form-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}.rr-label{display:block;color:#9aa6af;margin:7px 0 3px}.rr-card input,.rr-card select,.rr-card textarea,.rr-settings-section input,.rr-settings-section select,.rr-settings-section textarea{box-sizing:border-box;width:100%;border:1px solid #3a4650;background:#0f1418;color:#e0e5e9;border-radius:5px;padding:6px;font:inherit}.rr-card button,.rr-settings-section button{border:1px solid #48545e;background:#242d34;color:#e6ebee;border-radius:5px;padding:5px 8px;font:inherit;cursor:pointer}.rr-card button:disabled,.rr-settings-section button:disabled{opacity:.45;cursor:not-allowed}
       .rr-certified-card{border-color:#806c3b;box-shadow:inset 3px 0 0 #b89a52}.rr-certified-line,.rr-queue-head{display:flex;align-items:center;justify-content:space-between;gap:8px}.rr-star{color:#d5b461}.rr-chip{font-size:8px;border:1px solid #88743e;color:#d9bc72;border-radius:8px;padding:1px 5px}.rr-offer{font-size:15px;font-weight:800;margin-top:7px}.rr-comment{margin:4px 0;color:#bcc5cc}.rr-deadlines{margin-top:6px}.rr-deadlines>div{display:flex;justify-content:space-between;color:#8e9aa3}.rr-invoice{margin-top:7px;padding-top:7px;border-top:1px solid #313a42}
       @media(max-width:520px){#rr-panel{width:calc(100vw - 16px)}.rr-tabs button{font-size:10px}}
     `);
@@ -1022,6 +1101,7 @@
       <div class="rr-brand">REVIVERELAY<small>VOIDsMITH INDUSTRIES · v${escapeHtml(VERSION)}</small></div>
       <div class="rr-spacer"></div>
       <span id="rr-connection-pill">OFFLINE</span>
+      <button id="rr-settings-toggle" type="button" aria-label="Open ReviveRelay settings" aria-expanded="false">⚙</button>
       <button id="rr-minimize" type="button" aria-label="Minimize ReviveRelay">▾</button>
     </div>
     <div id="rr-body">
@@ -1029,7 +1109,7 @@
         <button data-rr-tab="request" role="tab" aria-selected="false">Request</button>
         <button data-rr-tab="reviver" role="tab" aria-selected="false">Reviver</button>
         <button data-rr-tab="activity" role="tab" aria-selected="false">Activity</button>
-        <button data-rr-tab="settings" role="tab" aria-selected="false">Settings</button>
+        <button data-rr-tab="settings" role="tab" aria-selected="false">Pro</button>
       </div>
       <div class="rr-summary">
         <div><span>REQUEST</span><strong id="rr-summary-request">None</strong></div>
@@ -1039,7 +1119,8 @@
       <section class="rr-panel-content" data-rr-panel="request"><div id="rr-requester"></div></section>
       <section class="rr-panel-content" data-rr-panel="reviver"><div id="rr-reviver-content"></div></section>
       <section class="rr-panel-content" data-rr-panel="activity"><div id="rr-activity-ledger"></div></section>
-      <section class="rr-panel-content" data-rr-panel="settings"><div id="rr-settings-content"></div></section>
+      <section class="rr-panel-content" data-rr-panel="settings"><div id="rr-pro-content"></div></section>
+      <section id="rr-settings-drawer" class="rr-settings-drawer" aria-hidden="true"><div id="rr-settings-drawer-content"></div></section>
       <div id="rr-status" class="rr-status"></div>
     </div>`;
     document.body.appendChild(panel);
@@ -1057,7 +1138,10 @@
       if (accept) return acceptMarketplaceRequest(accept.dataset.rrAccept);
       const tx = target.closest?.('[data-rr-tx-action]');
       if (tx) return runTransactionAction(tx.dataset.rrTxAction);
-      if (target.closest?.('[data-rr-open-settings]')) return activatePanelTab('settings');
+      if (target.closest?.('[data-rr-open-settings]')) return openSettingsDrawer();
+      if (target.closest?.('[data-rr-open-pro]')) return activatePanelTab('settings');
+      if (target.id === 'rr-settings-toggle') return toggleSettingsDrawer();
+      if (target.id === 'rr-settings-close') { state.settingsOpen = false; updateTabVisibility(); return; }
       if (target.id === 'rr-connect') return connectIdentity();
       if (target.id === 'rr-cancel-request') return cancelActiveRequest();
       if (target.id === 'rr-save-preset') return saveRequestPreset();

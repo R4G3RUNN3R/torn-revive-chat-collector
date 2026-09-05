@@ -21,8 +21,8 @@ test('free requester request creation is not credential gated while reviver prot
   assert.match(source,/acceptMarketplaceRequest/);
 });
 
-test('credential UI exposes bind rebind and revoke without redisplaying plaintext', () => {
-  assert.match(source, /Bind verification key|Rebind verification key/i);
+test('credential UI uses clear Reviver Verification actions without redisplaying plaintext', () => {
+  assert.match(source, /Connect Torn API key|Replace verification key/i);
   assert.match(source, /Revoke verification key/i);
   assert.match(source, /revokeVerificationCredential\(/);
 });

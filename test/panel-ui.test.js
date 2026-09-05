@@ -19,11 +19,15 @@ test('ReviveRelay panel persists draggable position and selected tab', () => {
   ]) assert.match(source, literal(token));
 });
 
-test('ReviveRelay panel has Request, Reviver, Activity and Settings tabs', () => {
-  for (const tab of ['request', 'reviver', 'activity', 'settings']) {
+test('ReviveRelay panel has Request, Reviver, Activity and Pro tabs plus a Settings gear', () => {
+  for (const tab of ['request', 'reviver', 'activity']) {
     assert.match(source, new RegExp(`data-rr-tab=["']${tab}["']`));
     assert.match(source, new RegExp(`data-rr-panel=["']${tab}["']`));
   }
+  assert.match(source, /data-rr-tab=["']settings["'][^>]*>Pro<\/button>/);
+  assert.match(source, /data-rr-panel=["']settings["'][^>]*>[\s\S]*id=["']rr-pro-content["']/);
+  assert.match(source, /id=["']rr-settings-toggle["']/);
+  assert.match(source, /id=["']rr-settings-drawer["']/);
   assert.match(source, /role=["']tablist["']/);
   assert.match(source, /aria-selected/);
 });
@@ -48,7 +52,8 @@ test('direct UI summary focuses on request, Pro access and certified queue', () 
   assert.match(source, /id=["']rr-summary-queue["']/);
   assert.match(source, /data-rr-panel=["']request["'][^>]*>[\s\S]*id=["']rr-requester["']/);
   assert.match(source, /data-rr-panel=["']activity["'][^>]*>[\s\S]*id=["']rr-activity-ledger["']/);
-  assert.match(source, /data-rr-panel=["']settings["'][^>]*>[\s\S]*id=["']rr-settings-content["']/);
+  assert.match(source, /data-rr-panel=["']settings["'][^>]*>[\s\S]*id=["']rr-pro-content["']/);
+  assert.match(source, /id=["']rr-settings-drawer["']/);
 });
 
 test('panel remains responsive on narrow viewports and has no destructive close control', () => {

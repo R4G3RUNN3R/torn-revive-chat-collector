@@ -58,3 +58,43 @@ test('background polling updates live state without rebuilding Settings form con
   assert.doesNotMatch(timers, /then\(renderAll\)/);
   assert.doesNotMatch(timers, /\) renderAll\(\)/);
 });
+
+
+test('main navigation presents ReviveRelay Pro separately and opens Settings from a gear control', () => {
+  assert.match(source, /data-rr-tab=["']settings["'][^>]*>Pro<\/button>/);
+  assert.match(source, /id=["']rr-settings-toggle["']/);
+  assert.match(source, /aria-label=["']Open ReviveRelay settings["']/);
+  assert.match(source, /id=["']rr-pro-content["']/);
+  assert.match(source, /id=["']rr-settings-drawer["']/);
+  assert.doesNotMatch(source, /data-rr-tab=["']settings["'][^>]*>Settings<\/button>/);
+});
+
+test('Settings is a collapsible drawer and Pro billing stays out of it', () => {
+  assert.match(source, /function renderSettingsDrawer\(\)/);
+  assert.match(source, /<details[^>]*class=["'][^"']*rr-settings-section/);
+  for (const label of ['Revive Me preset', 'Reviver Verification', 'Notifications', 'Updates', 'Diagnostics / Advanced']) {
+    assert.match(source, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  }
+  const settingsRenderer = source.match(/function renderSettingsDrawer\(\)\s*\{([\s\S]*?)\n\s*\}\n\n\s*function/)?.[1] || '';
+  assert.ok(settingsRenderer.length > 0);
+  assert.doesNotMatch(settingsRenderer, /Create Pro invoice/);
+  assert.doesNotMatch(settingsRenderer, /rr-pro-plan/);
+});
+
+test('reviver verification copy explains limited Torn API access and Tampermonkey handling', () => {
+  assert.match(source, /Reviver Verification/);
+  assert.match(source, /limited Torn API access/i);
+  assert.match(source, /never stored in Tampermonkey/i);
+  assert.match(source, /Money incoming/i);
+  assert.match(source, /Items outgoing/i);
+  assert.doesNotMatch(source, /Restricted transaction verification key/);
+});
+
+
+test('opening Settings from the header gear restores a minimized panel before showing the drawer', () => {
+  const toggle = source.match(/function toggleSettingsDrawer\(\)\s*\{([\s\S]*?)\n\s*\}/)?.[1] || '';
+  assert.ok(toggle.length > 0);
+  assert.match(toggle, /state\.minimized/);
+  assert.match(toggle, /GM_setValue\(KEYS\.minimized/);
+  assert.match(toggle, /body\.style\.display/);
+});

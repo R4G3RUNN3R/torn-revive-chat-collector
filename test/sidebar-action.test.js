@@ -139,3 +139,19 @@ test('ReviveRelay action is placed near the top of the Torn sidebar rather than 
   controller.reconcile();
   assert.equal(document.sidebar.children.indexOf(action),1);
 });
+
+
+test('ReviveRelay sidebar action is a real red button with a white medical cross', () => {
+  FakeMutationObserver.instances=[];
+  const document=new FakeDocument();
+  const window=makeWindow();
+  const controller=createSidebarController({document,window,label:'ReviveRelay → Revive Me!',onActivate(){},getState:()=> 'READY'});
+  controller.reconcile();
+  const action=document.querySelectorAll('[data-reviverelay-sidebar-action]')[0];
+  assert.equal(action.style.background,'#a4161a');
+  assert.equal(action.style.color,'#fff');
+  assert.equal(action.style.borderRadius,'5px');
+  assert.equal(action.style.fontWeight,'700');
+  assert.equal(action.children[0].textContent,'✚');
+  assert.equal(action.children[0].style.color,'#fff');
+});
