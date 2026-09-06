@@ -202,3 +202,35 @@ test('TornApiError preserves Torn error code 16 for permission-aware fallbacks',
     }
   );
 });
+
+
+test('getUserPerks reads current v2 perks using API-key header only', async () => {
+  const calls = [];
+  const torn = createTornClient({
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      return jsonResponse(200, {
+        perks: {
+          job: ['+ Ability to revive'], faction: [], property: [], education: [],
+          enhancer: [], book: [], stock: [], merit: []
+        }
+      });
+    }
+  });
+
+  assert.deepEqual(await torn.getUserPerks('perks-key'), {
+    job: ['+ Ability to revive'], faction: [], property: [], education: [],
+    enhancer: [], book: [], stock: [], merit: []
+  });
+  assert.match(calls[0].url, /\/user\/perks$/);
+  assert.doesNotMatch(calls[0].url, /perks-key/);
+  assert.equal(calls[0].options.headers.Authorization, 'ApiKey perks-key');
+});
+
+test('getUserPerks rejects malformed v2 perk responses', async () => {
+  const torn = createTornClient({ fetchImpl: async () => jsonResponse(200, { perks: { job: 'not-an-array' } }) });
+  await assert.rejects(
+    () => torn.getUserPerks('key'),
+    error => error instanceof TornApiError && error.code === 'TORN_UNAVAILABLE' && error.state === 'malformed'
+  );
+});

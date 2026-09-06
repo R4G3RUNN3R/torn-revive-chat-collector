@@ -8,7 +8,10 @@ const AUTH={authorization:'Bearer reviver-token'};
 function makeApp({ state, reviverStanding='active', credentialStatus={id:'cred',usable:true,capabilities:{reviver:true,requester:false}} }) {
   return buildApp({
     config:{API_KEY_ENCRYPTION_KEY:'bb'.repeat(32),SESSION_TOKEN_PEPPER:'gate-pepper'},
-    tornClient:{async getKeyInfo(){throw new Error('not used');}},
+    tornClient:{
+      async getKeyInfo(){throw new Error('not used');},
+      async getUserPerks(){return {job:['+ Ability to revive']};}
+    },
     identityRepository:{async bindIdentity(){}},
     sessionRepository:{
       async findByTokenHash(){
@@ -24,6 +27,8 @@ function makeApp({ state, reviverStanding='active', credentialStatus={id:'cred',
     },
     verificationCredentialRepository:{
       async getStatus(){return credentialStatus;},
+      async getDecryptedActiveForUser(){return credentialStatus ? {plaintextKey:'verification-key',status:credentialStatus} : null;},
+      async markUnusable(){},
       async bind(){throw new Error('not used');},
       async revoke(){return false;}
     },

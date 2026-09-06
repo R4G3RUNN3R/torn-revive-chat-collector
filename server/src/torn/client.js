@@ -174,6 +174,15 @@ function createTornClient({
     return profile;
   }
 
+  async function getUserPerks(apiKey) {
+    const body = await request('/user/perks', apiKey, undefined, 'user.perks');
+    const perks = body && (body.perks || body);
+    if (!perks || typeof perks !== 'object' || !Array.isArray(perks.job)) {
+      return malformed('user.perks.validate', 'Torn perks response is incomplete');
+    }
+    return perks;
+  }
+
   async function getUserLogs(apiKey, { categoryId, targetTornId, from, to, limit = 100 } = {}) {
     if (!Number.isSafeInteger(Number(categoryId)) || Number(categoryId) <= 0) throw new Error('Log category ID is required');
     const body = await request('/user/log', apiKey, {
@@ -194,6 +203,7 @@ function createTornClient({
     getLogCategories,
     getUserRevives,
     getUserProfile,
+    getUserPerks,
     getUserLogs
   };
 }

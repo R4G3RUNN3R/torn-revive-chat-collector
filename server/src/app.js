@@ -106,6 +106,7 @@ function buildApp({
     }
     app.register(async instance => {
       await registerReviverRoutes(instance, {
+        tornClient,
         verificationCredentialRepository,
         reviverRepository,
         entitlementRepository

@@ -32,7 +32,7 @@
   const SIDEBAR_RECONCILE_MS = 5_000;
   const TELEMETRY_DRAIN_MS = 30_000;
   const MAX_SEEN_REQUEST_IDS = 200;
-  const REVIVER_VERIFICATION_KEY_URL = 'https://www.torn.com/preferences.php#tab=api?step=addNewKey&title=ReviveRelay%20Reviver%20Verification&user=basic,revives,log&logIds=14,15,16,17';
+  const REVIVER_VERIFICATION_KEY_URL = 'https://www.torn.com/preferences.php#tab=api?step=addNewKey&title=ReviveRelay%20Reviver%20Verification&user=basic,revives,log,perks&logIds=14,15,16,17';
   const MASKED_VERIFICATION_KEY = '••••••••••••••••';
   const PRO_LAUNCH_REFERENCE = Object.freeze([
     'Monthly: 10 Xanax or $10,000,000',
@@ -79,6 +79,7 @@
     activeTransaction: null,
     verificationCredential: null,
     verificationEditing: false,
+    reviverEligibility: null,
     reviverQueue: [],
     proStatus: null,
     proPlans: [],
@@ -203,6 +204,10 @@
     return state.proStatus?.state === 'TRIAL' || state.proStatus?.state === 'ACTIVE';
   }
 
+  function hasConfirmedReviveAbility() {
+    return state.reviverEligibility?.canRevive === true;
+  }
+
   function publicIdentity() {
     if (!state.identity) return null;
     return { tornId: state.identity.tornId, name: state.identity.name };
@@ -252,6 +257,7 @@
     state.activeTransaction = null;
     state.verificationCredential = null;
     state.verificationEditing = false;
+    state.reviverEligibility = null;
     state.reviverQueue = [];
     state.proStatus = null;
     state.proPlans = [];
@@ -348,10 +354,26 @@
   async function refreshVerificationCredential() {
     if (!state.sessionToken || !isProActive()) {
       state.verificationCredential = null;
+      state.reviverEligibility = null;
       return;
     }
     const result = await state.api.getVerificationCredential();
     state.verificationCredential = result?.credential || null;
+    if (!hasCredentialCapability('reviver')) state.reviverEligibility = null;
+  }
+
+  async function refreshReviverEligibility() {
+    if (!state.sessionToken || !isProActive() || !hasCredentialCapability('reviver') || hasRole('reviver')) {
+      state.reviverEligibility = null;
+      return;
+    }
+    try {
+      const result = await state.api.getReviverEligibility();
+      state.reviverEligibility = result?.eligibility || null;
+    } catch (error) {
+      state.reviverEligibility = { status: 'UNAVAILABLE', canRevive: null };
+      captureClientError(error, 'reviver.eligibility');
+    }
   }
 
   function readSeenRequestIds() {
@@ -416,6 +438,7 @@
     if (state.currentInvoice.state === 'PAID') {
       await refreshProState({ includePlans: false });
       await refreshVerificationCredential();
+      await refreshReviverEligibility();
       await refreshReviverQueue();
     }
   }
@@ -426,6 +449,7 @@
     await refreshProState({ includePlans });
     await refreshActiveRequest();
     await refreshVerificationCredential();
+    await refreshReviverEligibility();
     await refreshReviverQueue();
     if (state.activeTransaction?.id) await refreshActiveTransaction(state.activeTransaction.id);
   }
@@ -531,6 +555,7 @@
       state.verificationEditing = false;
       setStatus('Reviver Verification connected.');
       await refreshMe();
+      await refreshReviverEligibility();
       await refreshReviverQueue();
       renderAll();
     } catch (error) {
@@ -550,6 +575,7 @@
       await state.api.revokeVerificationCredential();
       state.verificationCredential = null;
       state.verificationEditing = false;
+      state.reviverEligibility = null;
       state.reviverQueue = [];
       setStatus('Reviver Verification disconnected.');
       renderAll();
@@ -559,10 +585,11 @@
   }
 
   async function registerMarketplaceReviver() {
-    if (!isProActive() || !hasCredentialCapability('reviver')) return;
+    if (!isProActive() || !hasCredentialCapability('reviver') || !hasConfirmedReviveAbility()) return;
     try {
       await state.api.registerReviver();
       await refreshMe();
+      state.reviverEligibility = null;
       await refreshReviverQueue();
       setStatus('Reviver Pro queue access registered.');
       renderAll();
@@ -753,9 +780,39 @@
       return;
     }
     if (!hasRole('reviver')) {
+      const eligibility = state.reviverEligibility;
+      if (!eligibility) {
+        target.innerHTML = `<div class="rr-card">
+          <div class="rr-card-title">Checking revive ability</div>
+          <p>ReviveRelay is confirming that this Torn account has permanently unlocked reviving.</p>
+        </div>`;
+        return;
+      }
+      if (eligibility.status === 'PERMISSION_REQUIRED') {
+        target.innerHTML = `<div class="rr-card">
+          <div class="rr-card-title">Revive ability could not be verified</div>
+          <p>Your connected custom Torn key predates the revive-ability check and does not include <strong>Perks</strong>.</p>
+          <button data-rr-open-settings>Update Reviver Verification key</button>
+        </div>`;
+        return;
+      }
+      if (eligibility.status === 'NOT_UNLOCKED') {
+        target.innerHTML = `<div class="rr-card">
+          <div class="rr-card-title">Reviving not unlocked</div>
+          <p>This Torn account does not have the permanent revive ability. Reach <strong>Brain Surgeon</strong> in the Medical starter job to permanently unlock reviving.</p>
+        </div>`;
+        return;
+      }
+      if (!hasConfirmedReviveAbility()) {
+        target.innerHTML = `<div class="rr-card">
+          <div class="rr-card-title">Revive ability could not be verified</div>
+          <p>ReviveRelay will not register this account as a reviver until Torn confirms the revive ability.</p>
+        </div>`;
+        return;
+      }
       target.innerHTML = `<div class="rr-card">
         <div class="rr-card-title">Register as reviver</div>
-        <p>Your Pro entitlement and reviver verification capability are valid.</p>
+        <p>Torn confirmed that this account has the permanent revive ability.</p>
         <button id="rr-register-reviver">Register as reviver</button>
       </div>`;
       return;
@@ -807,6 +864,15 @@
     const usable = Boolean(credential?.usable);
     const reviver = Boolean(credential?.capabilities?.reviver);
     const broadAccess = Boolean(credential?.accessScope?.broadAccess);
+    const eligibilityStatus = hasRole('reviver')
+      ? 'Registered'
+      : state.reviverEligibility?.status === 'ELIGIBLE'
+        ? 'Confirmed'
+        : state.reviverEligibility?.status === 'NOT_UNLOCKED'
+          ? 'Not unlocked'
+          : state.reviverEligibility?.status === 'PERMISSION_REQUIRED'
+            ? 'Update key required'
+            : reviver ? 'Checking…' : 'Not checked';
     const editing = !credential || state.verificationEditing;
     const keyInput = editing
       ? '<input id="rr-verification-key" type="password" autocomplete="off" placeholder="Paste Torn API key">'
@@ -816,11 +882,12 @@
       : '<button id="rr-replace-verification" type="button">Replace Torn API key</button>';
     return `<div class="rr-kv"><span>Status</span><strong>${usable ? 'Connected' : 'Not connected'}</strong></div>
       <div class="rr-kv"><span>Reviver access</span><strong>${reviver ? 'Ready' : 'Not ready'}</strong></div>
+      <div class="rr-kv"><span>Revive ability</span><strong>${escapeHtml(eligibilityStatus)}</strong></div>
       ${broadAccess ? '<div class="rr-warning"><strong>Full/Broad Access key accepted.</strong> This key grants more access than ReviveRelay requires. You can keep using it, or replace it with the recommended restricted key below.</div>' : ''}
       <p class="rr-muted">ReviveRelay needs Torn API access to confirm your revives and payments automatically. The key is sent to ReviveRelay for secure verification and is never stored in Tampermonkey.</p>
       <div class="rr-permission-list">
         <strong>Recommended Torn access</strong>
-        <span>Revives</span><span>Money incoming</span><span>Money outgoing</span><span>Items incoming</span><span>Items outgoing</span>
+        <span>Revives</span><span>Perks (revive ability)</span><span>Money incoming</span><span>Money outgoing</span><span>Items incoming</span><span>Items outgoing</span>
       </div>
       <div class="rr-setup-choice">
         <strong>Recommended</strong>
@@ -1237,7 +1304,7 @@
     }, REQUEST_POLL_MS);
     proTimer = setInterval(() => {
       if (!state.sessionToken) return;
-      refreshProState({ includePlans: false }).then(() => refreshVerificationCredential()).then(renderLiveState).catch(error => handleApiFailure(error, 'poll.pro'));
+      refreshProState({ includePlans: false }).then(() => refreshVerificationCredential()).then(() => refreshReviverEligibility()).then(renderLiveState).catch(error => handleApiFailure(error, 'poll.pro'));
     }, PRO_POLL_MS);
     queueTimer = setInterval(() => {
       if (!state.sessionToken || !isProActive()) return;

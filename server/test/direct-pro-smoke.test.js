@@ -41,7 +41,7 @@ function reviverCredentialInfo() {
     tornId: REVIVER_TORN_ID,
     name: 'Direct Pro Reviver',
     selections: {
-      user: ['revives', 'log'], company: [], faction: [], market: [], property: [],
+      user: ['revives', 'log', 'perks'], company: [], faction: [], market: [], property: [],
       torn: [], racing: [], forum: [], key: ['info']
     },
     access: {
@@ -65,6 +65,10 @@ function createFakeTornClient() {
       if (apiKey === 'buyer-identity-key') return identityInfo(BUYER_TORN_ID, 'Direct Pro Buyer');
       if (apiKey === 'reviver-transaction-key') return reviverCredentialInfo();
       throw new Error(`Unexpected fake Torn key: ${apiKey}`);
+    },
+    async getUserPerks(apiKey) {
+      assert.equal(apiKey, 'reviver-transaction-key');
+      return { job: ['+ Ability to revive'] };
     }
   };
 }

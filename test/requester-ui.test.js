@@ -124,3 +124,18 @@ test('connected Reviver Verification keeps a masked key indicator and separates 
   assert.match(source, /readonly/);
   assert.match(source, /Connected Torn API key \(masked\)/i);
 });
+
+
+test('recommended Reviver Verification key includes perks so revive ability can be checked', () => {
+  assert.match(source, /user=basic,revives,log,perks/);
+  assert.match(source, /Perks \(revive ability\)/i);
+});
+
+test('Reviver registration UI is gated by server-confirmed Torn revive eligibility', () => {
+  assert.match(source, /reviverEligibility/);
+  assert.match(source, /getReviverEligibility\(\)/);
+  assert.match(source, /REVIVE_ABILITY_NOT_UNLOCKED|NOT_UNLOCKED/);
+  assert.match(source, /Reviving not unlocked/i);
+  assert.match(source, /Revive ability could not be verified/i);
+  assert.match(source, /canRevive\s*===\s*true/);
+});

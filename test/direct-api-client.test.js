@@ -13,6 +13,7 @@ const REQUIRED_METHODS = [
   'getVerificationCredential',
   'bindVerificationCredential',
   'revokeVerificationCredential',
+  'getReviverEligibility',
   'registerReviver',
   'getReviverQueue',
   'acceptRequest',
@@ -70,6 +71,7 @@ test('direct API client maps the marketplace routes and carries the bound sessio
   await api.getVerificationCredential();
   await api.bindVerificationCredential('restricted-key');
   await api.revokeVerificationCredential();
+  await api.getReviverEligibility();
   await api.registerReviver();
   await api.getReviverQueue();
   await api.acceptRequest('request id');
@@ -91,6 +93,7 @@ test('direct API client maps the marketplace routes and carries the bound sessio
     ['GET', '/v1/verification-credential'],
     ['POST', '/v1/verification-credential'],
     ['DELETE', '/v1/verification-credential'],
+    ['GET', '/v1/reviver/eligibility'],
     ['POST', '/v1/reviver/register'],
     ['GET', '/v1/reviver/queue'],
     ['POST', '/v1/requests/request%20id/accept'],
@@ -111,7 +114,7 @@ test('direct API client maps the marketplace routes and carries the bound sessio
     assert.equal(call.headers['X-ReviveRelay-Channel'], 'manual');
   }
   assert.deepEqual(calls[0].body, { apiKey: 'identity-key', clientVersion: '0.5.0' });
-  assert.deepEqual(calls[16].body, { decision: 'accept' });
+  assert.deepEqual(calls[17].body, { decision: 'accept' });
 });
 
 test('direct API client contains no chat candidate or retry-outbox machinery', () => {
