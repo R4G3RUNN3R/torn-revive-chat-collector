@@ -142,7 +142,8 @@ function buildApp({
       await registerReviverQueueRoutes(instance, {
         transactionRepository,
         verificationCredentialRepository,
-        entitlementRepository
+        entitlementRepository,
+        tornClient
       });
     });
   }

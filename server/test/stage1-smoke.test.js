@@ -86,6 +86,9 @@ test('Stage 1 API smoke: privacy, request uniqueness, and accept race hold end t
       tornClient: {
         async getKeyInfo() {
           throw new Error('Torn API is not part of the Stage 1 smoke flow');
+        },
+        async getUserPerks() {
+          return { job: ['+ Ability to revive'] };
         }
       },
       identityRepository: {
@@ -117,6 +120,10 @@ test('Stage 1 API smoke: privacy, request uniqueness, and accept race hold end t
           if (userId === reviverAId || userId === reviverBId) {
             return { id: `reviver-smoke-${userId}`, usable: true, capabilities: { requester: false, reviver: true } };
           }
+          return null;
+        },
+        async getDecryptedActiveForUser(userId) {
+          if (userId === reviverAId || userId === reviverBId) return { plaintextKey: 'stage1-smoke-verification-key' };
           return null;
         },
         async bind() { throw new Error('verification binding is not part of this smoke flow'); },

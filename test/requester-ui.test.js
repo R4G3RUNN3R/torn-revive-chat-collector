@@ -139,3 +139,10 @@ test('Reviver registration UI is gated by server-confirmed Torn revive eligibili
   assert.match(source, /Revive ability could not be verified/i);
   assert.match(source, /canRevive\s*===\s*true/);
 });
+
+
+test('previously registered revivers remain gated by current Torn revive eligibility in the client', () => {
+  assert.doesNotMatch(source, /!hasCredentialCapability\('reviver'\) \|\| hasRole\('reviver'\)/);
+  assert.match(source, /!hasRole\('reviver'\) \|\| !hasCredentialCapability\('reviver'\) \|\| !hasConfirmedReviveAbility\(\)/);
+  assert.doesNotMatch(source, /const eligibilityStatus = hasRole\('reviver'\)\s*\?\s*'Registered'/);
+});

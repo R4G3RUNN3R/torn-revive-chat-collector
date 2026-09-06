@@ -22,12 +22,16 @@ function makeSessionRepository({ reviver = true } = {}) {
 
 function makeApp(transactionRepository, options = {}) {
   const credentialStatus = Object.hasOwn(options, 'credentialStatus') ? options.credentialStatus : { id: 'cred-r', usable: true, capabilities: { requester: false, reviver: true } };
+  const perksJob = Object.hasOwn(options, 'perksJob') ? options.perksJob : ['+ Ability to revive'];
   return buildApp({
     config: {
       API_KEY_ENCRYPTION_KEY: '88'.repeat(32),
       SESSION_TOKEN_PEPPER: 'test-pepper'
     },
-    tornClient: { async getKeyInfo() { throw new Error('not used'); } },
+    tornClient: {
+      async getKeyInfo() { throw new Error('not used'); },
+      async getUserPerks() { return { job: perksJob }; }
+    },
     identityRepository: { async bindIdentity() {} },
     sessionRepository: makeSessionRepository(options),
     entitlementRepository: {
@@ -35,7 +39,12 @@ function makeApp(transactionRepository, options = {}) {
       async startTrial() { throw new Error('not used'); }
     },
     transactionRepository,
-    verificationCredentialRepository: { async getStatus() { return credentialStatus; }, async bind() { throw new Error('not used'); }, async revoke() { return false; } },
+    verificationCredentialRepository: {
+      async getStatus() { return credentialStatus; },
+      async getDecryptedActiveForUser() { return credentialStatus ? { plaintextKey: 'verification-key' } : null; },
+      async bind() { throw new Error('not used'); },
+      async revoke() { return false; }
+    },
     logMetadataResolver: { async get() { return { categories: {} }; } }
   });
 }
@@ -157,5 +166,32 @@ test('reviver queue and Accept require a usable reviver-capable transaction cred
   const accepted = await app.inject({ method: 'POST', url: `/v1/requests/${VALID_REQUEST_ID}/accept`, headers: { authorization: 'Bearer reviver-token' } });
   assert.equal(accepted.statusCode, 409);
   assert.equal(accepted.json().error, 'VERIFICATION_CREDENTIAL_REQUIRED');
+  assert.equal(calls, 0);
+});
+
+
+test('grandfathered active reviver without Torn revive ability cannot view or accept the queue', async t => {
+  let calls = 0;
+  const app = makeApp({
+    async listAvailableRequests() { calls += 1; return [{ id: VALID_REQUEST_ID }]; },
+    async acceptRequest() { calls += 1; return { accepted: true }; }
+  }, { perksJob: ['+ 10% Crime success'] });
+  t.after(() => app.close());
+
+  const queue = await app.inject({
+    method: 'GET',
+    url: '/v1/reviver/queue',
+    headers: { authorization: 'Bearer legacy-reviver-token' }
+  });
+  assert.equal(queue.statusCode, 403);
+  assert.equal(queue.json().error, 'REVIVE_ABILITY_NOT_UNLOCKED');
+
+  const accepted = await app.inject({
+    method: 'POST',
+    url: `/v1/requests/${VALID_REQUEST_ID}/accept`,
+    headers: { authorization: 'Bearer legacy-reviver-token' }
+  });
+  assert.equal(accepted.statusCode, 403);
+  assert.equal(accepted.json().error, 'REVIVE_ABILITY_NOT_UNLOCKED');
   assert.equal(calls, 0);
 });

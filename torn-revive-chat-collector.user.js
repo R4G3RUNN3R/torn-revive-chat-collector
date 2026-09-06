@@ -363,7 +363,7 @@
   }
 
   async function refreshReviverEligibility() {
-    if (!state.sessionToken || !isProActive() || !hasCredentialCapability('reviver') || hasRole('reviver')) {
+    if (!state.sessionToken || !isProActive() || !hasCredentialCapability('reviver')) {
       state.reviverEligibility = null;
       return;
     }
@@ -387,7 +387,7 @@
   }
 
   function notifyNewQueueRequests(requests) {
-    if (!isProActive() || !hasRole('reviver') || !hasCredentialCapability('reviver')) return;
+    if (!isProActive() || !hasRole('reviver') || !hasCredentialCapability('reviver') || !hasConfirmedReviveAbility()) return;
     const seen = new Set(readSeenRequestIds());
     const next = [...seen];
     for (const request of Array.isArray(requests) ? requests : []) {
@@ -419,7 +419,7 @@
       state.reviverQueue = [];
       return;
     }
-    if (!hasRole('reviver') || !hasCredentialCapability('reviver')) {
+    if (!hasRole('reviver') || !hasCredentialCapability('reviver') || !hasConfirmedReviveAbility()) {
       state.reviverQueue = [];
       return;
     }
@@ -589,7 +589,6 @@
     try {
       await state.api.registerReviver();
       await refreshMe();
-      state.reviverEligibility = null;
       await refreshReviverQueue();
       setStatus('Reviver Pro queue access registered.');
       renderAll();
@@ -599,7 +598,7 @@
   }
 
   async function acceptMarketplaceRequest(requestId) {
-    if (!isProActive() || !hasRole('reviver') || !hasCredentialCapability('reviver')) return;
+    if (!isProActive() || !hasRole('reviver') || !hasCredentialCapability('reviver') || !hasConfirmedReviveAbility()) return;
     try {
       const result = await state.api.acceptRequest(requestId);
       state.activeTransaction = result?.transaction || null;
@@ -779,37 +778,37 @@
       </div>`;
       return;
     }
+    const eligibility = state.reviverEligibility;
+    if (!eligibility) {
+      target.innerHTML = `<div class="rr-card">
+        <div class="rr-card-title">Checking revive ability</div>
+        <p>ReviveRelay is confirming that this Torn account has permanently unlocked reviving.</p>
+      </div>`;
+      return;
+    }
+    if (eligibility.status === 'PERMISSION_REQUIRED') {
+      target.innerHTML = `<div class="rr-card">
+        <div class="rr-card-title">Revive ability could not be verified</div>
+        <p>Your connected custom Torn key predates the revive-ability check and does not include <strong>Perks</strong>.</p>
+        <button data-rr-open-settings>Update Reviver Verification key</button>
+      </div>`;
+      return;
+    }
+    if (eligibility.status === 'NOT_UNLOCKED') {
+      target.innerHTML = `<div class="rr-card">
+        <div class="rr-card-title">Reviving not unlocked</div>
+        <p>This Torn account does not have the permanent revive ability. Reach <strong>Brain Surgeon</strong> in the Medical starter job to permanently unlock reviving.</p>
+      </div>`;
+      return;
+    }
+    if (!hasConfirmedReviveAbility()) {
+      target.innerHTML = `<div class="rr-card">
+        <div class="rr-card-title">Revive ability could not be verified</div>
+        <p>ReviveRelay will not provide reviver queue access until Torn confirms the revive ability.</p>
+      </div>`;
+      return;
+    }
     if (!hasRole('reviver')) {
-      const eligibility = state.reviverEligibility;
-      if (!eligibility) {
-        target.innerHTML = `<div class="rr-card">
-          <div class="rr-card-title">Checking revive ability</div>
-          <p>ReviveRelay is confirming that this Torn account has permanently unlocked reviving.</p>
-        </div>`;
-        return;
-      }
-      if (eligibility.status === 'PERMISSION_REQUIRED') {
-        target.innerHTML = `<div class="rr-card">
-          <div class="rr-card-title">Revive ability could not be verified</div>
-          <p>Your connected custom Torn key predates the revive-ability check and does not include <strong>Perks</strong>.</p>
-          <button data-rr-open-settings>Update Reviver Verification key</button>
-        </div>`;
-        return;
-      }
-      if (eligibility.status === 'NOT_UNLOCKED') {
-        target.innerHTML = `<div class="rr-card">
-          <div class="rr-card-title">Reviving not unlocked</div>
-          <p>This Torn account does not have the permanent revive ability. Reach <strong>Brain Surgeon</strong> in the Medical starter job to permanently unlock reviving.</p>
-        </div>`;
-        return;
-      }
-      if (!hasConfirmedReviveAbility()) {
-        target.innerHTML = `<div class="rr-card">
-          <div class="rr-card-title">Revive ability could not be verified</div>
-          <p>ReviveRelay will not register this account as a reviver until Torn confirms the revive ability.</p>
-        </div>`;
-        return;
-      }
       target.innerHTML = `<div class="rr-card">
         <div class="rr-card-title">Register as reviver</div>
         <p>Torn confirmed that this account has the permanent revive ability.</p>
@@ -864,15 +863,13 @@
     const usable = Boolean(credential?.usable);
     const reviver = Boolean(credential?.capabilities?.reviver);
     const broadAccess = Boolean(credential?.accessScope?.broadAccess);
-    const eligibilityStatus = hasRole('reviver')
-      ? 'Registered'
-      : state.reviverEligibility?.status === 'ELIGIBLE'
-        ? 'Confirmed'
-        : state.reviverEligibility?.status === 'NOT_UNLOCKED'
-          ? 'Not unlocked'
-          : state.reviverEligibility?.status === 'PERMISSION_REQUIRED'
-            ? 'Update key required'
-            : reviver ? 'Checking…' : 'Not checked';
+    const eligibilityStatus = state.reviverEligibility?.status === 'ELIGIBLE'
+      ? 'Confirmed'
+      : state.reviverEligibility?.status === 'NOT_UNLOCKED'
+        ? 'Not unlocked'
+        : state.reviverEligibility?.status === 'PERMISSION_REQUIRED'
+          ? 'Update key required'
+          : reviver ? 'Checking…' : 'Not checked';
     const editing = !credential || state.verificationEditing;
     const keyInput = editing
       ? '<input id="rr-verification-key" type="password" autocomplete="off" placeholder="Paste Torn API key">'
