@@ -98,3 +98,20 @@ test('opening Settings from the header gear restores a minimized panel before sh
   assert.match(toggle, /GM_setValue\(KEYS\.minimized/);
   assert.match(toggle, /body\.style\.display/);
 });
+
+
+test('Reviver Verification offers one-click creation of the recommended Torn key', () => {
+  assert.match(source, /Create recommended Torn key/i);
+  assert.match(source, /https:\/\/www\.torn\.com\/preferences\.php#tab=api\?step=addNewKey/);
+  assert.match(source, /title=ReviveRelay%20Reviver%20Verification/);
+  assert.match(source, /user=basic,revives,log/);
+  assert.match(source, /logIds=14,15,16,17/);
+  assert.match(source, /window\.open\(REVIVER_VERIFICATION_KEY_URL/);
+});
+
+test('Reviver Verification accepts broad keys but warns that they grant more access than required', () => {
+  assert.match(source, /Full\/Broad Access key/i);
+  assert.match(source, /accepted/i);
+  assert.match(source, /more access than ReviveRelay requires/i);
+  assert.match(source, /accessScope\?\.broadAccess/);
+});

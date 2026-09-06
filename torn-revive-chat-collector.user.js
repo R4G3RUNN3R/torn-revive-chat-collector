@@ -32,6 +32,7 @@
   const SIDEBAR_RECONCILE_MS = 5_000;
   const TELEMETRY_DRAIN_MS = 30_000;
   const MAX_SEEN_REQUEST_IDS = 200;
+  const REVIVER_VERIFICATION_KEY_URL = 'https://www.torn.com/preferences.php#tab=api?step=addNewKey&title=ReviveRelay%20Reviver%20Verification&user=basic,revives,log&logIds=14,15,16,17';
   const PRO_LAUNCH_REFERENCE = Object.freeze([
     'Monthly: 10 Xanax or $10,000,000',
     '6 Months: 55 Xanax or $55,000,000',
@@ -517,7 +518,7 @@
     const verificationKeyInput = document.getElementById('rr-verification-key');
     const key = String(verificationKeyInput?.value || '').trim();
     if (!key) {
-      setStatus('Paste your restricted Torn API key for Reviver Verification.', true);
+      setStatus('Paste a Torn API key for Reviver Verification.', true);
       return;
     }
     try {
@@ -794,19 +795,29 @@
     const credential = state.verificationCredential;
     const usable = Boolean(credential?.usable);
     const reviver = Boolean(credential?.capabilities?.reviver);
+    const broadAccess = Boolean(credential?.accessScope?.broadAccess);
     return `<div class="rr-kv"><span>Status</span><strong>${usable ? 'Connected' : 'Not connected'}</strong></div>
       <div class="rr-kv"><span>Reviver access</span><strong>${reviver ? 'Ready' : 'Not ready'}</strong></div>
-      <p class="rr-muted">ReviveRelay uses limited Torn API access to confirm your revives and payments automatically. This key is sent to ReviveRelay for secure verification and is never stored in Tampermonkey.</p>
+      ${broadAccess ? '<div class="rr-warning"><strong>Full/Broad Access key accepted.</strong> This key grants more access than ReviveRelay requires. You can keep using it, or replace it with the recommended restricted key below.</div>' : ''}
+      <p class="rr-muted">ReviveRelay needs Torn API access to confirm your revives and payments automatically. The key is sent to ReviveRelay for secure verification and is never stored in Tampermonkey.</p>
       <div class="rr-permission-list">
-        <strong>Required Torn access</strong>
+        <strong>Recommended Torn access</strong>
         <span>Revives</span><span>Money incoming</span><span>Money outgoing</span><span>Items incoming</span><span>Items outgoing</span>
       </div>
-      <p class="rr-muted">Use a restricted custom Torn API key. Do not grant messages, faction, company, or unrelated access.</p>
-      <label class="rr-label" for="rr-verification-key">Torn API key for Reviver Verification</label>
-      <input id="rr-verification-key" type="password" autocomplete="off" placeholder="Paste restricted Torn API key">
-      <div class="rr-actions">
-        <button id="rr-bind-verification">${credential ? 'Replace verification key' : 'Connect Torn API key'}</button>
-        ${credential ? '<button id="rr-revoke-verification">Revoke verification key</button>' : ''}
+      <div class="rr-setup-choice">
+        <strong>Recommended</strong>
+        <p class="rr-muted">Let Torn prepare a custom key with only the access ReviveRelay needs.</p>
+        <button id="rr-create-verification-key" type="button">Create recommended Torn key</button>
+      </div>
+      <div class="rr-setup-choice">
+        <strong>Or use an existing API key</strong>
+        <p class="rr-muted">A Full Access or broader custom key is also accepted as long as it belongs to this Torn account and includes the required access.</p>
+        <label class="rr-label" for="rr-verification-key">Torn API key for Reviver Verification</label>
+        <input id="rr-verification-key" type="password" autocomplete="off" placeholder="Paste Torn API key">
+        <div class="rr-actions">
+          <button id="rr-bind-verification">${credential ? 'Replace verification key' : 'Connect Torn API key'}</button>
+          ${credential ? '<button id="rr-revoke-verification">Revoke verification key</button>' : ''}
+        </div>
       </div>`;
   }
 
@@ -1088,7 +1099,7 @@
       .rr-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:#303840}.rr-summary>div{background:#151b20;padding:7px;text-align:center}.rr-summary span{display:block;color:#76838d;font-size:9px}.rr-summary strong{font-size:11px}
       .rr-panel-content{display:none!important;padding:8px}.rr-panel-content.rr-panel-active{display:block!important}.rr-card{background:#171d22;border:1px solid #303a42;border-radius:7px;padding:9px;margin-bottom:8px}.rr-card-title{font-weight:800;margin-bottom:6px;color:#eef2f5}
       .rr-settings-drawer{display:none;padding:8px}.rr-settings-drawer.rr-settings-open{display:block}.rr-settings-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:2px 1px 8px}.rr-settings-heading strong{display:block;font-size:13px}.rr-settings-heading span{display:block;color:#7f8b95;font-size:9px;margin-top:2px}.rr-settings-heading button{border:1px solid #48545e;background:#242d34;color:#e6ebee;border-radius:5px;padding:4px 7px;cursor:pointer}
-      .rr-settings-section{background:#171d22;border:1px solid #303a42;border-radius:7px;margin-bottom:7px;overflow:hidden}.rr-settings-section>summary{cursor:pointer;list-style:none;padding:9px;font-weight:800;color:#eef2f5}.rr-settings-section>summary::-webkit-details-marker{display:none}.rr-settings-section>summary:after{content:'+';float:right;color:#7f8b95}.rr-settings-section[open]>summary:after{content:'−'}.rr-settings-body{padding:0 9px 9px;border-top:1px solid #283139}.rr-settings-body p{margin:8px 0}.rr-permission-list{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin:8px 0;padding:7px;border:1px solid #303a42;border-radius:5px;background:#11161b}.rr-permission-list strong{grid-column:1/-1}.rr-permission-list span{font-size:10px;color:#aeb8c0}
+      .rr-settings-section{background:#171d22;border:1px solid #303a42;border-radius:7px;margin-bottom:7px;overflow:hidden}.rr-settings-section>summary{cursor:pointer;list-style:none;padding:9px;font-weight:800;color:#eef2f5}.rr-settings-section>summary::-webkit-details-marker{display:none}.rr-settings-section>summary:after{content:'+';float:right;color:#7f8b95}.rr-settings-section[open]>summary:after{content:'−'}.rr-settings-body{padding:0 9px 9px;border-top:1px solid #283139}.rr-settings-body p{margin:8px 0}.rr-permission-list{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin:8px 0;padding:7px;border:1px solid #303a42;border-radius:5px;background:#11161b}.rr-permission-list strong{grid-column:1/-1}.rr-permission-list span{font-size:10px;color:#aeb8c0}.rr-setup-choice{margin-top:9px;padding-top:9px;border-top:1px solid #303a42}.rr-warning{margin:8px 0;padding:7px;border:1px solid #806c3b;border-radius:5px;background:#2a2416;color:#dbc783}
       .rr-kv{display:flex;justify-content:space-between;gap:12px;padding:3px 0}.rr-kv span{color:#85919b}.rr-kv strong{text-align:right}.rr-muted{color:#798690;font-size:10px}.rr-status{padding:6px 9px;color:#8fa9ba;border-top:1px solid #303840;min-height:16px}.rr-status-error{color:#e4a1a1}
       .rr-actions,.rr-form-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}.rr-label{display:block;color:#9aa6af;margin:7px 0 3px}.rr-card input,.rr-card select,.rr-card textarea,.rr-settings-section input,.rr-settings-section select,.rr-settings-section textarea{box-sizing:border-box;width:100%;border:1px solid #3a4650;background:#0f1418;color:#e0e5e9;border-radius:5px;padding:6px;font:inherit}.rr-card button,.rr-settings-section button{border:1px solid #48545e;background:#242d34;color:#e6ebee;border-radius:5px;padding:5px 8px;font:inherit;cursor:pointer}.rr-card button:disabled,.rr-settings-section button:disabled{opacity:.45;cursor:not-allowed}
       .rr-certified-card{border-color:#806c3b;box-shadow:inset 3px 0 0 #b89a52}.rr-certified-line,.rr-queue-head{display:flex;align-items:center;justify-content:space-between;gap:8px}.rr-star{color:#d5b461}.rr-chip{font-size:8px;border:1px solid #88743e;color:#d9bc72;border-radius:8px;padding:1px 5px}.rr-offer{font-size:15px;font-weight:800;margin-top:7px}.rr-comment{margin:4px 0;color:#bcc5cc}.rr-deadlines{margin-top:6px}.rr-deadlines>div{display:flex;justify-content:space-between;color:#8e9aa3}.rr-invoice{margin-top:7px;padding-top:7px;border-top:1px solid #313a42}
@@ -1148,6 +1159,7 @@
       if (target.id === 'rr-start-trial' || target.id === 'rr-start-trial-inline') return startProTrial();
       if (target.id === 'rr-create-pro-invoice') return createProInvoice();
       if (target.id === 'rr-refresh-invoice') return refreshCurrentInvoice().then(renderLiveState).catch(error => handleApiFailure(error, 'pro.invoice.refresh'));
+      if (target.id === 'rr-create-verification-key') return window.open(REVIVER_VERIFICATION_KEY_URL, '_blank', 'noopener,noreferrer');
       if (target.id === 'rr-bind-verification') return bindVerificationKey();
       if (target.id === 'rr-revoke-verification') return revokeVerificationKey();
       if (target.id === 'rr-register-reviver') return registerMarketplaceReviver();
