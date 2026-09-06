@@ -33,6 +33,7 @@
   const TELEMETRY_DRAIN_MS = 30_000;
   const MAX_SEEN_REQUEST_IDS = 200;
   const REVIVER_VERIFICATION_KEY_URL = 'https://www.torn.com/preferences.php#tab=api?step=addNewKey&title=ReviveRelay%20Reviver%20Verification&user=basic,revives,log&logIds=14,15,16,17';
+  const MASKED_VERIFICATION_KEY = '••••••••••••••••';
   const PRO_LAUNCH_REFERENCE = Object.freeze([
     'Monthly: 10 Xanax or $10,000,000',
     '6 Months: 55 Xanax or $55,000,000',
@@ -77,6 +78,7 @@
     activeRequest: null,
     activeTransaction: null,
     verificationCredential: null,
+    verificationEditing: false,
     reviverQueue: [],
     proStatus: null,
     proPlans: [],
@@ -249,6 +251,7 @@
     state.activeRequest = null;
     state.activeTransaction = null;
     state.verificationCredential = null;
+    state.verificationEditing = false;
     state.reviverQueue = [];
     state.proStatus = null;
     state.proPlans = [];
@@ -525,6 +528,7 @@
       const result = await state.api.bindVerificationCredential(key);
       if (verificationKeyInput) verificationKeyInput.value = '';
       state.verificationCredential = result?.credential || null;
+      state.verificationEditing = false;
       setStatus('Reviver Verification connected.');
       await refreshMe();
       await refreshReviverQueue();
@@ -535,10 +539,17 @@
     }
   }
 
+  function beginVerificationReplacement() {
+    state.verificationEditing = true;
+    renderSettingsDrawer();
+    setTimeout(() => document.getElementById('rr-verification-key')?.focus(), 0);
+  }
+
   async function revokeVerificationKey() {
     try {
       await state.api.revokeVerificationCredential();
       state.verificationCredential = null;
+      state.verificationEditing = false;
       state.reviverQueue = [];
       setStatus('Reviver Verification disconnected.');
       renderAll();
@@ -796,6 +807,13 @@
     const usable = Boolean(credential?.usable);
     const reviver = Boolean(credential?.capabilities?.reviver);
     const broadAccess = Boolean(credential?.accessScope?.broadAccess);
+    const editing = !credential || state.verificationEditing;
+    const keyInput = editing
+      ? '<input id="rr-verification-key" type="password" autocomplete="off" placeholder="Paste Torn API key">'
+      : `<input id="rr-verification-key" type="password" value="${MASKED_VERIFICATION_KEY}" readonly aria-label="Connected Torn API key (masked)">`;
+    const keyAction = editing
+      ? `<button id="rr-bind-verification">${credential ? 'Save replacement key' : 'Connect Torn API key'}</button>`
+      : '<button id="rr-replace-verification" type="button">Replace Torn API key</button>';
     return `<div class="rr-kv"><span>Status</span><strong>${usable ? 'Connected' : 'Not connected'}</strong></div>
       <div class="rr-kv"><span>Reviver access</span><strong>${reviver ? 'Ready' : 'Not ready'}</strong></div>
       ${broadAccess ? '<div class="rr-warning"><strong>Full/Broad Access key accepted.</strong> This key grants more access than ReviveRelay requires. You can keep using it, or replace it with the recommended restricted key below.</div>' : ''}
@@ -813,9 +831,9 @@
         <strong>Or use an existing API key</strong>
         <p class="rr-muted">A Full Access or broader custom key is also accepted as long as it belongs to this Torn account and includes the required access.</p>
         <label class="rr-label" for="rr-verification-key">Torn API key for Reviver Verification</label>
-        <input id="rr-verification-key" type="password" autocomplete="off" placeholder="Paste Torn API key">
+        ${keyInput}
         <div class="rr-actions">
-          <button id="rr-bind-verification">${credential ? 'Replace verification key' : 'Connect Torn API key'}</button>
+          ${keyAction}
           ${credential ? '<button id="rr-revoke-verification">Revoke verification key</button>' : ''}
         </div>
       </div>`;
@@ -1160,6 +1178,7 @@
       if (target.id === 'rr-create-pro-invoice') return createProInvoice();
       if (target.id === 'rr-refresh-invoice') return refreshCurrentInvoice().then(renderLiveState).catch(error => handleApiFailure(error, 'pro.invoice.refresh'));
       if (target.id === 'rr-create-verification-key') return window.open(REVIVER_VERIFICATION_KEY_URL, '_blank', 'noopener,noreferrer');
+      if (target.id === 'rr-replace-verification') return beginVerificationReplacement();
       if (target.id === 'rr-bind-verification') return bindVerificationKey();
       if (target.id === 'rr-revoke-verification') return revokeVerificationKey();
       if (target.id === 'rr-register-reviver') return registerMarketplaceReviver();

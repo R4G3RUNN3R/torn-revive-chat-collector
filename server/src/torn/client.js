@@ -4,6 +4,8 @@ class TornApiError extends Error {
     this.name = 'TornApiError';
     this.code = code;
     this.status = options.status;
+    this.tornStatus = options.tornStatus;
+    this.state = options.state;
   }
 }
 
@@ -41,7 +43,11 @@ function createTornClient({
   }
 
   async function fail(code, message, operation, context = {}) {
-    const error = new TornApiError(code, message, { status: context.httpStatus });
+    const error = new TornApiError(code, message, {
+      status: context.httpStatus,
+      tornStatus: context.tornStatus,
+      state: context.state
+    });
     await reportFailure(error, operation, context);
     throw error;
   }

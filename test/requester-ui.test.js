@@ -115,3 +115,12 @@ test('Reviver Verification accepts broad keys but warns that they grant more acc
   assert.match(source, /more access than ReviveRelay requires/i);
   assert.match(source, /accessScope\?\.broadAccess/);
 });
+
+
+test('connected Reviver Verification keeps a masked key indicator and separates replacement from binding', () => {
+  assert.match(source, /MASKED_VERIFICATION_KEY/);
+  assert.match(source, /verificationEditing/);
+  assert.match(source, /rr-replace-verification/);
+  assert.match(source, /readonly/);
+  assert.match(source, /Connected Torn API key \(masked\)/i);
+});

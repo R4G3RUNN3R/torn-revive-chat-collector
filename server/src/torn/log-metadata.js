@@ -1,3 +1,13 @@
+const REVIVERELAY_TRANSACTION_LOG_CATEGORIES = Object.freeze({
+  14: 'Money outgoing',
+  15: 'Items incoming',
+  16: 'Items outgoing',
+  17: 'Money incoming'
+});
+const RESTRICTED_KEY_FALLBACK = Object.freeze({
+  categories: REVIVERELAY_TRANSACTION_LOG_CATEGORIES
+});
+
 function normalizeLogCategories(input) {
   const rows = Array.isArray(input) ? input : input && input.logcategories;
   if (!Array.isArray(rows)) throw new Error('Torn log category metadata is missing');
@@ -15,6 +25,14 @@ function normalizeLogCategories(input) {
   return Object.freeze({ categories: Object.freeze(categories) });
 }
 
+function isLogCategoryPermissionFailure(error) {
+  return Boolean(
+    error
+    && error.code === 'TORN_UNAVAILABLE'
+    && Number(error.tornStatus) === 16
+  );
+}
+
 function createLogMetadataResolver({ tornClient, ttlMs = 6 * 60 * 60 * 1000, now = Date.now } = {}) {
   if (!tornClient || typeof tornClient.getLogCategories !== 'function') {
     throw new Error('Torn client with getLogCategories is required');
@@ -29,8 +47,16 @@ function createLogMetadataResolver({ tornClient, ttlMs = 6 * 60 * 60 * 1000, now
     async get(apiKey) {
       const current = Number(now());
       if (cached && current < expiresAt) return cached;
-      const rows = await tornClient.getLogCategories(apiKey);
-      const normalized = normalizeLogCategories(rows);
+
+      let normalized;
+      try {
+        const rows = await tornClient.getLogCategories(apiKey);
+        normalized = normalizeLogCategories(rows);
+      } catch (error) {
+        if (!isLogCategoryPermissionFailure(error)) throw error;
+        normalized = RESTRICTED_KEY_FALLBACK;
+      }
+
       cached = normalized;
       expiresAt = current + ttlMs;
       return normalized;
@@ -43,6 +69,7 @@ function createLogMetadataResolver({ tornClient, ttlMs = 6 * 60 * 60 * 1000, now
 }
 
 module.exports = {
+  REVIVERELAY_TRANSACTION_LOG_CATEGORIES,
   normalizeLogCategories,
   createLogMetadataResolver
 };
