@@ -236,14 +236,14 @@ throw new DirectApiClientError(serverCode || fallbackCode, {status, retryable, d
 - Modify: `test/telemetry-integration.test.js`
 - Create: `test/client-hardening.test.js`
 
-- [ ] **RED:** Add tests/static contract checks for one single-flight lock per request/queue/eligibility/Pro/invoice/transaction poller; concurrent calls return/await existing work rather than issue duplicate network requests.
-- [ ] **RED:** Assert request, cancel, Accept, register, trial, invoice, verification bind/revoke and account-delete buttons are disabled while their mutation is in flight and restored on settled result.
-- [ ] **RED:** Add malicious external text fixtures such as `<img src=x onerror=...>` and prove rendered output is escaped or assigned via `textContent`; inventory remaining `innerHTML` sinks and require dynamic values to pass `escapeHtml`.
-- [ ] **RED:** Remove unconditional dependency on `GM_notification`; test behavior when notification API is absent. Diagnostics remains false by default and telemetry failure cannot throw into product flow.
-- [ ] **GREEN:** Implement scoped in-flight state and subsystem render functions. Do not rebuild Settings/request forms during routine polling.
-- [ ] Feature-detect optional userscript APIs and keep TornPDA-compatible core behavior.
-- [ ] Run client-hardening, requester, Pro, telemetry and bootstrap tests.
-- [ ] Commit: `fix: harden ReviveRelay client polling and rendering`
+- [x] **RED:** Add tests/static contract checks for one single-flight lock per request/queue/eligibility/Pro/invoice/transaction poller; concurrent calls return/await existing work rather than issue duplicate network requests.
+- [x] **RED:** Assert request, cancel, Accept, register, trial, invoice, verification bind/revoke and account-delete buttons are disabled while their mutation is in flight and restored on settled result.
+- [x] **RED:** Add malicious external text fixtures such as `<img src=x onerror=...>` and prove rendered output is escaped or assigned via `textContent`; inventory remaining `innerHTML` sinks and require dynamic values to pass `escapeHtml`.
+- [x] **RED:** Remove unconditional dependency on `GM_notification`; test behavior when notification API is absent. Diagnostics remains false by default and telemetry failure cannot throw into product flow.
+- [x] **GREEN:** Implement scoped in-flight state and subsystem render functions. Do not rebuild Settings/request forms during routine polling.
+- [x] Feature-detect optional userscript APIs and keep TornPDA-compatible core behavior.
+- [x] Run client-hardening, requester, Pro, telemetry and bootstrap tests.
+- [x] Commit: `fix: harden ReviveRelay client polling and rendering`
 
 ### Task 10: Add About & Privacy, verification revocation guidance, and deletion UI
 

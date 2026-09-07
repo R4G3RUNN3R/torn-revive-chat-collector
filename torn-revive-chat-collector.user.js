@@ -100,6 +100,8 @@
   let sidebarTimer = null;
   let telemetryTimer = null;
   let clockTimer = null;
+  const pollFlights = new Map();
+  const mutationFlights = new Set();
 
   state.api = DirectApiClient.createDirectApiClient({
     baseUrl: API_BASE,
@@ -200,6 +202,42 @@
 
   function hasReviverSubscriptionAccess() {
     return subscriptionMode() === 'free' || isProActive();
+  }
+
+  function runSingleFlightPoll(key, operation) {
+    const existing = pollFlights.get(key);
+    if (existing) return existing;
+    const promise = Promise.resolve()
+      .then(operation)
+      .finally(() => {
+        if (pollFlights.get(key) === promise) pollFlights.delete(key);
+      });
+    pollFlights.set(key, promise);
+    return promise;
+  }
+
+  function mutationBusy(key) {
+    return mutationFlights.has(key);
+  }
+
+  function disabledAttr(key) {
+    return mutationBusy(key) ? ' disabled aria-disabled="true"' : '';
+  }
+
+  async function runMutation(key, operation) {
+    if (mutationFlights.has(key)) return null;
+    mutationFlights.add(key);
+    try {
+      renderLiveState();
+      renderProPanel();
+      if (state.settingsOpen) renderSettingsDrawer();
+      return await operation();
+    } finally {
+      mutationFlights.delete(key);
+      renderLiveState();
+      renderProPanel();
+      if (state.settingsOpen) renderSettingsDrawer();
+    }
   }
 
   function hasConfirmedReviveAbility() {
@@ -337,35 +375,41 @@
   }
 
   async function refreshProState({ includePlans = false } = {}) {
-    if (!state.sessionToken) {
-      state.proStatus = null;
-      state.subscription = null;
-      state.proPlans = [];
-      return;
-    }
-    const result = await state.api.getProStatus();
-    state.proStatus = result?.pro || null;
-    state.subscription = result?.subscription || null;
-    state.proPlans = Array.isArray(state.subscription?.plans) ? state.subscription.plans : [];
+    return runSingleFlightPoll('pro', async () => {
+      if (!state.sessionToken) {
+        state.proStatus = null;
+        state.subscription = null;
+        state.proPlans = [];
+        return;
+      }
+      const result = await state.api.getProStatus();
+      state.proStatus = result?.pro || null;
+      state.subscription = result?.subscription || null;
+      state.proPlans = Array.isArray(state.subscription?.plans) ? state.subscription.plans : [];
+    });
   }
 
   async function refreshActiveRequest() {
-    if (!state.sessionToken) {
-      state.activeRequest = null;
-      return;
-    }
-    const result = await state.api.getActiveRequest();
-    state.activeRequest = result?.request || null;
-    if (state.activeRequest?.transactionId) await refreshActiveTransaction(state.activeRequest.transactionId);
-    else if (state.activeTransaction?.participantRole === 'requester') state.activeTransaction = null;
-    refreshSidebarState();
+    return runSingleFlightPoll('request', async () => {
+      if (!state.sessionToken) {
+        state.activeRequest = null;
+        return;
+      }
+      const result = await state.api.getActiveRequest();
+      state.activeRequest = result?.request || null;
+      if (state.activeRequest?.transactionId) await refreshActiveTransaction(state.activeRequest.transactionId);
+      else if (state.activeTransaction?.participantRole === 'requester') state.activeTransaction = null;
+      refreshSidebarState();
+    });
   }
 
   async function refreshActiveTransaction(transactionId = null) {
-    const id = transactionId || state.activeTransaction?.id || state.activeRequest?.transactionId;
-    if (!state.sessionToken || !id) return;
-    const result = await state.api.getTransaction(id);
-    state.activeTransaction = result?.transaction || result || null;
+    return runSingleFlightPoll('transaction', async () => {
+      const id = transactionId || state.activeTransaction?.id || state.activeRequest?.transactionId;
+      if (!state.sessionToken || !id) return;
+      const result = await state.api.getTransaction(id);
+      state.activeTransaction = result?.transaction || result || null;
+    });
   }
 
   async function refreshVerificationCredential() {
@@ -380,17 +424,19 @@
   }
 
   async function refreshReviverEligibility() {
-    if (!state.sessionToken || !hasReviverSubscriptionAccess() || !hasCredentialCapability('reviver')) {
-      state.reviverEligibility = null;
-      return;
-    }
-    try {
-      const result = await state.api.getReviverEligibility();
-      state.reviverEligibility = result?.eligibility || null;
-    } catch (error) {
-      state.reviverEligibility = { status: 'UNAVAILABLE', canRevive: null };
-      captureClientError(error, 'reviver.eligibility');
-    }
+    return runSingleFlightPoll('eligibility', async () => {
+      if (!state.sessionToken || !hasReviverSubscriptionAccess() || !hasCredentialCapability('reviver')) {
+        state.reviverEligibility = null;
+        return;
+      }
+      try {
+        const result = await state.api.getReviverEligibility();
+        state.reviverEligibility = result?.eligibility || null;
+      } catch (error) {
+        state.reviverEligibility = { status: 'UNAVAILABLE', canRevive: null };
+        captureClientError(error, 'reviver.eligibility');
+      }
+    });
   }
 
   function readSeenRequestIds() {
@@ -407,6 +453,7 @@
     if (!hasReviverSubscriptionAccess() || !hasRole('reviver') || !hasCredentialCapability('reviver') || !hasConfirmedReviveAbility()) return;
     const seen = new Set(readSeenRequestIds());
     const next = [...seen];
+    const canNotify = typeof GM_notification === 'function';
     for (const request of Array.isArray(requests) ? requests : []) {
       const id = String(request?.id || '');
       if (!id || seen.has(id)) continue;
@@ -414,6 +461,7 @@
       next.push(id);
       const offer = formatOffer(request.paymentMethod, request.offerAmount);
       const requester = `${request.requesterName || 'Player'} [${request.requesterTornId || '?'}]`;
+      if (!canNotify) continue;
       try {
         GM_notification({
           title: 'ReviveRelay · Certified request',
@@ -432,32 +480,36 @@
   }
 
   async function refreshReviverQueue() {
-    if (!state.sessionToken || !hasReviverSubscriptionAccess()) {
-      state.reviverQueue = [];
-      return;
-    }
-    if (!hasRole('reviver') || !hasCredentialCapability('reviver') || !hasConfirmedReviveAbility()) {
-      state.reviverQueue = [];
-      return;
-    }
-    const result = await state.api.getReviverQueue();
-    state.reviverQueue = Array.isArray(result?.requests) ? result.requests : [];
-    notifyNewQueueRequests(state.reviverQueue);
+    return runSingleFlightPoll('queue', async () => {
+      if (!state.sessionToken || !hasReviverSubscriptionAccess()) {
+        state.reviverQueue = [];
+        return;
+      }
+      if (!hasRole('reviver') || !hasCredentialCapability('reviver') || !hasConfirmedReviveAbility()) {
+        state.reviverQueue = [];
+        return;
+      }
+      const result = await state.api.getReviverQueue();
+      state.reviverQueue = Array.isArray(result?.requests) ? result.requests : [];
+      notifyNewQueueRequests(state.reviverQueue);
+    });
   }
 
   async function refreshCurrentInvoice() {
-    if (!state.sessionToken || state.currentInvoice?.state !== 'PENDING' || !state.currentInvoice?.id) return;
-    const result = await state.api.getProInvoice(state.currentInvoice.id);
-    state.currentInvoice = {
-      ...(result?.invoice || {}),
-      paymentTarget: result?.paymentTarget || state.currentInvoice.paymentTarget || null
-    };
-    if (state.currentInvoice.state === 'PAID') {
-      await refreshProState({ includePlans: false });
-      await refreshVerificationCredential();
-      await refreshReviverEligibility();
-      await refreshReviverQueue();
-    }
+    return runSingleFlightPoll('invoice', async () => {
+      if (!state.sessionToken || state.currentInvoice?.state !== 'PENDING' || !state.currentInvoice?.id) return;
+      const result = await state.api.getProInvoice(state.currentInvoice.id);
+      state.currentInvoice = {
+        ...(result?.invoice || {}),
+        paymentTarget: result?.paymentTarget || state.currentInvoice.paymentTarget || null
+      };
+      if (state.currentInvoice.state === 'PAID') {
+        await refreshProState({ includePlans: false });
+        await refreshVerificationCredential();
+        await refreshReviverEligibility();
+        await refreshReviverQueue();
+      }
+    });
   }
 
   async function refreshMarketplaceState({ includePlans = false } = {}) {
@@ -474,37 +526,41 @@
   async function requestReviveFromSidebar() {
     const validation = RequestPreset.validatePreset(state.preset);
     if (!state.sessionToken || !validation.ok || state.submittingRequest || state.activeRequest) return;
-    state.submittingRequest = true;
-    lastRequestError = null;
-    refreshSidebarState();
-    renderAll();
-    try {
-      const result = await state.api.createRequest(validation.preset);
-      state.activeRequest = result?.request || null;
-      setStatus('Certified revive request submitted.');
-    } catch (error) {
-      lastRequestError = apiErrorCode(error);
-      handleApiFailure(error, 'request.create', 'Could not create revive request.');
-    } finally {
-      state.submittingRequest = false;
+    return runMutation('request-create', async () => {
+      state.submittingRequest = true;
+      lastRequestError = null;
       refreshSidebarState();
       renderAll();
-    }
+      try {
+        const result = await state.api.createRequest(validation.preset);
+        state.activeRequest = result?.request || null;
+        setStatus('Certified revive request submitted.');
+      } catch (error) {
+        lastRequestError = apiErrorCode(error);
+        handleApiFailure(error, 'request.create', 'Could not create revive request.');
+      } finally {
+        state.submittingRequest = false;
+        refreshSidebarState();
+        renderAll();
+      }
+    });
   }
 
   async function cancelActiveRequest() {
     if (!state.activeRequest?.id) return;
-    try {
-      await state.api.cancelRequest(state.activeRequest.id);
-      state.activeRequest = null;
-      state.activeTransaction = null;
-      lastRequestError = null;
-      setStatus('Revive request cancelled.');
-      await refreshActiveRequest();
-      renderAll();
-    } catch (error) {
-      handleApiFailure(error, 'request.cancel', 'Request could not be cancelled.');
-    }
+    return runMutation('request-cancel', async () => {
+      try {
+        await state.api.cancelRequest(state.activeRequest.id);
+        state.activeRequest = null;
+        state.activeTransaction = null;
+        lastRequestError = null;
+        setStatus('Revive request cancelled.');
+        await refreshActiveRequest();
+        renderAll();
+      } catch (error) {
+        handleApiFailure(error, 'request.cancel', 'Request could not be cancelled.');
+      }
+    });
   }
 
   function saveRequestPreset() {
@@ -529,16 +585,18 @@
   }
 
   async function startProTrial() {
-    try {
-      const result = await state.api.startProTrial();
-      state.proStatus = result?.pro || null;
-      setStatus('7-day Reviver Pro trial activated.');
-      await refreshVerificationCredential();
-      await refreshReviverQueue();
-      renderAll();
-    } catch (error) {
-      handleApiFailure(error, 'pro.trial', 'Trial could not be activated.');
-    }
+    return runMutation('trial-start', async () => {
+      try {
+        const result = await state.api.startProTrial();
+        state.proStatus = result?.pro || null;
+        setStatus('7-day Reviver Pro trial activated.');
+        await refreshVerificationCredential();
+        await refreshReviverQueue();
+        renderAll();
+      } catch (error) {
+        handleApiFailure(error, 'pro.trial', 'Trial could not be activated.');
+      }
+    });
   }
 
   async function createProInvoice() {
@@ -548,41 +606,45 @@
     }
     const planId = document.getElementById('rr-pro-plan')?.value;
     const currency = document.getElementById('rr-pro-currency')?.value;
-    try {
-      const result = await state.api.createProInvoice({ planId, currency });
-      state.currentInvoice = {
-        ...(result?.invoice || {}),
-        paymentTarget: result?.paymentTarget || null
-      };
-      setStatus('Pro payment invoice created.');
-      renderAll();
-    } catch (error) {
-      handleApiFailure(error, 'pro.invoice.create', 'Pro invoice could not be created.');
-    }
+    return runMutation('invoice-create', async () => {
+      try {
+        const result = await state.api.createProInvoice({ planId, currency });
+        state.currentInvoice = {
+          ...(result?.invoice || {}),
+          paymentTarget: result?.paymentTarget || null
+        };
+        setStatus('Pro payment invoice created.');
+        renderAll();
+      } catch (error) {
+        handleApiFailure(error, 'pro.invoice.create', 'Pro invoice could not be created.');
+      }
+    });
   }
 
   async function bindVerificationKey() {
-    if (!isProActive()) return;
+    if (!hasReviverSubscriptionAccess()) return;
     const verificationKeyInput = document.getElementById('rr-verification-key');
     const key = String(verificationKeyInput?.value || '').trim();
     if (!key) {
       setStatus('Paste a Torn API key for Reviver Verification.', true);
       return;
     }
-    try {
-      const result = await state.api.bindVerificationCredential(key);
-      if (verificationKeyInput) verificationKeyInput.value = '';
-      state.verificationCredential = result?.credential || null;
-      state.verificationEditing = false;
-      setStatus('Reviver Verification connected.');
-      await refreshMe();
-      await refreshReviverEligibility();
-      await refreshReviverQueue();
-      renderAll();
-    } catch (error) {
-      if (verificationKeyInput) verificationKeyInput.value = '';
-      handleApiFailure(error, 'verification.bind', 'Verification key could not be bound.');
-    }
+    return runMutation('verification-bind', async () => {
+      try {
+        const result = await state.api.bindVerificationCredential(key);
+        if (verificationKeyInput) verificationKeyInput.value = '';
+        state.verificationCredential = result?.credential || null;
+        state.verificationEditing = false;
+        setStatus('Reviver Verification connected.');
+        await refreshMe();
+        await refreshReviverEligibility();
+        await refreshReviverQueue();
+        renderAll();
+      } catch (error) {
+        if (verificationKeyInput) verificationKeyInput.value = '';
+        handleApiFailure(error, 'verification.bind', 'Verification key could not be bound.');
+      }
+    });
   }
 
   function beginVerificationReplacement() {
@@ -592,43 +654,49 @@
   }
 
   async function revokeVerificationKey() {
-    try {
-      await state.api.revokeVerificationCredential();
-      state.verificationCredential = null;
-      state.verificationEditing = false;
-      state.reviverEligibility = null;
-      state.reviverQueue = [];
-      setStatus('Reviver Verification disconnected.');
-      renderAll();
-    } catch (error) {
-      handleApiFailure(error, 'verification.revoke', 'Verification key could not be revoked.');
-    }
+    return runMutation('verification-revoke', async () => {
+      try {
+        await state.api.revokeVerificationCredential();
+        state.verificationCredential = null;
+        state.verificationEditing = false;
+        state.reviverEligibility = null;
+        state.reviverQueue = [];
+        setStatus('Reviver Verification disconnected.');
+        renderAll();
+      } catch (error) {
+        handleApiFailure(error, 'verification.revoke', 'Verification key could not be revoked.');
+      }
+    });
   }
 
   async function registerMarketplaceReviver() {
     if (!hasReviverSubscriptionAccess() || !hasCredentialCapability('reviver') || !hasConfirmedReviveAbility()) return;
-    try {
-      await state.api.registerReviver();
-      await refreshMe();
-      await refreshReviverQueue();
-      setStatus('Reviver Pro queue access registered.');
-      renderAll();
-    } catch (error) {
-      handleApiFailure(error, 'reviver.register', 'Reviver registration failed.');
-    }
+    return runMutation('reviver-register', async () => {
+      try {
+        await state.api.registerReviver();
+        await refreshMe();
+        await refreshReviverQueue();
+        setStatus('Reviver Pro queue access registered.');
+        renderAll();
+      } catch (error) {
+        handleApiFailure(error, 'reviver.register', 'Reviver registration failed.');
+      }
+    });
   }
 
   async function acceptMarketplaceRequest(requestId) {
     if (!hasReviverSubscriptionAccess() || !hasRole('reviver') || !hasCredentialCapability('reviver') || !hasConfirmedReviveAbility()) return;
-    try {
-      const result = await state.api.acceptRequest(requestId);
-      state.activeTransaction = result?.transaction || null;
-      await refreshReviverQueue();
-      setStatus('Certified revive request accepted.');
-      renderAll();
-    } catch (error) {
-      handleApiFailure(error, 'reviver.accept', 'Request could not be accepted.');
-    }
+    return runMutation('request-accept', async () => {
+      try {
+        const result = await state.api.acceptRequest(requestId);
+        state.activeTransaction = result?.transaction || null;
+        await refreshReviverQueue();
+        setStatus('Certified revive request accepted.');
+        renderAll();
+      } catch (error) {
+        handleApiFailure(error, 'reviver.accept', 'Request could not be accepted.');
+      }
+    });
   }
 
   async function runTransactionAction(action, decision = null) {
@@ -756,7 +824,7 @@
         <div class="rr-kv"><span>Offer</span><strong>${escapeHtml(formatOffer(request.paymentMethod, request.offerAmount))}</strong></div>
         <div class="rr-kv"><span>Message</span><strong>${escapeHtml(request.comment || '—')}</strong></div>
         <div class="rr-kv"><span>Created</span><strong>${escapeHtml(formatDate(request.createdAt))}</strong></div>
-        <button id="rr-cancel-request">Cancel request</button>
+        <button id="rr-cancel-request"${disabledAttr('request-cancel')}>Cancel request</button>
       ` : '<div class="rr-muted">No active certified request.</div>'}
     </div>
     ${state.activeTransaction ? renderTransactionCard(state.activeTransaction, 'Your revive transaction') : ''}`;
@@ -772,7 +840,7 @@
       <div class="rr-offer">${escapeHtml(formatOffer(request.paymentMethod, request.offerAmount))}</div>
       <div class="rr-comment">${escapeHtml(request.comment || 'Revive requested')}</div>
       <div class="rr-muted">${escapeHtml(requestAge(request.createdAt))}</div>
-      <button data-rr-accept="${escapeHtml(request.id)}">Accept</button>
+      <button data-rr-accept="${escapeHtml(request.id)}"${disabledAttr('request-accept')}>Accept</button>
     </div>`;
   }
 
@@ -787,7 +855,7 @@
       target.innerHTML = `<div class="rr-card rr-pro-gate">
         <div class="rr-card-title">Reviver Pro required</div>
         <p>The certified request queue, notifications and Accept are Reviver Pro features.</p>
-        ${state.proStatus?.trialEligible ? '<button id="rr-start-trial-inline">Start 7-day Reviver Pro trial</button>' : '<button data-rr-open-pro>Open ReviveRelay Pro</button>'}
+        ${state.proStatus?.trialEligible ? `<button id="rr-start-trial-inline"${disabledAttr('trial-start')}>Start 7-day Reviver Pro trial</button>` : '<button data-rr-open-pro>Open ReviveRelay Pro</button>'}
       </div>`;
       return;
     }
@@ -833,7 +901,7 @@
       target.innerHTML = `<div class="rr-card">
         <div class="rr-card-title">Register as reviver</div>
         <p>Torn confirmed that this account has the permanent revive ability.</p>
-        <button id="rr-register-reviver">Register as reviver</button>
+        <button id="rr-register-reviver"${disabledAttr('reviver-register')}>Register as reviver</button>
       </div>`;
       return;
     }
@@ -901,7 +969,7 @@
       ? '<input id="rr-verification-key" type="password" autocomplete="off" placeholder="Paste Torn API key">'
       : `<input id="rr-verification-key" type="password" value="${MASKED_VERIFICATION_KEY}" readonly aria-label="Connected Torn API key (masked)">`;
     const keyAction = editing
-      ? `<button id="rr-bind-verification">${credential ? 'Save replacement key' : 'Connect Torn API key'}</button>`
+      ? `<button id="rr-bind-verification"${disabledAttr('verification-bind')}>${credential ? 'Save replacement key' : 'Connect Torn API key'}</button>`
       : '<button id="rr-replace-verification" type="button">Replace Torn API key</button>';
     return `<div class="rr-kv"><span>Status</span><strong>${usable ? 'Connected' : 'Not connected'}</strong></div>
       <div class="rr-kv"><span>Reviver access</span><strong>${reviver ? 'Ready' : 'Not ready'}</strong></div>
@@ -924,7 +992,7 @@
         ${keyInput}
         <div class="rr-actions">
           ${keyAction}
-          ${credential ? '<button id="rr-revoke-verification">Revoke verification key</button>' : ''}
+          ${credential ? `<button id="rr-revoke-verification"${disabledAttr('verification-revoke')}>Revoke verification key</button>` : ''}
         </div>
       </div>`;
   }
@@ -937,7 +1005,7 @@
     const merchantName = state.subscription?.merchant?.name || 'Configured ReviveRelay merchant';
     const merchantTornId = state.subscription?.merchant?.tornId || null;
     const trialButton = mode !== 'free' && state.sessionToken && state.proStatus?.trialEligible
-      ? '<button id="rr-start-trial">Start 7-day Reviver Pro trial</button>' : '';
+      ? `<button id="rr-start-trial"${disabledAttr('trial-start')}>Start 7-day Reviver Pro trial</button>` : '';
     const subscriptionBody = mode === 'free'
       ? `<p class="rr-muted">Reviver access is currently free. No Pro payment is required while ReviveRelay is in free mode.</p>`
       : state.sessionToken && subscriptionPaymentsEnabled()
@@ -946,7 +1014,7 @@
           <div class="rr-form-row">
             <select id="rr-pro-plan">${selectedPlanOptions()}</select>
             <select id="rr-pro-currency"><option value="xanax">Xanax</option><option value="cash">Torn cash</option></select>
-            <button id="rr-create-pro-invoice">Create Pro invoice</button>
+            <button id="rr-create-pro-invoice"${disabledAttr('invoice-create')}>Create Pro invoice</button>
           </div><div id="rr-invoice-status">${renderInvoice()}</div>`
         : '<div class="rr-muted">Connect ReviveRelay to view Pro plans.</div>';
     target.innerHTML = `<div class="rr-card" id="rr-pro-settings">
@@ -975,7 +1043,7 @@
     if (!target) return;
     const validation = RequestPreset.validatePreset(state.preset);
     const preset = validation.ok ? validation.preset : { paymentMethod: 'cash', offerAmount: 500000, comment: '' };
-    const verificationOpen = state.sessionToken && isProActive() && !hasCredentialCapability('reviver') ? ' open' : '';
+    const verificationOpen = state.sessionToken && hasReviverSubscriptionAccess() && !hasCredentialCapability('reviver') ? ' open' : '';
     target.innerHTML = `<div class="rr-settings-heading">
       <div><strong>Settings</strong><span>Keep the everyday stuff simple. Advanced controls stay out of the way.</span></div>
       <button id="rr-settings-close" type="button" aria-label="Close ReviveRelay settings">Close</button>
