@@ -10,6 +10,7 @@ const { createRequestRepository } = require('../src/db/requests');
 const { createTransactionRepository } = require('../src/db/transactions');
 const { hashSessionToken } = require('../src/security/sessions');
 const { buildApp } = require('../src/app');
+const { insertRequesterVerificationCredential } = require('../test-support/verification');
 
 async function waitForDatabaseSessionsToClose(adminPool, dbName) {
   for (let attempt = 0; attempt < 100; attempt += 1) {
@@ -68,6 +69,7 @@ test('Stage 1 API smoke: privacy, request uniqueness, and accept race hold end t
     const requesterId = await insertUser(pool, 810001, 'Smoke Requester');
     const reviverAId = await insertUser(pool, 810002, 'Smoke Reviver A');
     const reviverBId = await insertUser(pool, 810003, 'Smoke Reviver B');
+    await insertRequesterVerificationCredential(pool, requesterId);
 
     await pool.query(`
       INSERT INTO revivers (user_id, standing)

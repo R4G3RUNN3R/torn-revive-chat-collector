@@ -36,6 +36,24 @@ function identityInfo(tornId, name) {
   };
 }
 
+function requesterCredentialInfo() {
+  return {
+    tornId: REQUESTER_TORN_ID,
+    name: 'Direct Pro Requester',
+    selections: {
+      user: ['profile', 'revives'], company: [], faction: [], market: [], property: [],
+      torn: [], racing: [], forum: [], key: ['info']
+    },
+    access: {
+      level: 1,
+      type: 'Public Only',
+      faction: false,
+      company: false,
+      log: { custom_permissions: false, available: [] }
+    }
+  };
+}
+
 function reviverCredentialInfo() {
   return {
     tornId: REVIVER_TORN_ID,
@@ -63,6 +81,7 @@ function createFakeTornClient() {
       if (apiKey === 'requester-identity-key') return identityInfo(REQUESTER_TORN_ID, 'Direct Pro Requester');
       if (apiKey === 'reviver-identity-key') return identityInfo(REVIVER_TORN_ID, 'Direct Pro Reviver');
       if (apiKey === 'buyer-identity-key') return identityInfo(BUYER_TORN_ID, 'Direct Pro Buyer');
+      if (apiKey === 'requester-transaction-key') return requesterCredentialInfo();
       if (apiKey === 'reviver-transaction-key') return reviverCredentialInfo();
       throw new Error(`Unexpected fake Torn key: ${apiKey}`);
     },
@@ -152,6 +171,17 @@ test('direct ReviveRelay flow enforces Pro, certifies requests, and activates pa
       assert.equal(created.statusCode, 201, created.body);
       assert.equal(created.json().request.origin, 'reviverelay_direct');
       const requestId = created.json().request.id;
+
+      const requesterCredential = await app.inject({
+        method: 'POST',
+        url: '/v1/verification-credential',
+        headers: auth(requester.token),
+        payload: { apiKey: 'requester-transaction-key' }
+      });
+      assert.equal(requesterCredential.statusCode, 200, requesterCredential.body);
+      assert.equal(requesterCredential.json().credential.capabilities.requester, true);
+      assert.equal(requesterCredential.json().credential.capabilities.reviver, false);
+      assert.doesNotMatch(requesterCredential.body, /requester-transaction-key/);
 
       const freeQueue = await app.inject({
         method: 'GET',

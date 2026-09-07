@@ -1,4 +1,5 @@
 const { canTransition } = require('../domain/transaction-state');
+const { TRANSACTION_CREDENTIAL_PURPOSE } = require('../security/verification-credential');
 const { enqueueUniqueJob } = require('./jobs');
 
 function rowToTransaction(row) {
@@ -67,6 +68,23 @@ async function acceptRequest(pool, { requestId, reviverId, now = new Date() }) {
     if (requestResult.rows[0].requester_id === reviverId) {
       await client.query('ROLLBACK');
       return { accepted: false, reason: 'SELF_ACCEPT_NOT_ALLOWED' };
+    }
+
+    const requesterCredential = await client.query(`
+      SELECT id
+      FROM api_credentials
+      WHERE user_id = $1
+        AND purpose = $2
+        AND revoked_at IS NULL
+        AND unusable_at IS NULL
+        AND capability @> '{"requester":true}'::jsonb
+      LIMIT 1
+      FOR SHARE
+    `, [requestResult.rows[0].requester_id, TRANSACTION_CREDENTIAL_PURPOSE]);
+
+    if (requesterCredential.rowCount !== 1) {
+      await client.query('ROLLBACK');
+      return { accepted: false, reason: 'REQUESTER_VERIFICATION_REQUIRED' };
     }
 
     const reviver = await client.query(`
@@ -205,9 +223,18 @@ async function listAvailableRequests(pool, limit = 100) {
     JOIN users u ON u.id = r.requester_id
     WHERE r.state = 'AVAILABLE'
       AND r.closed_at IS NULL
+      AND EXISTS (
+        SELECT 1
+        FROM api_credentials credential
+        WHERE credential.user_id = r.requester_id
+          AND credential.purpose = $2
+          AND credential.revoked_at IS NULL
+          AND credential.unusable_at IS NULL
+          AND credential.capability @> '{"requester":true}'::jsonb
+      )
     ORDER BY r.created_at ASC, r.id ASC
     LIMIT $1
-  `, [normalizedLimit]);
+  `, [normalizedLimit, TRANSACTION_CREDENTIAL_PURPOSE]);
 
   return result.rows.map(rowToQueueRequest);
 }

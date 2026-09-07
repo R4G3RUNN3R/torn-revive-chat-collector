@@ -3,10 +3,12 @@ const assert = require("node:assert/strict");
 const { withDisposableDatabase } = require("../../test-support/database");
 const { createTransactionRepository } = require("../../src/db/transactions");
 const { createTransactionService } = require("../../src/domain/transaction-service");
+const { insertRequesterVerificationCredential } = require("../../test-support/verification");
 
 test("entering REFUND_REQUIRED atomically creates exact refund obligation and one refund verification job", async () => {
   await withDisposableDatabase("reviverelay_refund_transition", async pool => {
     const requester=(await pool.query("INSERT INTO users(torn_id,current_name) VALUES($1,$2) RETURNING id",[830001,"requester"])).rows[0].id;
+    await insertRequesterVerificationCredential(pool, requester);
     const reviver=(await pool.query("INSERT INTO users(torn_id,current_name) VALUES($1,$2) RETURNING id",[830002,"reviver"])).rows[0].id;
     await pool.query("INSERT INTO revivers(user_id,standing) VALUES($1,$2)",[reviver,"active"]);
     const request=(await pool.query("INSERT INTO revive_requests(requester_id,payment_method,offer_amount,state) VALUES($1,$2,$3,$4) RETURNING id",[requester,"xanax",3,"AVAILABLE"])).rows[0].id;
@@ -30,6 +32,7 @@ test("entering REFUND_REQUIRED atomically creates exact refund obligation and on
 test("mismatched pre-existing refund obligation fails closed instead of silently accepting a different contract", async () => {
   await withDisposableDatabase("reviverelay_refund_conflict", async pool => {
     const requester=(await pool.query("INSERT INTO users(torn_id,current_name) VALUES($1,$2) RETURNING id",[831001,"requester"])).rows[0].id;
+    await insertRequesterVerificationCredential(pool, requester);
     const reviver=(await pool.query("INSERT INTO users(torn_id,current_name) VALUES($1,$2) RETURNING id",[831002,"reviver"])).rows[0].id;
     await pool.query("INSERT INTO revivers(user_id,standing) VALUES($1,$2)",[reviver,"active"]);
     const request=(await pool.query("INSERT INTO revive_requests(requester_id,payment_method,offer_amount,state) VALUES($1,$2,$3,$4) RETURNING id",[requester,"xanax",3,"AVAILABLE"])).rows[0].id;

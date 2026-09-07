@@ -98,6 +98,9 @@ async function registerReviverQueueRoutes(app, { transactionRepository, verifica
     if (result.reason === 'SELF_ACCEPT_NOT_ALLOWED') {
       return reply.code(409).send({ error: 'SELF_ACCEPT_NOT_ALLOWED' });
     }
+    if (result.reason === 'REQUESTER_VERIFICATION_REQUIRED') {
+      return reply.code(409).send({ error: 'REQUESTER_VERIFICATION_REQUIRED' });
+    }
     return reply.code(409).send({ error: 'REQUEST_UNAVAILABLE' });
   });
 }

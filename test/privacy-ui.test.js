@@ -30,7 +30,7 @@ test('Settings includes About & Privacy with required disclosures and document l
     'Subscription terms',
     'Payment recipient',
     'Diagnostics',
-    'Revoke Reviver Verification',
+    'Revoke ReviveRelay Verification',
     'Delete ReviveRelay account/data'
   ]) assert.match(settings,new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'i'),text);
   assert.match(settings,/About &(?:amp;)? Privacy/i);

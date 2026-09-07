@@ -34,7 +34,8 @@
   const SIDEBAR_RECONCILE_MS = 5_000;
   const TELEMETRY_DRAIN_MS = 30_000;
   const MAX_SEEN_REQUEST_IDS = 200;
-  const REVIVER_VERIFICATION_KEY_URL = 'https://www.torn.com/preferences.php#tab=api?step=addNewKey&title=ReviveRelay%20Reviver%20Verification&user=basic,revives,log,perks&logIds=14,15,16,17';
+  const REQUESTER_VERIFICATION_KEY_URL = 'https://www.torn.com/preferences.php#tab=api?step=addNewKey&title=ReviveRelay%20Requester%20Verification&user=basic,profile,revives';
+  const REVIVER_VERIFICATION_KEY_URL = 'https://www.torn.com/preferences.php#tab=api?step=addNewKey&title=ReviveRelay%20Reviver%20Verification&user=basic,profile,revives,log,perks&logIds=14,15,16,17';
   const MASKED_VERIFICATION_KEY = '••••••••••••••••';
 
   const KEYS = Object.freeze({
@@ -283,8 +284,9 @@
     const code = apiErrorCode(error);
     const messages = {
       REVIVE_ABILITY_NOT_UNLOCKED: 'This Torn account does not currently have permanent revive ability.',
-      REVIVE_ABILITY_PERMISSION_REQUIRED: 'Update your Reviver Verification key so ReviveRelay can confirm revive ability.',
-      VERIFICATION_CREDENTIAL_INSUFFICIENT: 'Update your Reviver Verification key with the required permissions.',
+      REVIVE_ABILITY_PERMISSION_REQUIRED: 'Update your ReviveRelay Verification key so ReviveRelay can confirm revive ability.',
+      VERIFICATION_CREDENTIAL_INSUFFICIENT: 'Update your ReviveRelay Verification key with the required permissions.',
+      REQUESTER_VERIFICATION_REQUIRED: 'The requester has not finished ReviveRelay Verification yet. This request cannot be accepted until requester evidence is ready.',
       INVOICE_NOT_FOUND: 'This Pro invoice is unavailable for your account.',
       INVOICE_EXPIRED: 'This Pro invoice has expired. Create a new invoice.',
       CLIENT_UPDATE_REQUIRED: 'Update ReviveRelay before continuing.',
@@ -415,7 +417,7 @@
   }
 
   async function refreshVerificationCredential() {
-    if (!state.sessionToken || !hasReviverSubscriptionAccess()) {
+    if (!state.sessionToken) {
       state.verificationCredential = null;
       state.reviverEligibility = null;
       return;
@@ -536,7 +538,9 @@
       try {
         const result = await state.api.createRequest(validation.preset);
         state.activeRequest = result?.request || null;
-        setStatus('Certified revive request submitted.');
+        setStatus(hasCredentialCapability('requester')
+          ? 'Certified revive request submitted.'
+          : 'Certified revive request submitted. Requester verification is required before a reviver can accept it.');
       } catch (error) {
         lastRequestError = apiErrorCode(error);
         handleApiFailure(error, 'request.create', 'Could not create revive request.');
@@ -662,11 +666,11 @@
   }
 
   async function bindVerificationKey() {
-    if (!hasReviverSubscriptionAccess()) return;
+    if (!state.sessionToken) return;
     const verificationKeyInput = document.getElementById('rr-verification-key');
     const key = String(verificationKeyInput?.value || '').trim();
     if (!key) {
-      setStatus('Paste a Torn API key for Reviver Verification.', true);
+      setStatus('Paste a Torn API key for ReviveRelay Verification.', true);
       return;
     }
     return runMutation('verification-bind', async () => {
@@ -675,7 +679,7 @@
         if (verificationKeyInput) verificationKeyInput.value = '';
         state.verificationCredential = result?.credential || null;
         state.verificationEditing = false;
-        setStatus('Reviver Verification connected.');
+        setStatus('ReviveRelay Verification connected.');
         await refreshMe();
         await refreshReviverEligibility();
         await refreshReviverQueue();
@@ -701,7 +705,7 @@
         state.verificationEditing = false;
         state.reviverEligibility = null;
         state.reviverQueue = [];
-        setStatus('Reviver Verification disconnected.');
+        setStatus('ReviveRelay Verification disconnected.');
         renderAll();
       } catch (error) {
         handleApiFailure(error, 'verification.revoke', 'Verification key could not be revoked.');
@@ -850,6 +854,9 @@
       ? `${formatOffer(validation.preset.paymentMethod, validation.preset.offerAmount)}${validation.preset.comment ? ` · “${escapeHtml(validation.preset.comment)}”` : ''}`
       : 'Not configured';
     const request = state.activeRequest;
+    const requesterVerification = request && !hasCredentialCapability('requester')
+      ? `<div class="rr-warning"><strong>Requester verification required</strong><p>Requester verification is required before a reviver can accept this request. Connect a narrowly scoped ReviveRelay Verification key so Torn revive evidence can be checked later.</p><button data-rr-open-settings>Set up requester verification</button></div>`
+      : '';
     target.innerHTML = `<div class="rr-card">
       <div class="rr-card-title">Revive Me</div>
       <p>Use Torn's left sidebar action <strong>ReviveRelay → Revive Me!</strong> for the one-click certified request.</p>
@@ -864,6 +871,7 @@
         <div class="rr-kv"><span>Offer</span><strong>${escapeHtml(formatOffer(request.paymentMethod, request.offerAmount))}</strong></div>
         <div class="rr-kv"><span>Message</span><strong>${escapeHtml(request.comment || '—')}</strong></div>
         <div class="rr-kv"><span>Created</span><strong>${escapeHtml(formatDate(request.createdAt))}</strong></div>
+        ${requesterVerification}
         <button id="rr-cancel-request"${disabledAttr('request-cancel')}>Cancel request</button>
       ` : '<div class="rr-muted">No active certified request.</div>'}
     </div>
@@ -992,9 +1000,9 @@
 
   function renderVerificationSettings() {
     if (!state.sessionToken) return '<div class="rr-muted">Connect ReviveRelay first.</div>';
-    if (!hasReviverSubscriptionAccess()) return '<div class="rr-muted">Reviver Verification becomes available with an active Reviver Pro trial or subscription.</div>';
     const credential = state.verificationCredential;
     const usable = Boolean(credential?.usable);
+    const requester = Boolean(credential?.capabilities?.requester);
     const reviver = Boolean(credential?.capabilities?.reviver);
     const broadAccess = Boolean(credential?.accessScope?.broadAccess);
     const eligibilityStatus = state.reviverEligibility?.status === 'ELIGIBLE'
@@ -1012,24 +1020,32 @@
       ? `<button id="rr-bind-verification"${disabledAttr('verification-bind')}>${credential ? 'Save replacement key' : 'Connect Torn API key'}</button>`
       : '<button id="rr-replace-verification" type="button">Replace Torn API key</button>';
     return `<div class="rr-kv"><span>Status</span><strong>${usable ? 'Connected' : 'Not connected'}</strong></div>
+      <div class="rr-kv"><span>Requester evidence</span><strong>${requester ? 'Ready' : 'Required before Accept'}</strong></div>
       <div class="rr-kv"><span>Reviver access</span><strong>${reviver ? 'Ready' : 'Not ready'}</strong></div>
       <div class="rr-kv"><span>Revive ability</span><strong>${escapeHtml(eligibilityStatus)}</strong></div>
-      ${broadAccess ? '<div class="rr-warning"><strong>Full/Broad Access key accepted.</strong> This key grants more access than ReviveRelay requires. You can keep using it, or replace it with the recommended restricted key below.</div>' : ''}
-      <p class="rr-muted">ReviveRelay needs Torn API access to confirm your revives and payments automatically. The key is sent to ReviveRelay for secure verification and is never stored in Tampermonkey.</p>
-      ${credential ? '<p class="rr-muted">Revoking here disconnects ReviveRelay. For complete key revocation, also delete the key in <a href="https://www.torn.com/preferences.php#tab=api" target="_blank" rel="noopener noreferrer">Torn API settings</a>.</p>' : ''}
+      ${broadAccess ? '<div class="rr-warning"><strong>Full/Broad Access key accepted.</strong> This key grants more access than ReviveRelay requires. You can keep using it, or replace it with a recommended restricted key below.</div>' : ''}
+      <p class="rr-muted"><strong>ReviveRelay Verification</strong> is separate from the one-time identity key. It is encrypted server-side, never stored in Tampermonkey, and is used only for the evidence needed by your ReviveRelay role.</p>
+      ${credential ? '<p class="rr-muted">Revoking here disconnects ReviveRelay Verification. For complete key revocation, also delete the key in <a href="https://www.torn.com/preferences.php#tab=api" target="_blank" rel="noopener noreferrer">Torn API settings</a>.</p>' : ''}
       <div class="rr-permission-list">
-        <strong>Recommended Torn access</strong>
-        <span>Revives</span><span>Perks (revive ability)</span><span>Money incoming</span><span>Money outgoing</span><span>Items incoming</span><span>Items outgoing</span>
+        <strong>Requester verification</strong>
+        <span>Basic</span><span>Profile / hospital status</span><span>Revives</span>
+        <strong>Reviver verification adds</strong>
+        <span>Perks (revive ability)</span><span>Money incoming</span><span>Money outgoing</span><span>Items incoming</span><span>Items outgoing</span>
       </div>
       <div class="rr-setup-choice">
-        <strong>Recommended</strong>
-        <p class="rr-muted">Let Torn prepare a custom key with only the access ReviveRelay needs.</p>
-        <button id="rr-create-verification-key" type="button">Create recommended Torn key</button>
+        <strong>Requester key</strong>
+        <p class="rr-muted">A request can be created immediately, but it cannot be accepted until requester verification is ready. Torn will prepare a restricted key for identity evidence, hospital status and incoming revives.</p>
+        <button id="rr-create-requester-verification-key" type="button">Create requester verification key</button>
+      </div>
+      <div class="rr-setup-choice">
+        <strong>Reviver / combined key</strong>
+        <p class="rr-muted">Use this if you revive. It also includes requester evidence so a reviver can still use Revive Me without replacing keys.</p>
+        <button id="rr-create-reviver-verification-key" type="button">Create reviver verification key</button>
       </div>
       <div class="rr-setup-choice">
         <strong>Or use an existing API key</strong>
-        <p class="rr-muted">A Full Access or broader custom key is also accepted as long as it belongs to this Torn account and includes the required access.</p>
-        <label class="rr-label" for="rr-verification-key">Torn API key for Reviver Verification</label>
+        <p class="rr-muted">A Full Access or broader custom key is accepted if it belongs to this Torn account and includes the required access, but ReviveRelay recommends the restricted options above.</p>
+        <label class="rr-label" for="rr-verification-key">Torn API key for ReviveRelay Verification</label>
         ${keyInput}
         <div class="rr-actions">
           ${keyAction}
@@ -1084,7 +1100,9 @@
     if (!target) return;
     const validation = RequestPreset.validatePreset(state.preset);
     const preset = validation.ok ? validation.preset : { paymentMethod: 'cash', offerAmount: 500000, comment: '' };
-    const verificationOpen = state.sessionToken && hasReviverSubscriptionAccess() && !hasCredentialCapability('reviver') ? ' open' : '';
+    const requesterNeedsVerification = Boolean(state.activeRequest && !hasCredentialCapability('requester'));
+    const reviverNeedsVerification = Boolean(hasRole('reviver') && hasReviverSubscriptionAccess() && !hasCredentialCapability('reviver'));
+    const verificationOpen = state.sessionToken && (requesterNeedsVerification || reviverNeedsVerification) ? ' open' : '';
     target.innerHTML = `<div class="rr-settings-heading">
       <div><strong>Settings</strong><span>Keep the everyday stuff simple. Advanced controls stay out of the way.</span></div>
       <button id="rr-settings-close" type="button" aria-label="Close ReviveRelay settings">Close</button>
@@ -1107,7 +1125,7 @@
       </div>
     </details>
     <details class="rr-settings-section"${verificationOpen}>
-      <summary>Reviver Verification</summary>
+      <summary>ReviveRelay Verification</summary>
       <div class="rr-settings-body">${renderVerificationSettings()}</div>
     </details>
     <details class="rr-settings-section">
@@ -1143,10 +1161,10 @@
         <div class="rr-kv"><span>Payment recipient</span><strong>${escapeHtml(state.subscription?.merchant?.name || 'Not configured')}${state.subscription?.merchant?.tornId ? ` [${escapeHtml(state.subscription.merchant.tornId)}]` : ''}</strong></div>
         <p><strong>Torn API purpose.</strong> ReviveRelay uses Torn API data only to bind identity, verify reviver eligibility/revives and transaction or payment evidence, prevent abuse, and manage entitlement. No Torn password is requested.</p>
         <p><strong>Data stored.</strong> ReviveRelay stores the service data needed for your account, certified revive workflow, entitlement and limited security/audit history. Your user verification key is encrypted at rest; plaintext credentials are never returned after binding and credentials are not sold or shared with advertisers or unrelated third parties.</p>
-        <p><strong>Recommended permissions.</strong> Use the restricted Reviver Verification key shown above. A Broad/Full Access key may work, but grants more access than ReviveRelay needs.</p>
+        <p><strong>Recommended permissions.</strong> Use the role-appropriate restricted ReviveRelay Verification key shown above. Requesters need Basic, Profile and Revives; revivers add Perks and the restricted transaction-log evidence required for payment/refund verification. A Broad/Full Access key may work, but grants more access than ReviveRelay needs.</p>
         <p><strong>Subscription terms.</strong> Requester access is free. Where Reviver Pro payments are enabled, subscriptions are prepaid and payment is sent manually in Torn to the server-listed Payment recipient. ReviveRelay never sends payment for you.</p>
         <p><strong>Diagnostics consent.</strong> Sanitized diagnostics are off by default and are sent only when you enable the Diagnostics option.</p>
-        <p><strong>Revoke Reviver Verification.</strong> Disconnect the credential above, then delete the same key in Torn API settings if you want Torn to invalidate it completely.</p>
+        <p><strong>Revoke ReviveRelay Verification.</strong> Disconnect the credential above, then delete the same key in Torn API settings if you want Torn to invalidate it completely.</p>
         <p><a href="https://github.com/R4G3RUNN3R/torn-revive-chat-collector/blob/main/PRIVACY.md" target="_blank" rel="noopener noreferrer">Privacy document (PRIVACY.md)</a> · <a href="https://github.com/R4G3RUNN3R/torn-revive-chat-collector/tree/main/docs/review" target="_blank" rel="noopener noreferrer">Torn review documentation (docs/review)</a></p>
         ${state.sessionToken ? `<div class="rr-warning"><strong>Delete ReviveRelay account/data</strong><p>Operational account data is removed or invalidated immediately where safe. Minimal billing/payment and security/audit evidence may be retained to prevent payment evidence reuse and support refunds or disputes.</p><button id="rr-delete-account"${disabledAttr('account-delete')}>Delete ReviveRelay account/data</button></div>` : ''}
       </div>
@@ -1401,7 +1419,8 @@
       if (target.id === 'rr-start-trial' || target.id === 'rr-start-trial-inline') return startProTrial();
       if (target.id === 'rr-create-pro-invoice') return createProInvoice();
       if (target.id === 'rr-refresh-invoice') return refreshCurrentInvoice().then(renderLiveState).catch(error => handleApiFailure(error, 'pro.invoice.refresh'));
-      if (target.id === 'rr-create-verification-key') return window.open(REVIVER_VERIFICATION_KEY_URL, '_blank', 'noopener,noreferrer');
+      if (target.id === 'rr-create-requester-verification-key') return window.open(REQUESTER_VERIFICATION_KEY_URL, '_blank', 'noopener,noreferrer');
+      if (target.id === 'rr-create-reviver-verification-key') return window.open(REVIVER_VERIFICATION_KEY_URL, '_blank', 'noopener,noreferrer');
       if (target.id === 'rr-replace-verification') return beginVerificationReplacement();
       if (target.id === 'rr-bind-verification') return bindVerificationKey();
       if (target.id === 'rr-revoke-verification') return revokeVerificationKey();

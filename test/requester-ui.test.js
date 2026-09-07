@@ -100,12 +100,16 @@ test('opening Settings from the header gear restores a minimized panel before sh
 });
 
 
-test('Reviver Verification offers one-click creation of the recommended Torn key', () => {
-  assert.match(source, /Create recommended Torn key/i);
+test('ReviveRelay Verification offers separate requester and reviver restricted-key helpers', () => {
+  assert.match(source, /Create requester verification key/i);
+  assert.match(source, /Create reviver verification key/i);
   assert.match(source, /https:\/\/www\.torn\.com\/preferences\.php#tab=api\?step=addNewKey/);
+  assert.match(source, /title=ReviveRelay%20Requester%20Verification/);
+  assert.match(source, /user=basic,profile,revives/);
   assert.match(source, /title=ReviveRelay%20Reviver%20Verification/);
-  assert.match(source, /user=basic,revives,log/);
+  assert.match(source, /user=basic,profile,revives,log,perks/);
   assert.match(source, /logIds=14,15,16,17/);
+  assert.match(source, /window\.open\(REQUESTER_VERIFICATION_KEY_URL/);
   assert.match(source, /window\.open\(REVIVER_VERIFICATION_KEY_URL/);
 });
 
@@ -126,9 +130,11 @@ test('connected Reviver Verification keeps a masked key indicator and separates 
 });
 
 
-test('recommended Reviver Verification key includes perks so revive ability can be checked', () => {
-  assert.match(source, /user=basic,revives,log,perks/);
+test('recommended reviver verification key includes profile, perks and restricted transaction logs', () => {
+  assert.match(source, /user=basic,profile,revives,log,perks/);
   assert.match(source, /Perks \(revive ability\)/i);
+  assert.match(source, /Profile \/ hospital status/i);
+  assert.match(source, /logIds=14,15,16,17/);
 });
 
 test('Reviver registration UI is gated by server-confirmed Torn revive eligibility', () => {

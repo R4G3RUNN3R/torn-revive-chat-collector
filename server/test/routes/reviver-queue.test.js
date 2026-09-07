@@ -195,3 +195,21 @@ test('grandfathered active reviver without Torn revive ability cannot view or ac
   assert.equal(accepted.json().error, 'REVIVE_ABILITY_NOT_UNLOCKED');
   assert.equal(calls, 0);
 });
+
+
+test('Accept exposes requester verification gate before payment can begin', async t => {
+  let calls=0;
+  const app=makeApp({
+    async listAvailableRequests(){return[];},
+    async acceptRequest(){calls+=1;return{accepted:false,reason:'REQUESTER_VERIFICATION_REQUIRED'};}
+  });
+  t.after(()=>app.close());
+  const response=await app.inject({
+    method:'POST',
+    url:`/v1/requests/${VALID_REQUEST_ID}/accept`,
+    headers:{authorization:'Bearer reviver-token'}
+  });
+  assert.equal(response.statusCode,409);
+  assert.equal(response.json().error,'REQUESTER_VERIFICATION_REQUIRED');
+  assert.equal(calls,1);
+});

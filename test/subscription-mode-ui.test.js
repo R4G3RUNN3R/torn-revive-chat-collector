@@ -43,8 +43,8 @@ test('review and live payment UI renders server merchant, server plans, and manu
   assert.doesNotMatch(render,/send.*automatically|auto-pay|automatic payment/i);
 });
 
-test('reviver verification and queue access use subscription-mode access rather than entitlement alone',()=>{
-  for (const fnName of ['refreshVerificationCredential','refreshReviverEligibility','refreshReviverQueue','renderReviverPanel','renderVerificationSettings']) {
+test('requester verification is subscription-independent while reviver-only checks still use subscription access',()=>{
+  for (const fnName of ['refreshReviverEligibility','refreshReviverQueue','renderReviverPanel']) {
     const start=source.indexOf(`${fnName.includes('render')?'function':'async function'} ${fnName}`);
     const next=source.indexOf('\n  function ',start+1);
     const nextAsync=source.indexOf('\n  async function ',start+1);
@@ -53,6 +53,17 @@ test('reviver verification and queue access use subscription-mode access rather 
     const body=start>=0?source.slice(start,end):'';
     assert.ok(body.length>0,fnName);
     assert.match(body,/hasReviverSubscriptionAccess\(\)/,fnName);
+  }
+
+  for (const fnName of ['refreshVerificationCredential','renderVerificationSettings']) {
+    const start=source.indexOf(`${fnName.includes('render')?'function':'async function'} ${fnName}`);
+    const next=source.indexOf('\n  function ',start+1);
+    const nextAsync=source.indexOf('\n  async function ',start+1);
+    const endings=[next,nextAsync].filter(index=>index>start);
+    const end=endings.length?Math.min(...endings):source.length;
+    const body=start>=0?source.slice(start,end):'';
+    assert.ok(body.length>0,fnName);
+    assert.doesNotMatch(body,/if \([^\n]*hasReviverSubscriptionAccess\(\)/,fnName);
   }
 });
 

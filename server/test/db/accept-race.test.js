@@ -5,6 +5,7 @@ const { setTimeout: sleep } = require('node:timers/promises');
 const { createPool } = require('../../src/db/pool');
 const { migrate } = require('../../src/db/migrate');
 const { acceptRequest } = require('../../src/db/transactions');
+const { insertRequesterVerificationCredential } = require('../../test-support/verification');
 
 async function waitForDatabaseSessionsToClose(adminPool, dbName) {
   for (let attempt = 0; attempt < 100; attempt += 1) {
@@ -58,6 +59,8 @@ test('two revivers accepting the same request produce exactly one winner', async
       VALUES ($1, 'cash', 500000, 'AVAILABLE')
       RETURNING id
     `, [requester.rows[0].id]);
+
+    await insertRequesterVerificationCredential(pool, requester.rows[0].id);
 
     const now = new Date('2026-08-24T00:00:00Z');
     const [a, b] = await Promise.all([

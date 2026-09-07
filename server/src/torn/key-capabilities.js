@@ -1,5 +1,5 @@
 const RECOMMENDED_USER_SELECTIONS = new Set([
-  'basic', 'revives', 'log', 'lookup', 'timestamp'
+  'basic', 'profile', 'revives', 'perks', 'log', 'lookup', 'timestamp'
 ]);
 const RECOMMENDED_TORN_SELECTIONS = new Set(['lookup', 'timestamp']);
 const RECOMMENDED_KEY_SELECTIONS = new Set(['info']);

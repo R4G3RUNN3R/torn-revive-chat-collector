@@ -83,13 +83,14 @@ test('background live-state refresh still avoids rebuilding Settings forms',()=>
   assert.doesNotMatch(live,/renderSettingsDrawer|renderProPanel/);
 });
 
-test('free-mode Reviver Verification binding uses subscription access instead of paid entitlement alone',()=>{
+test('ReviveRelay Verification binding is available to any connected requester, independent of paid entitlement',()=>{
   const bind=functionSlice('bindVerificationKey','beginVerificationReplacement');
   assert.ok(bind.length>0);
-  assert.match(bind,/hasReviverSubscriptionAccess\(\)/);
-  assert.doesNotMatch(bind,/if \(!isProActive\(\)\) return/);
+  assert.match(bind,/if \(!state\.sessionToken\) return/);
+  assert.doesNotMatch(bind,/if \(!isProActive\(\)\) return|hasReviverSubscriptionAccess\(\)/);
 
   const settings=functionSlice('renderSettingsDrawer','renderSummary');
   assert.ok(settings.length>0);
-  assert.match(settings,/hasReviverSubscriptionAccess\(\)/);
+  assert.match(settings,/requesterNeedsVerification/);
+  assert.match(settings,/reviverNeedsVerification/);
 });

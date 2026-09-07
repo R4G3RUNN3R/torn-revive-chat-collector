@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const { withDisposableDatabase } = require('../../test-support/database');
 const { createRequestRepository } = require('../../src/db/requests');
 const { createTransactionRepository } = require('../../src/db/transactions');
+const { insertRequesterVerificationCredential } = require('../../test-support/verification');
 
 test('direct requests persist server-owned origin and repository projects certification source', async () => {
   await withDisposableDatabase('direct_requests', async pool => {
@@ -12,6 +13,7 @@ test('direct requests persist server-owned origin and repository projects certif
       RETURNING id
     `);
     const requesterId = user.rows[0].id;
+    await insertRequesterVerificationCredential(pool, requesterId);
     const repo = createRequestRepository(pool);
 
     const created = await repo.createRequest({
