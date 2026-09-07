@@ -9,9 +9,12 @@ const { createJobRepository } = require("./db/jobs");
 const { createTransactionService } = require("./domain/transaction-service");
 const { createVerificationCredentialRepository } = require('./db/verification-credentials');
 const { createReviverRepository } = require('./db/revivers');
+const { createProEntitlementRepository } = require('./db/pro-entitlements');
+const { createProInvoiceRepository } = require('./db/pro-invoices');
 const { createErrorTelemetryRepository } = require('./db/error-telemetry');
+const { createAccountDeletionService } = require('./db/account-deletion');
 const { createTelemetryReporter } = require('./telemetry/reporter');
-const { loadReleaseManifest } = require('./release/registry');
+const { loadReleaseRegistry } = require('./release/registry');
 const { createTornClient } = require('./torn/client');
 const { createLogMetadataResolver } = require('./torn/log-metadata');
 const { buildApp } = require('./app');
@@ -19,8 +22,11 @@ const { buildApp } = require('./app');
 async function start() {
   const config = loadConfig(process.env);
   const pool = createPool(config.DATABASE_URL);
-  const releaseRegistry = config.REVIVERELAY_RELEASE_MANIFEST_FILE
-    ? loadReleaseManifest(config.REVIVERELAY_RELEASE_MANIFEST_FILE)
+  const releaseRegistry = config.REVIVERELAY_REVIEW_MANIFEST_FILE
+    ? loadReleaseRegistry({
+        review: config.REVIVERELAY_REVIEW_MANIFEST_FILE,
+        stable: config.REVIVERELAY_STABLE_MANIFEST_FILE
+      })
     : null;
   const identityRepository = createIdentityRepository(pool);
   const sessionRepository = createSessionRepository(pool);
@@ -33,7 +39,10 @@ async function start() {
     encryptionKeyHex: config.API_KEY_ENCRYPTION_KEY
   });
   const reviverRepository = createReviverRepository(pool);
+  const entitlementRepository = createProEntitlementRepository(pool);
+  const proInvoiceRepository = createProInvoiceRepository(pool);
   const errorTelemetryRepository = createErrorTelemetryRepository(pool);
+  const accountDeletionService = createAccountDeletionService(pool);
   const telemetryReporter = createTelemetryReporter({
     repository: errorTelemetryRepository,
     product: 'reviverelay',
@@ -50,6 +59,8 @@ async function start() {
     tornClient,
     identityRepository,
     sessionRepository,
+    entitlementRepository,
+    proInvoiceRepository,
     candidateRepository,
     requestRepository,
     transactionRepository,
@@ -58,6 +69,7 @@ async function start() {
     verificationCredentialRepository,
     reviverRepository,
     errorTelemetryRepository,
+    accountDeletionService,
     releaseRegistry,
     logMetadataResolver,
     logger: true

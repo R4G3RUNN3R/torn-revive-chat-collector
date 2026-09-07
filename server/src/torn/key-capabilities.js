@@ -1,10 +1,8 @@
-const ALLOWED_USER_SELECTIONS = new Set([
-  'basic', 'profile', 'revives', 'log', 'lookup', 'timestamp'
+const RECOMMENDED_USER_SELECTIONS = new Set([
+  'basic', 'profile', 'revives', 'perks', 'log', 'lookup', 'timestamp'
 ]);
-const ALLOWED_TORN_SELECTIONS = new Set([
-  'logcategories', 'logtypes', 'lookup', 'timestamp'
-]);
-const ALLOWED_KEY_SELECTIONS = new Set(['info']);
+const RECOMMENDED_TORN_SELECTIONS = new Set(['lookup', 'timestamp']);
+const RECOMMENDED_KEY_SELECTIONS = new Set(['info']);
 const PRIVATE_NAMESPACES = Object.freeze(['company', 'faction', 'market', 'property', 'racing', 'forum']);
 
 const REQUESTER_CAPABILITIES = Object.freeze(['incoming_revives', 'hospital_status']);
@@ -39,34 +37,31 @@ function selectionsFor(keyInfo) {
   return selections;
 }
 
-function assertNoUnapprovedSelections(selections, access) {
+function normalizedSelections(selections, namespace) {
+  const values = Array.isArray(selections && selections[namespace]) ? selections[namespace] : [];
+  return values.map(value => normalizeName(value));
+}
+
+function hasSelectionsOutside(values, allowed) {
+  return values.some(value => !allowed.has(value));
+}
+
+function selectionBreadth(selections, access) {
+  const user = normalizedSelections(selections, 'user');
+  const torn = normalizedSelections(selections, 'torn');
+  const key = normalizedSelections(selections, 'key');
+  let broad = false;
+
+  if (hasSelectionsOutside(user, RECOMMENDED_USER_SELECTIONS)) broad = true;
+  if (hasSelectionsOutside(torn, RECOMMENDED_TORN_SELECTIONS)) broad = true;
+  if (hasSelectionsOutside(key, RECOMMENDED_KEY_SELECTIONS)) broad = true;
+
   for (const namespace of PRIVATE_NAMESPACES) {
-    const values = Array.isArray(selections[namespace]) ? selections[namespace] : [];
-    if (values.length) throw new Error(`Credential grants unapproved namespace selections: ${namespace}`);
+    if (normalizedSelections(selections, namespace).length) broad = true;
   }
+  if (access && (access.faction || access.company)) broad = true;
 
-  if (access && access.faction) throw new Error('Credential grants unapproved namespace access: faction');
-  if (access && access.company) throw new Error('Credential grants unapproved namespace access: company');
-
-  const user = Array.isArray(selections.user) ? selections.user.map(value => normalizeName(value)) : [];
-  const disallowedUser = user.filter(value => !ALLOWED_USER_SELECTIONS.has(value));
-  if (disallowedUser.length) {
-    throw new Error(`Credential grants unapproved user selections: ${disallowedUser.join(', ')}`);
-  }
-
-  const torn = Array.isArray(selections.torn) ? selections.torn.map(value => normalizeName(value)) : [];
-  const disallowedTorn = torn.filter(value => !ALLOWED_TORN_SELECTIONS.has(value));
-  if (disallowedTorn.length) {
-    throw new Error(`Credential grants unapproved Torn selections: ${disallowedTorn.join(', ')}`);
-  }
-
-  const key = Array.isArray(selections.key) ? selections.key.map(value => normalizeName(value)) : [];
-  const disallowedKey = key.filter(value => !ALLOWED_KEY_SELECTIONS.has(value));
-  if (disallowedKey.length) {
-    throw new Error(`Credential grants unapproved key selections: ${disallowedKey.join(', ')}`);
-  }
-
-  return new Set(user);
+  return { user: new Set(user), broad };
 }
 
 function logCapabilities(access, logMetadata) {
@@ -87,6 +82,26 @@ function logCapabilities(access, logMetadata) {
   return result;
 }
 
+function logScopeIsBroad(access, logMetadata) {
+  const log = access && access.log;
+  if (!log) return false;
+  if (log.custom_permissions !== true) return true;
+  const categories = logMetadata && logMetadata.categories;
+  if (!categories || typeof categories !== 'object') return false;
+  return (Array.isArray(log.available) ? log.available : []).some(entry => {
+    const categoryId = Number(entry && entry.category_id);
+    const title = normalizeName(categories[categoryId]);
+    return Boolean(title) && !CATEGORY_CAPABILITIES[title];
+  });
+}
+
+function addAllReviverLogCapabilities(capabilities) {
+  capabilities.add('money_incoming');
+  capabilities.add('item_incoming');
+  capabilities.add('money_outgoing');
+  capabilities.add('item_outgoing');
+}
+
 function validateTransactionCredential({ keyInfo, ownerTornId, logMetadata }) {
   const owner = Number(keyInfo && keyInfo.tornId);
   if (!Number.isSafeInteger(owner) || owner <= 0 || owner !== Number(ownerTornId)) {
@@ -94,8 +109,11 @@ function validateTransactionCredential({ keyInfo, ownerTornId, logMetadata }) {
   }
 
   const selections = selectionsFor(keyInfo);
-  const userSelections = assertNoUnapprovedSelections(selections, keyInfo.access);
+  const access = keyInfo.access || {};
+  const scope = selectionBreadth(selections, access);
+  const userSelections = scope.user;
   const capabilities = new Set();
+  let broadAccess = scope.broad;
 
   if (userSelections.has('revives')) {
     capabilities.add('incoming_revives');
@@ -104,10 +122,13 @@ function validateTransactionCredential({ keyInfo, ownerTornId, logMetadata }) {
   if (userSelections.has('profile')) capabilities.add('hospital_status');
 
   if (userSelections.has('log')) {
-    if (!keyInfo.access || !keyInfo.access.log || keyInfo.access.log.custom_permissions !== true) {
-      throw new Error('Transaction credentials with user/log must use restricted custom log permissions');
+    if (!access.log || access.log.custom_permissions !== true) {
+      addAllReviverLogCapabilities(capabilities);
+      broadAccess = true;
+    } else {
+      for (const capability of logCapabilities(access, logMetadata)) capabilities.add(capability);
+      if (logScopeIsBroad(access, logMetadata)) broadAccess = true;
     }
-    for (const capability of logCapabilities(keyInfo.access, logMetadata)) capabilities.add(capability);
   }
 
   const missing = {
@@ -118,6 +139,8 @@ function validateTransactionCredential({ keyInfo, ownerTornId, logMetadata }) {
   return Object.freeze({
     requester: missing.requester.length === 0,
     reviver: missing.reviver.length === 0,
+    broadAccess: Boolean(broadAccess),
+    accessLabel: String(access.type || (broadAccess ? 'Broad Custom Access' : 'Recommended Custom Access')),
     validated: Object.freeze(Array.from(capabilities).sort()),
     missing: Object.freeze({
       requester: Object.freeze(missing.requester),

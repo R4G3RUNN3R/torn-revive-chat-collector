@@ -6,6 +6,7 @@ const { createPool } = require('../../src/db/pool');
 const { migrate } = require('../../src/db/migrate');
 const { createRequest, cancelRequest } = require('../../src/db/requests');
 const { acceptRequest } = require('../../src/db/transactions');
+const { insertRequesterVerificationCredential } = require('../../test-support/verification');
 
 async function waitForDatabaseSessionsToClose(adminPool, dbName) {
   for (let attempt = 0; attempt < 100; attempt += 1) {
@@ -49,6 +50,8 @@ test('request creation, acceptance, and cancellation write non-secret audit even
     `);
     const requesterId = requester.rows[0].id;
     const reviverId = reviver.rows[0].id;
+
+    await insertRequesterVerificationCredential(pool, requesterId);
 
     await pool.query(`
       INSERT INTO revivers (user_id, standing)

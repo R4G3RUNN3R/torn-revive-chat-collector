@@ -104,7 +104,7 @@ test('GET returns status only and DELETE revokes the authenticated user credenti
   assert.deepEqual(calls,[['get','user-1'],['revoke','user-1']]);
 });
 
-test('insufficient or over-broad credential is rejected before persistence', async t => {
+test('insufficient credential is rejected before persistence', async t => {
   let binds = 0;
   const app = makeApp({
     credentialRepository: { async getStatus(){return null;}, async bind(){binds += 1;}, async revoke(){return true;} },
@@ -124,4 +124,35 @@ test('insufficient or over-broad credential is rejected before persistence', asy
   assert.equal(response.statusCode,422);
   assert.equal(response.json().error,'VERIFICATION_CREDENTIAL_INSUFFICIENT');
   assert.equal(binds,0);
+});
+
+test('full access credential is accepted and persisted with a broad-access warning marker', async t => {
+  let bound;
+  const app = makeApp({
+    credentialRepository: {
+      async getStatus(){return null;},
+      async bind(input){
+        bound = input;
+        return { id:'cred-full', usable:true, capabilities: input.capability, accessScope: input.accessScope };
+      },
+      async revoke(){return true;}
+    },
+    tornClient: {
+      async getKeyInfo() {
+        return {
+          tornId:123, name:'Tester',
+          selections:{ user:['basic','revives','log','messages','battlestats'], company:['profile'], faction:['basic'], market:[], property:[], torn:['items'], racing:[], forum:[], key:['info'] },
+          access:{ level:4,type:'Full Access',faction:true,company:true,log:{custom_permissions:false,available:[]} }
+        };
+      }
+    },
+    logMetadataResolver: { async get(){return {categories:{10:'Money incoming',11:'Money outgoing',12:'Items incoming',13:'Items outgoing'}};} }
+  });
+  t.after(() => app.close());
+  const response = await app.inject({method:'POST',url:'/v1/verification-credential',headers:{authorization:'Bearer token'},payload:{apiKey:'full-key'}});
+  assert.equal(response.statusCode,200);
+  assert.equal(response.json().credential.capabilities.reviver,true);
+  assert.equal(response.json().credential.accessScope.broadAccess,true);
+  assert.match(response.json().credential.accessScope.accessType,/full/i);
+  assert.equal(bound.plaintextKey,'full-key');
 });

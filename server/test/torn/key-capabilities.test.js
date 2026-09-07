@@ -61,6 +61,7 @@ test('reviver capability requires revives plus restricted incoming/outgoing mone
   const result = validateTransactionCredential({ keyInfo: info, ownerTornId: 123, logMetadata });
   assert.equal(result.requester, false);
   assert.equal(result.reviver, true);
+  assert.equal(result.broadAccess, false);
   assert.deepEqual(requiredCapabilitiesFor('reviver'), [
     'outgoing_revives', 'money_incoming', 'item_incoming', 'money_outgoing', 'item_outgoing'
   ]);
@@ -94,40 +95,45 @@ test('credential owner mismatch is rejected', () => {
   );
 });
 
-test('unrestricted user log access is rejected instead of accepted as broader than necessary', () => {
+test('unrestricted log access is accepted when all reviver capabilities are implicitly available', () => {
   const info = keyInfo({
     selections: {
-      user: ['revives', 'log'], company: [], faction: [], market: [], property: [], torn: [], racing: [], forum: [], key: ['info']
+      user: ['basic', 'revives', 'log'], company: [], faction: [], market: [], property: [], torn: [], racing: [], forum: [], key: ['info']
+    },
+    access: {
+      level: 4,
+      type: 'Full Access',
+      faction: true,
+      company: true,
+      log: { custom_permissions: false, available: [] }
     }
   });
-  assert.throws(
-    () => validateTransactionCredential({ keyInfo: info, ownerTornId: 123, logMetadata }),
-    /restricted custom log permissions/i
-  );
+  const result = validateTransactionCredential({ keyInfo: info, ownerTornId: 123, logMetadata });
+  assert.equal(result.reviver, true);
+  assert.equal(result.broadAccess, true);
+  assert.match(result.accessLabel, /full/i);
 });
 
-test('unrelated sensitive user selections are rejected', () => {
+test('extra user and private namespace permissions are accepted but flagged as broad', () => {
   const info = keyInfo({
     selections: {
-      user: ['profile', 'revives', 'messages'], company: [], faction: [], market: [], property: [], torn: [], racing: [], forum: [], key: ['info']
+      user: ['basic', 'revives', 'log', 'messages', 'battlestats'],
+      company: ['profile'], faction: ['basic'], market: [], property: [], torn: ['items'], racing: [], forum: [], key: ['info']
+    },
+    access: {
+      level: 4,
+      type: 'Custom',
+      faction: true,
+      company: true,
+      log: {
+        custom_permissions: true,
+        available: [10, 11, 12, 13].map(category_id => ({ category_id, log_ids: [] }))
+      }
     }
   });
-  assert.throws(
-    () => validateTransactionCredential({ keyInfo: info, ownerTornId: 123, logMetadata }),
-    /unapproved user selections.*messages/i
-  );
-});
-
-test('non-user private namespaces are rejected', () => {
-  const info = keyInfo({
-    selections: {
-      user: ['profile', 'revives'], company: [], faction: ['basic'], market: [], property: [], torn: [], racing: [], forum: [], key: ['info']
-    }
-  });
-  assert.throws(
-    () => validateTransactionCredential({ keyInfo: info, ownerTornId: 123, logMetadata }),
-    /unapproved namespace.*faction/i
-  );
+  const result = validateTransactionCredential({ keyInfo: info, ownerTornId: 123, logMetadata });
+  assert.equal(result.reviver, true);
+  assert.equal(result.broadAccess, true);
 });
 
 test('missing one required restricted log category leaves reviver capability false', () => {

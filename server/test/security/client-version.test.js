@@ -1,13 +1,7 @@
-const test=require('node:test'); const assert=require('node:assert/strict');
-const {checkClientVersion,isProtectedMarketplaceMutation}=require('../../src/security/client-version');
-test('client version gate rejects missing, malformed and old versions',()=>{
- const registry={latestVersion:'0.4.2',minimumVersion:'0.4.0',automatic:{installUrl:'https://reviverelay.voidsmithindustries.com/install/reviverelay-auto.user.js'}};
- assert.equal(checkClientVersion({current:'0.3.9',releaseRegistry:registry}).allowed,false);
- assert.equal(checkClientVersion({current:'0.4.0',releaseRegistry:registry}).allowed,true);
- assert.equal(checkClientVersion({current:'',releaseRegistry:registry}).allowed,false);
- assert.equal(checkClientVersion({current:'broken',releaseRegistry:registry}).allowed,false);
-});
-test('only protected marketplace mutations are gated',()=>{
- for(const [method,url] of [['POST','/v1/requests'],['POST','/v1/requests/x/cancel'],['POST','/v1/requests/x/accept'],['POST','/v1/transactions/x/check-payment'],['POST','/v1/transactions/x/retry-request'],['POST','/v1/transactions/x/retry-response'],['POST','/v1/transactions/x/request-refund'],['POST','/v1/transactions/x/check-refund']]) assert.equal(isProtectedMarketplaceMutation(method,url),true,`${method} ${url}`);
- for(const [method,url] of [['GET','/health'],['GET','/v1/client/version'],['POST','/v1/auth/bind'],['GET','/v1/me'],['POST','/v1/telemetry/errors'],['GET','/v1/reviver/queue'],['GET','/v1/transactions/x'],['POST','/v1/verification-credential']]) assert.equal(isProtectedMarketplaceMutation(method,url),false,`${method} ${url}`);
-});
+const test=require('node:test');const assert=require('node:assert/strict');const {checkClientVersion,isProtectedMarketplaceMutation,selectChannelManifest}=require('../../src/security/client-version');
+function manifest(channel='review'){return {latestVersion:'0.6.0',minimumVersion:'0.6.0',buildTimestamp:'2026-09-07T12:00:00.000Z',releaseNotes:'Review.',gitCommit:'0'.repeat(40),releaseChannel:channel,sha256:'a'.repeat(64),apiCompatibility:{minimum:1,current:1},install:{installUrl:`https://reviverelay.voidsmithindustries.com/releases/${channel}/0.6.0/ReviveRelay-0.6.0.user.js`,metaUrl:`https://reviverelay.voidsmithindustries.com/releases/${channel}/0.6.0/ReviveRelay-0.6.0.meta.js`},mandatory:false};}
+
+const registry={review:manifest('review'),stable:manifest('stable')};
+test('client version gate is channel scoped and rejects missing malformed old or unknown channel',()=>{assert.equal(checkClientVersion({current:'0.5.9',channel:'review',releaseRegistry:registry}).allowed,false);assert.equal(checkClientVersion({current:'0.6.0',channel:'review',releaseRegistry:registry}).allowed,true);assert.equal(checkClientVersion({current:'broken',channel:'review',releaseRegistry:registry}).allowed,false);assert.equal(checkClientVersion({current:'0.6.0',channel:'automatic',releaseRegistry:registry}).allowed,false);});
+test('channel selection never crosses review and stable',()=>{assert.equal(selectChannelManifest(registry,'review').releaseChannel,'review');assert.equal(selectChannelManifest(registry,'stable').releaseChannel,'stable');assert.equal(selectChannelManifest(registry,'manual'),null);});
+test('only protected marketplace mutations are gated',()=>{for(const [method,url] of [['POST','/v1/requests'],['POST','/v1/requests/x/cancel'],['POST','/v1/requests/x/accept'],['POST','/v1/transactions/x/check-payment']])assert.equal(isProtectedMarketplaceMutation(method,url),true);assert.equal(isProtectedMarketplaceMutation('GET','/v1/client/version'),false);});

@@ -73,10 +73,13 @@ Verify a backup by restoring it into a disposable isolated PostgreSQL container:
 
 The restore test never writes to another Voidsmith database.
 
-## Public launch gates
+## Subscription modes and launch gates
 
-- Keep `PAID_TIER_ENABLED=false` until the protected transaction verification and compliance gates are complete.
-- Do not point the userscript at this API until HTTPS/DNS are verified.
+- `SUBSCRIPTION_MODE=free` keeps requester access free and waives only the reviver Pro entitlement/payment requirement. Authentication, Reviver Verification, current Torn revive ability, standing and abuse protections still apply.
+- `SUBSCRIPTION_MODE=review` and `SUBSCRIPTION_MODE=live` enforce a real TRIAL/ACTIVE reviver entitlement and enable server-side subscription payment verification.
+- Review/live require `PRO_RECEIVER_TORN_ID=3877028` for `R4G3RUNN3R` plus `PRO_RECEIVER_API_KEY` in the dedicated runtime secret file. The merchant credential must be restricted to the approved incoming payment-log access and is validated before the worker starts scanning.
+- Free mode does not initialize the merchant evidence service and does not enqueue new `subscription.scan` jobs. A stale scan job from a previous paid mode completes without processing billing.
+- Do not point a review or stable userscript at a newly changed API until HTTPS/DNS and the corresponding release gates are verified.
 - Google Sheets may receive one-way administrative exports only; it is never authoritative.
 
 ## Immutable client releases

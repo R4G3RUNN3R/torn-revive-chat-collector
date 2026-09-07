@@ -6,9 +6,11 @@ const bindSchema = z.object({
   apiKey: z.string().trim().min(1).max(512)
 }).strict();
 
-function accessScopeFromKeyInfo(keyInfo) {
+function accessScopeFromKeyInfo(keyInfo, capability) {
   const log = keyInfo.access && keyInfo.access.log;
   return {
+    broadAccess: Boolean(capability && capability.broadAccess),
+    accessType: String((capability && capability.accessLabel) || (keyInfo.access && keyInfo.access.type) || 'Unknown'),
     selections: keyInfo.selections || {},
     log: log ? {
       customPermissions: Boolean(log.custom_permissions),
@@ -64,7 +66,7 @@ async function registerVerificationCredentialRoutes(app, {
         userId: request.reviveRelayUser.userId,
         plaintextKey: apiKey,
         capability,
-        accessScope: accessScopeFromKeyInfo(keyInfo),
+        accessScope: accessScopeFromKeyInfo(keyInfo, capability),
         validatedAt: new Date()
       });
       return reply.code(200).send({ credential });

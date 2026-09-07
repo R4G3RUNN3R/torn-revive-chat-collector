@@ -5,6 +5,7 @@ function rowToRequest(row) {
   return {
     id: row.id,
     requesterId: row.requester_id,
+    origin: row.origin || 'reviverelay_direct',
     paymentMethod: row.payment_method,
     offerAmount: Number(row.offer_amount),
     comment: row.comment,
@@ -99,8 +100,9 @@ async function createRequest(pool, input) {
         payment_method,
         offer_amount,
         comment,
+        origin,
         state
-      ) VALUES ($1, $2, $3, $4, 'AVAILABLE')
+      ) VALUES ($1, $2, $3, $4, 'reviverelay_direct', 'AVAILABLE')
       RETURNING *
     `, [
       input.requesterId,

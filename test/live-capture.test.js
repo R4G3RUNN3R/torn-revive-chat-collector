@@ -4,18 +4,14 @@ const fs = require('node:fs');
 const path = require('node:path');
 const source = fs.readFileSync(path.resolve(__dirname, '..', 'torn-revive-chat-collector.user.js'), 'utf8');
 
-test('Live Capture is bounded and displays local classifier/candidate activity', () => {
-  assert.match(source, /Live Capture/);
-  assert.match(source, /MAX_LIVE_EVENTS\s*=\s*50/);
-  assert.match(source, /classifier|classification/i);
-  assert.match(source, /score/i);
-  assert.match(source, /candidate/i);
-  assert.match(source, /queue/i);
-  assert.match(source, /duplicate/i);
+test('direct runtime contains no Live Capture, classifier feed, or chat capture gate', () => {
+  for (const token of ['Live Capture','MAX_LIVE_EVENTS','captureAllowed','discoverChats(','handlePublicMessage(','candidateOutbox']) {
+    assert.equal(source.includes(token), false, token);
+  }
 });
 
-test('minimizing Live Capture does not participate in the captureAllowed gate', () => {
-  const captureFn = source.match(/function captureAllowed\(\)\s*\{([\s\S]*?)\n\s*\}/)?.[1] || '';
-  assert.ok(captureFn.length > 0);
-  assert.doesNotMatch(captureFn, /minimized/);
+test('minimizing ReviveRelay affects only panel/invoice rendering, never revive discovery', () => {
+  assert.match(source, /state\.minimized = !state\.minimized/);
+  assert.match(source, /state\.currentInvoice\?\.state !== 'PENDING'/);
+  assert.doesNotMatch(source, /captureAllowed|discoverChats\(|handlePublicMessage\(|candidateOutbox/);
 });

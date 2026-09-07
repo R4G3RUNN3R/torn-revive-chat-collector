@@ -2,6 +2,22 @@ function createIdentityRepository(pool) {
   if (!pool) throw new Error('PostgreSQL pool is required');
 
   return {
+    async findByTornId(tornId) {
+      const normalized=Number(tornId);
+      if (!Number.isSafeInteger(normalized) || normalized<=0) return null;
+      const result=await pool.query(`
+        SELECT id AS user_id, torn_id, current_name
+        FROM users
+        WHERE torn_id=$1
+        LIMIT 1
+      `,[normalized]);
+      if (result.rowCount!==1) return null;
+      return {
+        userId:result.rows[0].user_id,
+        tornId:Number(result.rows[0].torn_id),
+        name:result.rows[0].current_name
+      };
+    },
     async bindIdentity({
       tornId,
       name,
@@ -17,7 +33,9 @@ function createIdentityRepository(pool) {
           INSERT INTO users (torn_id, current_name)
           VALUES ($1, $2)
           ON CONFLICT (torn_id)
-          DO UPDATE SET current_name = EXCLUDED.current_name, updated_at = now()
+          DO UPDATE SET current_name = EXCLUDED.current_name,
+                        account_state = 'active',
+                        updated_at = now()
           RETURNING id
         `, [tornId, name]);
         const userId = userResult.rows[0].id;

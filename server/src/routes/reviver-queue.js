@@ -1,10 +1,12 @@
 const { z } = require('zod');
 const { RATE_LIMITS } = require('../security/rate-limits');
 const { assertCredentialCapability } = require('../security/verification-credential');
+const { requireReviverSubscriptionAccess } = require('../security/pro-access');
+const { createReviveEligibilityService } = require('../torn/revive-eligibility');
 
 const requestIdSchema = z.string().uuid();
 
-async function registerReviverQueueRoutes(app, { transactionRepository, verificationCredentialRepository }) {
+async function registerReviverQueueRoutes(app, { transactionRepository, verificationCredentialRepository, entitlementRepository, tornClient, config = {} }) {
   if (!transactionRepository ||
       typeof transactionRepository.listAvailableRequests !== 'function' ||
       typeof transactionRepository.acceptRequest !== 'function') {
@@ -16,6 +18,11 @@ async function registerReviverQueueRoutes(app, { transactionRepository, verifica
   if (!verificationCredentialRepository || typeof verificationCredentialRepository.getStatus !== 'function') {
     throw new Error('reviver queue routes require verificationCredentialRepository');
   }
+  const requireSubscriptionAccess = requireReviverSubscriptionAccess({
+    entitlementRepository,
+    subscriptionMode:config.SUBSCRIPTION_MODE
+  });
+  const eligibilityService = createReviveEligibilityService({ tornClient, verificationCredentialRepository });
 
   async function requireReviver(request, reply) {
     const user = request.reviveRelayUser;
@@ -37,8 +44,26 @@ async function registerReviverQueueRoutes(app, { transactionRepository, verifica
     }
   }
 
+  async function requireReviveAbility(request, reply) {
+    try {
+      const eligibility = await eligibilityService.check(request.reviveRelayUser.userId);
+      if (!eligibility.canRevive) {
+        return reply.code(403).send({ error: 'REVIVE_ABILITY_NOT_UNLOCKED' });
+      }
+    } catch (error) {
+      const code = error && error.code;
+      if (code === 'REVIVE_ABILITY_PERMISSION_REQUIRED') {
+        return reply.code(409).send({ error: code });
+      }
+      if (['VERIFICATION_CREDENTIAL_REQUIRED','VERIFICATION_CREDENTIAL_INSUFFICIENT','VERIFICATION_CREDENTIAL_INVALID'].includes(code)) {
+        return reply.code(409).send({ error: code });
+      }
+      throw error;
+    }
+  }
+
   app.get('/v1/reviver/queue', {
-    preHandler: [app.authenticate, requireReviver, requireReviverCredential],
+    preHandler: [app.authenticate, requireSubscriptionAccess, requireReviver, requireReviverCredential, requireReviveAbility],
     config: {
       rateLimit: RATE_LIMITS.REVIVER_QUEUE
     }
@@ -48,7 +73,7 @@ async function registerReviverQueueRoutes(app, { transactionRepository, verifica
   });
 
   app.post('/v1/requests/:id/accept', {
-    preHandler: [app.authenticate, requireReviver, requireReviverCredential],
+    preHandler: [app.authenticate, requireSubscriptionAccess, requireReviver, requireReviverCredential, requireReviveAbility],
     config: {
       rateLimit: RATE_LIMITS.ACCEPT
     }
@@ -72,6 +97,9 @@ async function registerReviverQueueRoutes(app, { transactionRepository, verifica
     }
     if (result.reason === 'SELF_ACCEPT_NOT_ALLOWED') {
       return reply.code(409).send({ error: 'SELF_ACCEPT_NOT_ALLOWED' });
+    }
+    if (result.reason === 'REQUESTER_VERIFICATION_REQUIRED') {
+      return reply.code(409).send({ error: 'REQUESTER_VERIFICATION_REQUIRED' });
     }
     return reply.code(409).send({ error: 'REQUEST_UNAVAILABLE' });
   });

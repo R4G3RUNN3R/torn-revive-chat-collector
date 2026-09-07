@@ -1,15 +1,27 @@
-const test=require('node:test'); const assert=require('node:assert/strict'); const fs=require('node:fs');
-function body(text){return text.replace(/@updateURL\s+.*\n/,'').replace(/@downloadURL\s+.*\n/,'').replace(/const UPDATE_CHANNEL = '.*';/,'const UPDATE_CHANNEL = <CHANNEL>;');}
-test('build produces safe automatic and manual userscript variants',()=>{
- const auto=fs.readFileSync('dist/reviverelay-auto.user.js','utf8');
- const meta=fs.readFileSync('dist/reviverelay-auto.meta.js','utf8');
- const manual=fs.readFileSync('dist/reviverelay-manual.user.js','utf8');
- assert.match(auto,/@updateURL\s+https:\/\/reviverelay\.voidsmithindustries\.com\/install\/reviverelay-auto\.meta\.js/);
- assert.match(auto,/@downloadURL\s+https:\/\/reviverelay\.voidsmithindustries\.com\/install\/reviverelay-auto\.user\.js/);
- assert.match(manual,/@updateURL\s+none/); assert.match(manual,/@downloadURL\s+none/);
- assert.match(auto,/const UPDATE_CHANNEL = 'automatic'/); assert.match(manual,/const UPDATE_CHANNEL = 'manual'/);
- assert.equal(auto.match(/@version\s+(\S+)/)[1],manual.match(/@version\s+(\S+)/)[1]);
- assert.equal(body(auto),body(manual));
- assert.match(meta,/^\/\/ ==UserScript==/); assert.doesNotMatch(meta,/\(function|const UPDATE_CHANNEL/);
- for(const text of [auto,meta,manual]) assert.doesNotMatch(text,/__REVIVERELAY_(?:VERSION|UPDATE_URL|DOWNLOAD_URL|UPDATE_CHANNEL)__/); assert.equal(auto.match(/@version\s+(\S+)/)[1],require('../package.json').version);
+const test=require('node:test');
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const pkg=require('../package.json');
+
+test('build produces exact immutable review 0.6.0 artifact with review metadata',()=>{
+  const file=`dist/review/ReviveRelay-${pkg.version}.user.js`;
+  assert.ok(fs.existsSync(file),file);
+  const text=fs.readFileSync(file,'utf8');
+  assert.equal(text.match(/@version\s+(\S+)/)?.[1],'0.6.0');
+  assert.match(text,/ReviveRelay-Build-Commit:\s*[0-9a-f]{40}/);
+  assert.match(text,/ReviveRelay-Build-Timestamp:\s*\d{4}-\d{2}-\d{2}T/);
+  assert.match(text,/const UPDATE_CHANNEL = 'review'/);
+  assert.match(text,/const BUILD_TIMESTAMP = '\d{4}-\d{2}-\d{2}T/);
+  assert.match(text,/@updateURL\s+https:\/\/reviverelay\.voidsmithindustries\.com\/releases\/review\/0\.6\.0\/ReviveRelay-0\.6\.0\.meta\.js/);
+  assert.match(text,/@downloadURL\s+https:\/\/reviverelay\.voidsmithindustries\.com\/releases\/review\/0\.6\.0\/ReviveRelay-0\.6\.0\.user\.js/);
+  assert.doesNotMatch(text,/const UPDATE_CHANNEL = '(?:automatic|manual)'/);
+  assert.doesNotMatch(text,/@version\s+0\.5\.0/);
+});
+
+test('normal build generates review only while builder exposes stable capability',()=>{
+  assert.ok(fs.existsSync(`dist/review/ReviveRelay-${pkg.version}.user.js`));
+  assert.equal(fs.existsSync(`dist/stable/ReviveRelay-${pkg.version}.user.js`),false);
+  const build=require('../scripts/build');
+  assert.equal(typeof build.buildChannelArtifact,'function');
+  assert.deepEqual(build.RELEASE_CHANNELS,['review','stable']);
 });

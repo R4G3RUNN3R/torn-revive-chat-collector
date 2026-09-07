@@ -10,6 +10,7 @@ const { createRequestRepository } = require('../src/db/requests');
 const { createTransactionRepository } = require('../src/db/transactions');
 const { hashSessionToken } = require('../src/security/sessions');
 const { buildApp } = require('../src/app');
+const { insertRequesterVerificationCredential } = require('../test-support/verification');
 
 async function waitForDatabaseSessionsToClose(adminPool, dbName) {
   for (let attempt = 0; attempt < 100; attempt += 1) {
@@ -68,6 +69,7 @@ test('Stage 1 API smoke: privacy, request uniqueness, and accept race hold end t
     const requesterId = await insertUser(pool, 810001, 'Smoke Requester');
     const reviverAId = await insertUser(pool, 810002, 'Smoke Reviver A');
     const reviverBId = await insertUser(pool, 810003, 'Smoke Reviver B');
+    await insertRequesterVerificationCredential(pool, requesterId);
 
     await pool.query(`
       INSERT INTO revivers (user_id, standing)
@@ -86,6 +88,9 @@ test('Stage 1 API smoke: privacy, request uniqueness, and accept race hold end t
       tornClient: {
         async getKeyInfo() {
           throw new Error('Torn API is not part of the Stage 1 smoke flow');
+        },
+        async getUserPerks() {
+          return { job: ['+ Ability to revive'] };
         }
       },
       identityRepository: {
@@ -94,6 +99,18 @@ test('Stage 1 API smoke: privacy, request uniqueness, and accept race hold end t
         }
       },
       sessionRepository: createSessionRepository(pool),
+      entitlementRepository: {
+        async getStatus(userId) {
+          const active = userId === reviverAId || userId === reviverBId;
+          return {
+            state: active ? 'ACTIVE' : 'NONE',
+            trialEligible: !active,
+            trialStartedAt: null,
+            validUntil: active ? new Date('2027-01-01T00:00:00Z') : null
+          };
+        },
+        async startTrial() { throw new Error('trial activation is not part of this smoke flow'); }
+      },
       candidateRepository: createCandidateRepository(pool),
       requestRepository: createRequestRepository(pool),
       transactionRepository: createTransactionRepository(pool),
@@ -105,6 +122,10 @@ test('Stage 1 API smoke: privacy, request uniqueness, and accept race hold end t
           if (userId === reviverAId || userId === reviverBId) {
             return { id: `reviver-smoke-${userId}`, usable: true, capabilities: { requester: false, reviver: true } };
           }
+          return null;
+        },
+        async getDecryptedActiveForUser(userId) {
+          if (userId === reviverAId || userId === reviverBId) return { plaintextKey: 'stage1-smoke-verification-key' };
           return null;
         },
         async bind() { throw new Error('verification binding is not part of this smoke flow'); },
@@ -132,13 +153,12 @@ test('Stage 1 API smoke: privacy, request uniqueness, and accept race hold end t
         score: 99
       }
     });
-    assert.equal(forbiddenCandidate.statusCode, 422);
-    assert.equal(forbiddenCandidate.json().error, 'CHANNEL_NOT_ALLOWED');
+    assert.equal(forbiddenCandidate.statusCode, 404);
 
     let candidateCount = await pool.query('SELECT COUNT(*)::int AS count FROM public_chat_candidates');
     assert.equal(candidateCount.rows[0].count, 0);
 
-    const validCandidate = await app.inject({
+    const formerlyValidCandidate = await app.inject({
       method: 'POST',
       url: '/v1/candidates',
       headers: { authorization: `Bearer ${requesterToken}` },
@@ -154,11 +174,10 @@ test('Stage 1 API smoke: privacy, request uniqueness, and accept race hold end t
         reasons: ['revive phrase']
       }
     });
-    assert.equal(validCandidate.statusCode, 201);
-    assert.equal(validCandidate.json().duplicate, false);
+    assert.equal(formerlyValidCandidate.statusCode, 404);
 
     candidateCount = await pool.query('SELECT COUNT(*)::int AS count FROM public_chat_candidates');
-    assert.equal(candidateCount.rows[0].count, 1);
+    assert.equal(candidateCount.rows[0].count, 0);
 
     const firstRequest = await app.inject({
       method: 'POST',

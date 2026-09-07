@@ -26,7 +26,8 @@ services:
     environment:
       PORT: 3100
       DATABASE_URL: postgres://${REVIVERELAY_DB_USER:-reviverelay_app}:${REVIVERELAY_DB_PASSWORD}@reviverelay-db:5432/${REVIVERELAY_DB_NAME:-reviverelay}
-      REVIVERELAY_RELEASE_MANIFEST_FILE: /releases/client/manifest.json
+      REVIVERELAY_REVIEW_MANIFEST_FILE: /releases/client/review/manifest.json
+      REVIVERELAY_STABLE_MANIFEST_FILE: /releases/client/stable/manifest.json
     volumes:
       - ${REVIVERELAY_APP_DIR:-/srv/voidsmith/torn-platform/reviverelay/app}:/app:ro
       - ${REVIVERELAY_CLIENT_RELEASE_DIR:-/srv/voidsmith/torn-platform/reviverelay/releases/client}:/releases/client:ro

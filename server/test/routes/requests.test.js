@@ -190,23 +190,64 @@ test('POST cancel rejects malformed request ids before repository access', async
 });
 
 
-test('POST /v1/requests requires a usable requester-capable transaction credential', async t => {
+test('POST /v1/requests requires session auth but not requester transaction credential', async t => {
   let calls = 0;
   const app = makeApp({
-    async createRequest() { calls += 1; },
+    async createRequest(input) {
+      calls += 1;
+      return {
+        created: true,
+        request: {
+          id: VALID_REQUEST_ID,
+          requesterId: input.requesterId,
+          paymentMethod: input.paymentMethod,
+          offerAmount: input.offerAmount,
+          comment: input.comment,
+          state: 'AVAILABLE',
+          origin: 'reviverelay_direct',
+          certified: true
+        }
+      };
+    },
     async getActiveRequest() { return null; },
     async cancelRequest() { return { cancelled: false, reason: 'NOT_FOUND' }; }
   }, { credentialStatus: null });
   t.after(() => app.close());
 
   const response = await app.inject({
-    method: 'POST', url: '/v1/requests',
+    method: 'POST',
+    url: '/v1/requests',
     headers: { authorization: 'Bearer requester-token' },
-    payload: { paymentMethod: 'xanax', offerAmount: 1 }
+    payload: { paymentMethod: 'xanax', offerAmount: 1, comment: 'Please revive' }
   });
-  assert.equal(response.statusCode, 409);
-  assert.equal(response.json().error, 'VERIFICATION_CREDENTIAL_REQUIRED');
-  assert.equal(calls, 0);
+
+  assert.equal(response.statusCode, 201);
+  assert.equal(calls, 1);
+  assert.equal(response.json().request.origin, 'reviverelay_direct');
+});
+
+test('POST /v1/requests never trusts client-supplied certification or origin', async t => {
+  let seen = null;
+  const app = makeApp({
+    async createRequest(input) {
+      seen = input;
+      return { created: true, request: { id: VALID_REQUEST_ID, state: 'AVAILABLE', origin: 'reviverelay_direct' } };
+    },
+    async getActiveRequest() { return null; },
+    async cancelRequest() { return { cancelled: false, reason: 'NOT_FOUND' }; }
+  });
+  t.after(() => app.close());
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/v1/requests',
+    headers: { authorization: 'Bearer requester-token' },
+    payload: { paymentMethod: 'cash', offerAmount: 500000, origin: 'public_chat', certified: false }
+  });
+
+  assert.equal(response.statusCode, 201);
+  assert.equal(Object.hasOwn(seen, 'origin'), false);
+  assert.equal(Object.hasOwn(seen, 'certified'), false);
 });
 
 test('active request lookup remains available after credential loss', async t => {
@@ -223,7 +264,8 @@ test('active request lookup remains available after credential loss', async t =>
 
 
 test('protected request mutations require a supported client while read-only active request remains available', async t => {
-  const releaseRegistry={latestVersion:'0.4.2',minimumVersion:'0.4.0',automatic:{installUrl:'https://reviverelay.voidsmithindustries.com/install/reviverelay-auto.user.js'},manual:{installUrl:'https://reviverelay.voidsmithindustries.com/install/reviverelay-manual.user.js'}};
+  const manifest=channel=>({latestVersion:'0.6.0',minimumVersion:'0.6.0',buildTimestamp:'2026-09-07T12:00:00.000Z',releaseNotes:'Review.',gitCommit:'0'.repeat(40),releaseChannel:channel,sha256:'a'.repeat(64),apiCompatibility:{minimum:1,current:1},install:{installUrl:`https://reviverelay.voidsmithindustries.com/releases/${channel}/0.6.0/ReviveRelay-0.6.0.user.js`,metaUrl:`https://reviverelay.voidsmithindustries.com/releases/${channel}/0.6.0/ReviveRelay-0.6.0.meta.js`},mandatory:false});
+  const releaseRegistry={review:manifest('review'),stable:manifest('stable')};
   const app=makeApp({
     async createRequest(){ return {created:true,request:{id:VALID_REQUEST_ID,state:'AVAILABLE'}}; },
     async getActiveRequest(){ return null; },
@@ -231,9 +273,9 @@ test('protected request mutations require a supported client while read-only act
   },{releaseRegistry});
   t.after(()=>app.close());
   const auth={authorization:'Bearer requester-token'};
-  const old=await app.inject({method:'POST',url:'/v1/requests',headers:{...auth,'x-reviverelay-version':'0.3.9','x-reviverelay-channel':'manual'},payload:{paymentMethod:'cash',offerAmount:500000}});
-  assert.equal(old.statusCode,426); assert.equal(old.json().error,'CLIENT_UPDATE_REQUIRED'); assert.equal(old.json().minimumVersion,'0.4.0');
+  const old=await app.inject({method:'POST',url:'/v1/requests',headers:{...auth,'x-reviverelay-version':'0.5.9','x-reviverelay-channel':'review'},payload:{paymentMethod:'cash',offerAmount:500000}});
+  assert.equal(old.statusCode,426); assert.equal(old.json().error,'CLIENT_UPDATE_REQUIRED'); assert.equal(old.json().minimumVersion,'0.6.0'); assert.equal(old.json().releaseChannel,'review');
   const missing=await app.inject({method:'POST',url:'/v1/requests',headers:auth,payload:{paymentMethod:'cash',offerAmount:500000}}); assert.equal(missing.statusCode,426);
-  const current=await app.inject({method:'POST',url:'/v1/requests',headers:{...auth,'x-reviverelay-version':'0.4.0','x-reviverelay-channel':'automatic'},payload:{paymentMethod:'cash',offerAmount:500000}}); assert.equal(current.statusCode,201);
+  const current=await app.inject({method:'POST',url:'/v1/requests',headers:{...auth,'x-reviverelay-version':'0.6.0','x-reviverelay-channel':'review'},payload:{paymentMethod:'cash',offerAmount:500000}}); assert.equal(current.statusCode,201);
   const readOnly=await app.inject({method:'GET',url:'/v1/requests/active',headers:auth}); assert.equal(readOnly.statusCode,200);
 });

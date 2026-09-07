@@ -123,20 +123,17 @@ test('candidate preserves exact original message text while classification may n
   assert.equal(uploads[0].text, text);
 });
 
-test('installable userscript uses bundled candidate pipeline and contains no raw Google Sheets batch upload path', () => {
+test('production runtime and bundle exclude legacy candidate pipeline while historical module remains testable', () => {
   const source = fs.readFileSync(path.resolve(__dirname, '..', 'torn-revive-chat-collector.user.js'), 'utf8');
-  const artifact = fs.readFileSync(path.resolve(__dirname, '..', 'dist', 'reviverelay-auto.user.js'), 'utf8');
-  const build = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'build.js'), 'utf8');
+  const version = require('../package.json').version;
+  const artifact = fs.readFileSync(path.resolve(__dirname, '..', 'dist', 'review', `ReviveRelay-${version}.user.js`), 'utf8');
+  const inventory = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'client-modules.js'), 'utf8');
 
-  assert.match(artifact, /ReviveRelay bundled module: src\/revive-classifier\.js/);
-  assert.match(artifact, /ReviveRelay bundled module: src\/candidate-pipeline\.js/);
   assert.doesNotMatch(artifact, /^\/\/ @require\s+/m);
-  assert.match(source, /ReviveRelayCandidatePipeline/);
-  assert.match(source, /handlePublicMessage/);
+  assert.doesNotMatch(source, /ReviveRelayCandidatePipeline|handlePublicMessage|\/v1\/candidates/);
   assert.doesNotMatch(source, /records:\s*rows\.map\(Core\.buildSheetRecord\)/);
   assert.doesNotMatch(source, /@connect\s+script\.google\.com/);
   assert.doesNotMatch(source, /@connect\s+script\.googleusercontent\.com/);
-
-  assert.match(build, /revive-classifier\.js/);
-  assert.match(build, /candidate-pipeline\.js/);
+  assert.doesNotMatch(artifact, /ReviveRelay bundled module: src\/(?:revive-classifier|candidate-pipeline)\.js/);
+  assert.doesNotMatch(inventory, /revive-classifier\.js|candidate-pipeline\.js/);
 });

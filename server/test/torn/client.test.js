@@ -184,3 +184,53 @@ test('Torn client reports invalid-key, rate-limit, server, malformed and timeout
   assert.equal(reports[3].context.httpStatus, 200);
   assert.equal(reports[4].context.state, 'timeout');
 });
+
+
+test('TornApiError preserves Torn error code 16 for permission-aware fallbacks', async () => {
+  const torn = createTornClient({
+    fetchImpl: async () => jsonResponse(200, { error: { code: 16, error: 'Access level of this key is not high enough' } })
+  });
+
+  await assert.rejects(
+    () => torn.getLogCategories('limited-key'),
+    error => {
+      assert.ok(error instanceof TornApiError);
+      assert.equal(error.code, 'TORN_UNAVAILABLE');
+      assert.equal(error.status, 200);
+      assert.equal(error.tornStatus, 16);
+      return true;
+    }
+  );
+});
+
+
+test('getUserPerks reads current v2 perks using API-key header only', async () => {
+  const calls = [];
+  const torn = createTornClient({
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      return jsonResponse(200, {
+        perks: {
+          job: ['+ Ability to revive'], faction: [], property: [], education: [],
+          enhancer: [], book: [], stock: [], merit: []
+        }
+      });
+    }
+  });
+
+  assert.deepEqual(await torn.getUserPerks('perks-key'), {
+    job: ['+ Ability to revive'], faction: [], property: [], education: [],
+    enhancer: [], book: [], stock: [], merit: []
+  });
+  assert.match(calls[0].url, /\/user\/perks$/);
+  assert.doesNotMatch(calls[0].url, /perks-key/);
+  assert.equal(calls[0].options.headers.Authorization, 'ApiKey perks-key');
+});
+
+test('getUserPerks rejects malformed v2 perk responses', async () => {
+  const torn = createTornClient({ fetchImpl: async () => jsonResponse(200, { perks: { job: 'not-an-array' } }) });
+  await assert.rejects(
+    () => torn.getUserPerks('key'),
+    error => error instanceof TornApiError && error.code === 'TORN_UNAVAILABLE' && error.state === 'malformed'
+  );
+});

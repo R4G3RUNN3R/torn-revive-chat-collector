@@ -19,11 +19,15 @@ test('ReviveRelay panel persists draggable position and selected tab', () => {
   ]) assert.match(source, literal(token));
 });
 
-test('ReviveRelay panel has Request, Reviver, Activity and Settings tabs', () => {
-  for (const tab of ['request', 'reviver', 'activity', 'settings']) {
+test('ReviveRelay panel has Request, Reviver, Activity and Pro tabs plus a Settings gear', () => {
+  for (const tab of ['request', 'reviver', 'activity']) {
     assert.match(source, new RegExp(`data-rr-tab=["']${tab}["']`));
     assert.match(source, new RegExp(`data-rr-panel=["']${tab}["']`));
   }
+  assert.match(source, /data-rr-tab=["']settings["'][^>]*>Pro<\/button>/);
+  assert.match(source, /data-rr-panel=["']settings["'][^>]*>[\s\S]*id=["']rr-pro-content["']/);
+  assert.match(source, /id=["']rr-settings-toggle["']/);
+  assert.match(source, /id=["']rr-settings-drawer["']/);
   assert.match(source, /role=["']tablist["']/);
   assert.match(source, /aria-selected/);
 });
@@ -40,15 +44,16 @@ test('panel header is a pointer drag handle with double-click reset and resize c
   assert.match(source, /applyPanelPosition/);
 });
 
-test('hybrid UI keeps operational detail out of the request-first tab', () => {
+test('direct UI summary focuses on request, Pro access and certified queue', () => {
   assert.match(source, /class=["'][^"']*rr-brand/);
   assert.match(source, /id=["']rr-connection-pill["']/);
-  assert.match(source, /id=["']rr-summary-processed["']/);
-  assert.match(source, /id=["']rr-summary-candidates["']/);
-  assert.match(source, /id=["']rr-summary-submitted["']/);
+  assert.match(source, /id=["']rr-summary-request["']/);
+  assert.match(source, /id=["']rr-summary-pro["']/);
+  assert.match(source, /id=["']rr-summary-queue["']/);
   assert.match(source, /data-rr-panel=["']request["'][^>]*>[\s\S]*id=["']rr-requester["']/);
-  assert.match(source, /data-rr-panel=["']activity["'][^>]*>[\s\S]*id=["']rr-live-events["']/);
-  assert.match(source, /data-rr-panel=["']settings["'][^>]*>[\s\S]*id=["']rr-verification["']/);
+  assert.match(source, /data-rr-panel=["']activity["'][^>]*>[\s\S]*id=["']rr-activity-ledger["']/);
+  assert.match(source, /data-rr-panel=["']settings["'][^>]*>[\s\S]*id=["']rr-pro-content["']/);
+  assert.match(source, /id=["']rr-settings-drawer["']/);
 });
 
 test('panel remains responsive on narrow viewports and has no destructive close control', () => {
@@ -63,10 +68,12 @@ test('minimize state remains independent and persists across reloads', () => {
   assert.match(source, /body\.style\.display = state\.minimized/);
 });
 
-test('request and reviver tabs expose focused cards without losing transaction state', () => {
-  assert.match(source, /id=["']rr-request-form["']/);
+test('request and reviver tabs expose direct certified cards without restoring the old request form', () => {
+  assert.doesNotMatch(source, /id=["']rr-request-form["']/);
+  assert.match(source, /ReviveRelay → Revive Me!/);
   assert.match(source, /id=["']rr-request-card["']/);
   assert.match(source, /id=["']rr-reviver-transaction["']/);
+  assert.match(source, /CERTIFIED REQUEST/);
   assert.match(source, /request\.comment/);
   assert.match(source, /request\.createdAt/);
 });

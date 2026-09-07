@@ -11,15 +11,21 @@ test('transaction verification key is password-only, cleared after bind, and nev
   assert.doesNotMatch(source, /GM_setValue\([^\n]*(?:verification|api)[_-]?key/i);
 });
 
-test('protected requester controls are capability gated by server credential status', () => {
-  assert.match(source, /verificationCredential/);
-  assert.match(source, /capabilit(?:y|ies)/i);
-  assert.match(source, /requester/i);
-  assert.match(source, /rr-request[^\n]*disabled|requestButton\.disabled/i);
+test('free requester request creation is not blocked by credential state while later acceptance remains evidence-gated', () => {
+  const requestStart=source.indexOf('async function requestReviveFromSidebar()');
+  const requestEnd=source.indexOf('async function cancelActiveRequest()',requestStart);
+  const requestFn=requestStart>=0 && requestEnd>requestStart ? source.slice(requestStart,requestEnd) : '';
+  assert.ok(requestFn.length>0);
+  assert.match(requestFn,/if \(!state\.sessionToken \|\| !validation\.ok \|\| state\.submittingRequest \|\| state\.activeRequest\) return/);
+  assert.doesNotMatch(requestFn,/if \([^\n]*(?:verificationCredential|hasCredentialCapability)/);
+  assert.match(requestFn,/hasCredentialCapability\(['"]requester['"]\)/);
+  assert.match(source,/hasCredentialCapability\(['"]reviver['"]\)/);
+  assert.match(source,/REQUESTER_VERIFICATION_REQUIRED/);
+  assert.match(source,/acceptMarketplaceRequest/);
 });
 
-test('credential UI exposes bind rebind and revoke without redisplaying plaintext', () => {
-  assert.match(source, /Bind verification key|Rebind verification key/i);
+test('credential UI uses clear Reviver Verification actions without redisplaying plaintext', () => {
+  assert.match(source, /Connect Torn API key|Replace verification key/i);
   assert.match(source, /Revoke verification key/i);
   assert.match(source, /revokeVerificationCredential\(/);
 });

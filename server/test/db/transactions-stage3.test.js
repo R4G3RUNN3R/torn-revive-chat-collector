@@ -4,6 +4,7 @@ const { withDisposableDatabase } = require('../../test-support/database');
 const { createTransactionRepository } = require('../../src/db/transactions');
 const { createTransactionService } = require('../../src/domain/transaction-service');
 const { createRequestRepository } = require('../../src/db/requests');
+const { insertRequesterVerificationCredential } = require('../../test-support/verification');
 
 async function seed(pool) {
   const ids = {};
@@ -11,6 +12,7 @@ async function seed(pool) {
     const row = await pool.query('INSERT INTO users (torn_id,current_name) VALUES ($1,$2) RETURNING id', [tornId,key]);
     ids[key] = row.rows[0].id;
   }
+  await insertRequesterVerificationCredential(pool, ids.requester);
   await pool.query("INSERT INTO revivers (user_id,standing) VALUES ($1,'active'),($2,'active')", [ids.reviverA,ids.reviverB]);
   const request = await pool.query("INSERT INTO revive_requests (requester_id,payment_method,offer_amount,state) VALUES ($1,'xanax',1,'AVAILABLE') RETURNING id", [ids.requester]);
   ids.request = request.rows[0].id;

@@ -4,6 +4,8 @@ class TornApiError extends Error {
     this.name = 'TornApiError';
     this.code = code;
     this.status = options.status;
+    this.tornStatus = options.tornStatus;
+    this.state = options.state;
   }
 }
 
@@ -41,7 +43,11 @@ function createTornClient({
   }
 
   async function fail(code, message, operation, context = {}) {
-    const error = new TornApiError(code, message, { status: context.httpStatus });
+    const error = new TornApiError(code, message, {
+      status: context.httpStatus,
+      tornStatus: context.tornStatus,
+      state: context.state
+    });
     await reportFailure(error, operation, context);
     throw error;
   }
@@ -168,6 +174,15 @@ function createTornClient({
     return profile;
   }
 
+  async function getUserPerks(apiKey) {
+    const body = await request('/user/perks', apiKey, undefined, 'user.perks');
+    const perks = body && (body.perks || body);
+    if (!perks || typeof perks !== 'object' || !Array.isArray(perks.job)) {
+      return malformed('user.perks.validate', 'Torn perks response is incomplete');
+    }
+    return perks;
+  }
+
   async function getUserLogs(apiKey, { categoryId, targetTornId, from, to, limit = 100 } = {}) {
     if (!Number.isSafeInteger(Number(categoryId)) || Number(categoryId) <= 0) throw new Error('Log category ID is required');
     const body = await request('/user/log', apiKey, {
@@ -188,6 +203,7 @@ function createTornClient({
     getLogCategories,
     getUserRevives,
     getUserProfile,
+    getUserPerks,
     getUserLogs
   };
 }
