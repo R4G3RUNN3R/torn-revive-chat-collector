@@ -10,6 +10,8 @@
     "test:server": "npm --prefix server test",
     "build": "node scripts/build.js",
     "check": "npm test && npm run build && node --check dist/review/ReviveRelay-0.6.0.user.js",
+    "audit:review": "node scripts/audit-review-release.js",
+    "verify:review": "npm run build && npm run test:client && npm run test:server && node --check dist/review/ReviveRelay-0.6.0.user.js && node --test test/review-release-smoke.test.js test/release-dependency-verification.test.js && npm run audit:review",
     "release:client": "npm run check && node scripts/release-client.js --channel review"
   },
   "engines": {

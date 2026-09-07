@@ -1,127 +1,103 @@
 # ReviveRelay
 
-ReviveRelay is a Torn userscript plus an isolated server backend for public revive-candidate discovery and direct revive requests.
+ReviveRelay is a Torn userscript and isolated Voidsmith backend for direct, certified revive requests. Version **0.6.0** is the private Torn review candidate. Public production remains **0.4.4** until Torn review, manual browser acceptance, and explicit owner approval are complete.
 
-Current repository stage: **Stage 3 marketplace core implemented; public HTTPS API and client delivery are active; paid tier remains disabled**.
+## Runtime model
 
-## What the client does
+ReviveRelay 0.6.0 is direct-only. It does **not scrape public chat**, does not collect Faction/Company/private chat, and does not make automated non-API Torn game requests. Requesters create certified requests through the ReviveRelay API; eligible revivers receive the server-certified queue and may manually accept a request.
 
-- positively identifies only explicitly allowlisted public Torn chats;
-- rejects Faction, Company, one-to-one/private/group-private, competition, poker, and unknown channels before message parsing;
-- processes public messages only while Torn is visible, focused, and recently interacted with;
-- classifies revive-request language locally with a deterministic versioned classifier;
-- uploads **only likely revive candidates**, never the complete public-chat stream;
-- deduplicates pooled candidates server-side;
-- provides a bounded local **Live Capture** monitor for classifier decisions;
-- presents Request, Reviver, Activity, and Settings tabs in a movable hybrid Torn/Voidsmith panel whose position, selected tab, and minimized state persist locally;
-- verifies Torn identity through `POST /v1/auth/bind` and stores only the returned opaque ReviveRelay session locally;
-- discards the identity-binding Torn API key after the verification request rather than persisting it;
-- lets a connected requester create one active Cash or Xanax revive request, inspect its state, and cancel it while the server still considers it cancellable.
+Requester access is free. A requester can create a request immediately, but the request cannot enter the reviver queue or be accepted until **ReviveRelay Verification** has a usable requester-evidence capability. The recommended requester key is narrowly scoped to **Basic, Profile and Revives** so later revive outcome and hospital-state evidence can be checked.
 
-The installable userscript does not send raw chat batches to Google Sheets. The legacy `google-apps-script/` directory is retained only as historical research material and is not part of the ReviveRelay runtime.
+Reviver access additionally requires:
 
-## Privacy boundary
+- an active reviver registration;
+- Torn-confirmed permanent revive ability;
+- a usable reviver-capable ReviveRelay Verification credential;
+- Reviver Pro entitlement when subscription mode is `review` or `live`.
 
-ReviveRelay uses an **allowlist**, not a blocklist. A chat must be positively recognized as an approved public channel before the client parser can process it. The backend independently applies the same public-channel boundary, so a modified client cannot upload Faction, Company, private, or unknown channels through the candidate endpoint.
+The recommended reviver/combined key adds **Perks** and restricted Money/Items transaction-log categories used by the revive payment/refund workflow. Broad/Full keys may be accepted when they contain the required evidence access, but the UI warns that they grant more access than ReviveRelay needs.
 
-Non-candidate public messages are local-only and are not submitted to the VPS. Live Capture keeps at most 50 recent local events in memory.
+## Subscription modes
 
-Optional client diagnostics send only bounded, sanitized technical error envelopes. They are enabled by default but can be disabled in the ReviveRelay panel. Raw chats, Torn API keys, bearer tokens, request bodies, and unrelated player data are excluded; the server sanitizes again on ingestion. Raw telemetry occurrences are retained for about 30 days while aggregate fingerprint/version statistics remain available for longer-term regression tracking.
+The backend owns one of three modes:
 
-## Identity and credentials
+- `free`: requester and otherwise-eligible reviver access operate without Pro payment;
+- `review`: the full prepaid subscription model is visible and functional on the private Torn review channel;
+- `live`: the same paid model is available for public operation only after approval and explicit promotion.
 
-The Stage 2 identity flow uses a minimally scoped Torn custom API key only to resolve the player's Torn identity. The backend verifies it with Torn, creates/updates the ReviveRelay user, issues an opaque ReviveRelay session token, and discards the supplied identity key.
+Approved launch pricing is server-owned:
 
-Protected transactions use a **separate transaction-verification credential**. It is validated against the authenticated Torn identity, restricted to the smallest evidence scope ReviveRelay needs, encrypted with AES-GCM using a server-side key held outside PostgreSQL, and never returned to the client after binding.
+| Plan | Xanax | Torn cash |
+| --- | ---: | ---: |
+| Monthly | 10 Xanax | $10,000,000 |
+| 6 Months | 55 Xanax | $55,000,000 |
+| Yearly | 100 Xanax | $100,000,000 |
 
-Requester capability requires only the Torn profile/revive evidence needed to verify hospitalization and incoming revive outcomes. Reviver capability additionally requires narrowly restricted incoming/outgoing money and item-log access so Cash/Xanax payments and refunds can be independently reconciled. Over-broad or unrelated private access is rejected rather than treated as acceptable.
+Payment recipient: **R4G3RUNN3R [3877028]**.
 
-## Protected revive marketplace
+The `$` values above mean **Torn in-game cash**, not real-world currency. ReviveRelay never sends cash or items automatically. The user manually sends the exact invoice payment in Torn and the server verifies receipt from the restricted merchant incoming-payment evidence. Paid public launch is **awaiting Torn approval**.
 
-Requester access is free. The server enforces:
+## Transaction safety
 
-- Cash offers: whole Torn-dollar amounts, minimum **$500,000**;
-- Xanax offers: whole quantities, minimum **1 Xanax**;
-- optional requester comment: maximum **500 characters**;
-- one active request per requester;
-- atomic reviver acceptance so exactly one reviver can win a request;
-- a **3-minute payment window**, followed by bounded reconciliation against Torn evidence;
-- a **5-minute revive SLA** after verified payment;
-- immutable revive-attempt evidence and explicit handling for genuine failure, third-party revive, requester self-exit, natural hospital expiry, and no-attempt outcomes;
-- retry without a second payment when a genuine assigned attempt fails;
-- requester-controlled retry/refund choice after a genuine failed attempt;
-- a **10-minute refund window** when a refund becomes required;
-- refund verification against the **actual verified payment value**, including split payments and overpayments;
-- server-authoritative state transitions, timestamps, deadlines, and idempotent background jobs.
+The server is authoritative for request state, acceptance, payment deadlines, revive verification, refunds, Pro entitlement, invoice prices and payment evidence. Important protections include:
 
-The userscript renders server-provided transaction state and countdowns. It can request named actions such as payment check, retry, refund, and refund check, but it cannot submit arbitrary transaction states.
+- exactly one active request per requester;
+- requester verification required inside the same database transaction that accepts a request;
+- unverified requester requests hidden from the reviver queue;
+- atomic request acceptance so two revivers cannot both win;
+- exact payment/refund evidence matching and idempotent Torn log references;
+- encrypted-at-rest user verification credentials;
+- no plaintext verification key returned after binding;
+- server-side eligibility and entitlement checks on protected reviver actions;
+- immutable review/stable release channels and exact build provenance.
 
-Verification outages or credential loss create evidence holds and retries; they do **not** rewrite contractual deadlines or automatically create misconduct findings.
+## Privacy and diagnostics
 
-## Stage 3 boundaries and later stages
+The one-time identity key is used to bind Torn identity and is not stored. ReviveRelay Verification is a separate persistent credential, encrypted server-side, used only for the evidence required by the user's ReviveRelay role.
 
-Stage 3 provides the protected marketplace core, not the entire planned ReviveRelay product. The following remain separate later-stage work:
+Sanitized diagnostics are **off by default**. If enabled, diagnostics exclude Torn API keys, bearer/session tokens, payment receiver credentials, raw Torn API responses, request bodies and public chat content. Raw telemetry occurrences are subject to the implemented retention job; aggregate error fingerprints may be kept for regression analysis.
 
-- **Stage 4:** reputation, disputes, evidence bundles, protective suspensions/bans, administrator tooling, and the one-way operational Google Sheets views;
-- **Stage 5:** Reviver Pro trial/subscription verification and paid-feature gating.
+Users can revoke ReviveRelay Verification and can request deletion of ReviveRelay account data from Settings. Operational account/session/credential data is removed or invalidated where safe. Minimal billing/payment and security/audit evidence may be retained where needed to prevent payment-evidence reuse and support refunds, disputes or service integrity.
 
-`PAID_TIER_ENABLED` must remain false until Stage 5 and the Torn monetization/compliance launch gate are complete. Public DNS/Caddy exposure is active for the free Stage 3 client/API; paid-feature launch remains a separate gate.
+See `PRIVACY.md`, `SECURITY.md`, and `TORN-API-DISCLOSURE.md` for the review disclosures.
 
-## Server deployment
+## Review package
 
-Production-capable infrastructure lives on `new-voidsmith` under:
+Torn review material lives under `docs/review/` and includes:
 
-`/srv/voidsmith/torn-platform/reviverelay`
+- staff summary;
+- ReviveRelay endpoint inventory;
+- Torn API inventory;
+- payment verification flow;
+- review checklist;
+- screenshot checklist for Request, Reviver, Activity, Pro and Settings;
+- exact build manifest;
+- automated verification report.
 
-The backend uses its own PostgreSQL 16 container, credentials, storage path, private DB network, migrations, backups, and restore procedure. The database exposes no host PostgreSQL port and shares no ReviveRelay database network with another Voidsmith product.
+The review package explicitly asks Torn staff to confirm whether ReviveRelay's **certified-request network notifications**, which originate from ReviveRelay server requests rather than unfocused Torn-page scraping, are acceptable under Torn's scripting rules.
 
-Detailed deployment/isolation instructions are in `deploy/README.md`.
+## Source and release structure
 
-The API process remains bound only to `127.0.0.1:18730`; Caddy is the public TLS gateway for `https://reviverelay.voidsmithindustries.com`. PostgreSQL remains unexposed on the host.
+The tracked `torn-revive-chat-collector.user.js` file is the current userscript source template despite its historical filename. The 0.6.0 runtime itself is direct-only. Historical chat-related modules remain in the repository for regression/history purposes but are excluded from the generated 0.6.0 review bundle.
 
-Operational error groups can be mirrored one-way to the private `Voidsmith Error Triage` Google Sheet. Only aggregate fields are exported; internal user IDs are never mirrored. Automatic sync owns columns A:N, while human workflow columns O:S (`Status`, `Owner`, `Notes`, `GitHub Issue`, `Fixed In`) are preserved. The Google service-account secret is mounted read-only into the ReviveRelay worker only.
+Installable review artifact:
 
-## Important source files
+`dist/review/ReviveRelay-0.6.0.user.js`
 
-- `torn-revive-chat-collector.user.js` - release-build template; do not install it directly because release-time Git commit markers are unresolved in source.
-- `src/chat-dom.js` - Torn chat discovery and virtualized-DOM adapter.
-- `src/public-channels.js` - canonical public-channel allowlist.
-- `src/client-chat-policy.js` - fail-closed client privacy policy.
-- `src/revive-classifier.js` - deterministic local revive classifier.
-- `src/candidate-pipeline.js` - local classification and candidate-only upload shaping.
-- `src/api-client.js` - typed userscript API client and retrying candidate outbox primitives.
-- `server/` - isolated Fastify/PostgreSQL backend and worker.
-- `docs/superpowers/specs/2026-08-23-reviverelay-phase2-design.md` - product/architecture design.
+Review builds update only within the review channel. Stable builds update only within the stable channel. Released artifacts are immutable and carry semantic version, Git commit, build timestamp and channel-specific update/download URLs.
 
-## Development
+## Development and verification
 
-Requires Node.js 20+ and PostgreSQL 16 for database-backed server tests.
+Node.js 20+ is required. Database-backed server verification requires a disposable PostgreSQL 16 instance provided through `TEST_DATABASE_URL`. Never point automated verification at the production ReviveRelay database.
 
-Client tests:
-
-```bash
-npm run test:client
-```
-
-Server tests require `TEST_DATABASE_URL` pointing to a disposable PostgreSQL test database:
-
-```bash
-TEST_DATABASE_URL=postgres://... npm --prefix server test
-```
-
-Build and syntax-check the userscript:
+To reproduce the exact artifact recorded in `docs/review/BUILD-MANIFEST.json`, first check out its `artifactSourceCommit`. A later documentation-only commit has a different Git SHA by definition, so rebuilding there intentionally produces different embedded provenance even when executable source bytes are unchanged.
 
 ```bash
 npm run build
-node --check dist/reviverelay-auto.user.js
-node --check dist/reviverelay-manual.user.js
+npm run test:client
+TEST_DATABASE_URL=postgres://... npm run test:server
+npm run audit:review
+TEST_DATABASE_URL=postgres://... npm run verify:review
 ```
 
-No production API key, session token, database password, encryption key, or collected Torn content belongs in this repository.
-
-
-## Client releases and updates
-
-ReviveRelay client version `0.4.4` makes the installable userscript self-contained: the ten audited support modules are embedded directly into each generated automatic/manual artifact, so Tampermonkey no longer depends on runtime `@require` fetches before ReviveRelay can start. Build provenance remains immutable: metadata and telemetry carry the exact 40-hex Git commit, release validation rejects any external runtime `@require`, verifies every embedded support-module byte against the local committed source, and then fetches the same ten modules from that exact GitHub commit for byte-for-byte comparison before publication. Version `0.4.3` connected the centrally pooled public-chat candidate data to the Reviver tab via the separate **Shared public chat requests** feed while keeping protected marketplace requests verification-gated. Version `0.4.2` introduced the movable persistent four-tab UI. Automatic installations still use Tampermonkey's native `@updateURL`/`@downloadURL`; manual installations disable native updates and receive a manifest check plus install link. ReviveRelay never downloads and `eval()`s executable updates and never rewrites its own userscript.
-
-The API exposes the validated release manifest at `/v1/client/version`. Protected marketplace mutations require a supported `X-ReviveRelay-Version`; health, version discovery, authentication, `/v1/me`, telemetry and safe read-only routes remain available to old clients. Immutable client artifacts live under `/srv/voidsmith/torn-platform/reviverelay/releases/client/<version>/`. Only generated files from `dist/` are installable release artifacts; the tracked userscript source is a build template. Public Caddy/DNS serving is active at `reviverelay.voidsmithindustries.com`; release artifacts are served through the immutable `current` client-release symlink.
+No production API key, session token, database password, encryption secret, merchant API credential or collected Torn content belongs in this repository.
