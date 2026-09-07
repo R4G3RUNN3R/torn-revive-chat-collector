@@ -5,7 +5,14 @@ const cp = require('node:child_process');
 const releaseClient = require('../scripts/release-client');
 const { DIRECT_SUPPORT_MODULES } = require('../scripts/client-modules');
 
-function currentCommit() {
+function artifactSourceCommit() {
+  const manifestPath = 'docs/review/BUILD-MANIFEST.json';
+  if (fs.existsSync(manifestPath)) {
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    const commit = String(manifest.artifactSourceCommit || '');
+    if (!/^[0-9a-f]{40}$/.test(commit)) throw new Error('Review build manifest has invalid artifactSourceCommit');
+    return commit;
+  }
   return cp.execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
 }
 
@@ -14,7 +21,7 @@ test('release validation accepts self-contained artifacts, rejects runtime @requ
   const pkg = require('../package.json');
   const auto = fs.readFileSync(`dist/review/ReviveRelay-${pkg.version}.user.js`, 'utf8');
   const meta = fs.readFileSync(`dist/review/ReviveRelay-${pkg.version}.meta.js`, 'utf8');
-  const head = currentCommit();
+  const head = artifactSourceCommit();
 
   const validated = releaseClient.validatePinnedArtifacts({
     artifactTexts: [auto, meta],
@@ -42,7 +49,7 @@ test('release verification compares every direct support module byte-for-byte wi
   assert.equal(typeof releaseClient.verifyPinnedDependencyBytes, 'function');
   const pkg = require('../package.json');
   const auto = fs.readFileSync(`dist/review/ReviveRelay-${pkg.version}.user.js`, 'utf8');
-  const head = currentCommit();
+  const head = artifactSourceCommit();
   const validated = releaseClient.validatePinnedArtifacts({ artifactTexts: [auto], expectedCommit: head });
   const requested = [];
 
@@ -78,7 +85,7 @@ test('release verification compares every direct support module byte-for-byte wi
 test('release validation rejects an executable artifact whose embedded support-module bytes were altered', () => {
   const pkg = require('../package.json');
   const auto = fs.readFileSync(`dist/review/ReviveRelay-${pkg.version}.user.js`, 'utf8');
-  const head = currentCommit();
+  const head = artifactSourceCommit();
   const start = '/* ReviveRelay bundled module: src/core.js */\n';
   assert.ok(auto.includes(start));
   const corrupted = auto.replace(start, `${start}// injected corruption\n`);

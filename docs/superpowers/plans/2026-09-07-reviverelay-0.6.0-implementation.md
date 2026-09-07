@@ -308,18 +308,18 @@ throw new DirectApiClientError(serverCode || fallbackCode, {status, retryable, d
 - Create: `test/review-package.test.js`
 - Modify: `package.json`
 
-- [ ] **RED:** Add review-package test requiring all 19 review-package evidence classes from the approved spec, exact merchant/prices, explicit manual Torn-action boundary, privacy/deletion/revocation disclosures, paid launch awaiting Torn approval, and the explicit Torn question about certified ReviveRelay-server notifications.
-- [ ] **RED:** Add static audit script tests/fixtures proving the exact generated review artifact/package fails on embedded token/key patterns, unexpected network hosts, `eval`/remote executable code, unsafe unescaped dynamic sinks flagged by the audit allow-list, excessive GM permissions, legacy chat runtime identifiers/dependencies, or stale 0.5.0 metadata.
-- [ ] **GREEN:** Write documents from implemented behavior only; do not claim screenshots or manual acceptance already completed. Screenshot checklist names Request, Reviver, Activity, Pro and Settings captures as required human evidence.
-- [ ] Add `npm run audit:review` and `npm run verify:review` that operate on the exact candidate commit/artifact and include build, client tests, server tests, syntax, release smoke and static audit. Database-backed verification receives `TEST_DATABASE_URL` from an isolated disposable database in CI/operator execution, never from production.
-- [ ] Run exact candidate verification against a fresh disposable PostgreSQL 16 instance. Record command, Git SHA, client/server test totals, artifact SHA-256 and audit result in `docs/review/REVIVERELAY-0.6.0-AUTOMATED-VERIFICATION.md` generated from observed output, not invented values.
-- [ ] Run `git diff --check`, confirm clean worktree after commit, and verify no secret-like values are present in tracked diff.
-- [ ] Commit: `docs: package ReviveRelay 0.6.0 for Torn review`
+- [x] **RED:** Add review-package test requiring all 19 review-package evidence classes from the approved spec, exact merchant/prices, explicit manual Torn-action boundary, privacy/deletion/revocation disclosures, paid launch awaiting Torn approval, and the explicit Torn question about certified ReviveRelay-server notifications.
+- [x] **RED:** Add static audit script tests/fixtures proving the exact generated review artifact/package fails on embedded token/key patterns, unexpected network hosts, `eval`/remote executable code, unsafe unescaped dynamic sinks flagged by the audit allow-list, excessive GM permissions, legacy chat runtime identifiers/dependencies, or stale 0.5.0 metadata.
+- [x] **GREEN:** Write documents from implemented behavior only; do not claim screenshots or manual acceptance already completed. Screenshot checklist names Request, Reviver, Activity, Pro and Settings captures as required human evidence.
+- [x] Add `npm run audit:review` and `npm run verify:review` that operate on the exact candidate commit/artifact and include build, client tests, server tests, syntax, release smoke and static audit. Database-backed verification receives `TEST_DATABASE_URL` from an isolated disposable database in CI/operator execution, never from production.
+- [x] Run exact candidate verification against a fresh disposable PostgreSQL 16 instance. Record command, Git SHA, client/server test totals, artifact SHA-256 and audit result in `docs/review/REVIVERELAY-0.6.0-AUTOMATED-VERIFICATION.md` generated from observed output, not invented values.
+- [x] Run `git diff --check`, confirm clean worktree after commit, and verify no secret-like values are present in tracked diff.
+- [x] Commit: `docs: package ReviveRelay 0.6.0 for Torn review`
 
 ## Final review and handoff gate
 
-- [ ] Review the full branch diff from design base `c239262aaeb5af57661ed7caaf66212959a9751f` through final candidate commit for spec compliance, security regressions, secret exposure, entitlement bypasses, stale-client bypasses, payment evidence replay, account deletion retention mistakes, unsafe DOM sinks, and release-channel crossing.
-- [ ] Run the complete exact-commit disposable-PostgreSQL verification once more after any review fixes.
-- [ ] Update the Voidsmith Source of Truth with only durable, verified 0.6.0 implementation facts and the resulting candidate commit/hash. Do not record secrets.
-- [ ] Stop before runtime/public deployment. Present the private review artifact and manual browser acceptance checklist to the owner.
-- [ ] Public production 0.4.4 and its current manifest/symlink remain unchanged.
+- [x] Review the full branch diff from design base `c239262aaeb5af57661ed7caaf66212959a9751f` through final candidate commit for spec compliance, security regressions, secret exposure, entitlement bypasses, stale-client bypasses, payment evidence replay, account deletion retention mistakes, unsafe DOM sinks, and release-channel crossing. Independent Codex CLI review was attempted but could not authenticate to the OpenAI API on the VPS; the gate therefore used the full negative static audit, targeted branch self-review, and complete automated regression evidence rather than fabricating an external review result.
+- [x] Run the complete exact-commit disposable-PostgreSQL verification once more after any review fixes.
+- [x] Update the Voidsmith Source of Truth with only durable, verified 0.6.0 implementation facts and the resulting candidate commit/hash. Do not record secrets.
+- [x] Stop before runtime/public deployment. Present the private review artifact and manual browser acceptance checklist to the owner.
+- [x] Public production 0.4.4 and its current manifest/symlink remain unchanged.
