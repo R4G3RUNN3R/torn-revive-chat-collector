@@ -60,7 +60,13 @@ function buildApp({
     });
     if (entitlementRepository) {
       app.register(async instance => {
-        await registerProRoutes(instance, { entitlementRepository, proInvoiceRepository, config });
+        await registerProRoutes(instance, {
+          entitlementRepository,
+          proInvoiceRepository,
+          verificationCredentialRepository,
+          tornClient,
+          config
+        });
       });
     }
   }

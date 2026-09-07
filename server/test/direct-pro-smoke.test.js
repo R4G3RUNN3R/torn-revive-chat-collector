@@ -161,14 +161,6 @@ test('direct ReviveRelay flow enforces Pro, certifies requests, and activates pa
       assert.equal(freeQueue.statusCode, 403, freeQueue.body);
       assert.equal(freeQueue.json().error, 'REVIVER_PRO_REQUIRED');
 
-      const trial = await app.inject({
-        method: 'POST',
-        url: '/v1/pro/trial',
-        headers: auth(reviver.token)
-      });
-      assert.equal(trial.statusCode, 200, trial.body);
-      assert.equal(trial.json().pro.state, 'TRIAL');
-
       const credential = await app.inject({
         method: 'POST',
         url: '/v1/verification-credential',
@@ -178,6 +170,14 @@ test('direct ReviveRelay flow enforces Pro, certifies requests, and activates pa
       assert.equal(credential.statusCode, 200, credential.body);
       assert.equal(credential.json().credential.capabilities.reviver, true);
       assert.doesNotMatch(credential.body, /reviver-transaction-key/);
+
+      const trial = await app.inject({
+        method: 'POST',
+        url: '/v1/pro/trial',
+        headers: auth(reviver.token)
+      });
+      assert.equal(trial.statusCode, 200, trial.body);
+      assert.equal(trial.json().pro.state, 'TRIAL');
 
       const registered = await app.inject({
         method: 'POST',

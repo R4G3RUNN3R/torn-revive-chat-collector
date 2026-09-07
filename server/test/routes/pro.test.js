@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { buildApp } = require('../../src/app');
+const { TornApiError } = require('../../src/torn/client');
 
 const AUTH = { authorization:'Bearer pro-user-token' };
 
@@ -15,12 +16,32 @@ function sessionRepository() {
   };
 }
 
-function makeApp(entitlementRepository) {
+function makeApp(entitlementRepository, {
+  credentialStatus={id:'cred-pro',usable:true,capabilities:{requester:false,reviver:true}},
+  decryptedCredential={plaintextKey:'pro-reviver-key'},
+  perksJob=['+ Ability to revive'],
+  perksError=null
+} = {}) {
   return buildApp({
     config:{ API_KEY_ENCRYPTION_KEY:'aa'.repeat(32), SESSION_TOKEN_PEPPER:'pro-test-pepper' },
-    tornClient:{ async getKeyInfo(){ throw new Error('not used'); } },
+    tornClient:{
+      async getKeyInfo(){ throw new Error('not used'); },
+      async getUserPerks(apiKey){
+        assert.equal(apiKey,'pro-reviver-key');
+        if (perksError) throw perksError;
+        return {job:perksJob};
+      }
+    },
     identityRepository:{ async bindIdentity(){ throw new Error('not used'); } },
     sessionRepository:sessionRepository(),
+    verificationCredentialRepository:{
+      async getStatus(){return credentialStatus;},
+      async getDecryptedActiveForUser(){return decryptedCredential;},
+      async markUnusable(){},
+      async bind(){throw new Error('not used');},
+      async revoke(){return false;}
+    },
+    logMetadataResolver:{async get(){return {categories:{}};}},
     entitlementRepository
   });
 }
@@ -56,6 +77,59 @@ test('verified free user can read Pro status and explicitly start one seven-day 
     validUntil:'2026-09-09T12:00:00.000Z'
   });
   assert.deepEqual(calls,[['status','user-pro'],['trial','user-pro']]);
+});
+
+test('trial start requires a usable reviver-capable verification credential', async t => {
+  let trialCalls=0;
+  const repo={
+    async getStatus(){return {state:'NONE',trialEligible:true,trialStartedAt:null,validUntil:null};},
+    async startTrial(){trialCalls += 1; throw new Error('must not be called');}
+  };
+
+  const missing=makeApp(repo,{credentialStatus:null,decryptedCredential:null});
+  t.after(()=>missing.close());
+  const missingResponse=await missing.inject({method:'POST',url:'/v1/pro/trial',headers:AUTH});
+  assert.equal(missingResponse.statusCode,409,missingResponse.body);
+  assert.equal(missingResponse.json().error,'VERIFICATION_CREDENTIAL_REQUIRED');
+
+  const insufficient=makeApp(repo,{
+    credentialStatus:{id:'cred-pro',usable:true,capabilities:{requester:true,reviver:false}}
+  });
+  t.after(()=>insufficient.close());
+  const insufficientResponse=await insufficient.inject({method:'POST',url:'/v1/pro/trial',headers:AUTH});
+  assert.equal(insufficientResponse.statusCode,409,insufficientResponse.body);
+  assert.equal(insufficientResponse.json().error,'VERIFICATION_CREDENTIAL_INSUFFICIENT');
+  assert.equal(trialCalls,0);
+});
+
+test('trial start requires current Torn permanent revive ability', async t => {
+  let trialCalls=0;
+  const app=makeApp({
+    async getStatus(){return {state:'NONE',trialEligible:true,trialStartedAt:null,validUntil:null};},
+    async startTrial(){trialCalls += 1; throw new Error('must not be called');}
+  },{perksJob:['+ 10% Crime success']});
+  t.after(()=>app.close());
+
+  const response=await app.inject({method:'POST',url:'/v1/pro/trial',headers:AUTH});
+  assert.equal(response.statusCode,403,response.body);
+  assert.equal(response.json().error,'REVIVE_ABILITY_NOT_UNLOCKED');
+  assert.equal(trialCalls,0);
+});
+
+test('trial start reports when the verification key cannot read Torn perks', async t => {
+  let trialCalls=0;
+  const app=makeApp({
+    async getStatus(){return {state:'NONE',trialEligible:true,trialStartedAt:null,validUntil:null};},
+    async startTrial(){trialCalls += 1; throw new Error('must not be called');}
+  },{
+    perksError:new TornApiError('TORN_UNAVAILABLE','not enough access',{status:200,tornStatus:16})
+  });
+  t.after(()=>app.close());
+
+  const response=await app.inject({method:'POST',url:'/v1/pro/trial',headers:AUTH});
+  assert.equal(response.statusCode,409,response.body);
+  assert.equal(response.json().error,'REVIVE_ABILITY_PERMISSION_REQUIRED');
+  assert.equal(trialCalls,0);
 });
 
 test('paid-before user cannot start a saved trial later', async t => {

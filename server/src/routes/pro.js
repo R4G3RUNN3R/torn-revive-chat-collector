@@ -2,6 +2,8 @@ const { z } = require('zod');
 const { publicProPlans } = require('../domain/pro-plans');
 const { paymentsEnabled, publicSubscriptionState } = require('../domain/subscription-mode');
 const { publicProStatus } = require('../security/pro-access');
+const { assertCredentialCapability } = require('../security/verification-credential');
+const { createReviveEligibilityService } = require('../torn/revive-eligibility');
 const { RATE_LIMITS } = require('../security/rate-limits');
 
 const createInvoiceSchema = z.object({
@@ -29,7 +31,13 @@ function publicInvoice(invoice) {
   };
 }
 
-async function registerProRoutes(app, { entitlementRepository, proInvoiceRepository = null, config = {} }) {
+async function registerProRoutes(app, {
+  entitlementRepository,
+  proInvoiceRepository = null,
+  verificationCredentialRepository = null,
+  tornClient = null,
+  config = {}
+}) {
   if (typeof app.authenticate !== 'function') throw new Error('Pro routes require session authentication');
   if (!entitlementRepository ||
       typeof entitlementRepository.getStatus !== 'function' ||
@@ -42,6 +50,11 @@ async function registerProRoutes(app, { entitlementRepository, proInvoiceReposit
     receiverTornId:config.PRO_RECEIVER_TORN_ID,
     plans:publicPlans()
   });
+  const eligibilityService = verificationCredentialRepository &&
+    typeof verificationCredentialRepository.getDecryptedActiveForUser === 'function' &&
+    tornClient && typeof tornClient.getUserPerks === 'function'
+    ? createReviveEligibilityService({ tornClient, verificationCredentialRepository })
+    : null;
 
   app.get('/v1/pro/status', { preHandler:app.authenticate }, async (request, reply) => {
     const status = await entitlementRepository.getStatus(request.reviveRelayUser.userId, new Date());
@@ -56,13 +69,33 @@ async function registerProRoutes(app, { entitlementRepository, proInvoiceReposit
   });
 
   app.post('/v1/pro/trial', { preHandler:app.authenticate }, async (request, reply) => {
+    const userId = request.reviveRelayUser.userId;
+    if (!eligibilityService || !verificationCredentialRepository ||
+        typeof verificationCredentialRepository.getStatus !== 'function') {
+      return reply.code(503).send({ error:'REVIVER_ELIGIBILITY_UNAVAILABLE' });
+    }
+
     try {
+      const credentialStatus = await verificationCredentialRepository.getStatus(userId);
+      assertCredentialCapability(credentialStatus, 'reviver');
+      const eligibility = await eligibilityService.check(userId);
+      if (!eligibility.canRevive) {
+        return reply.code(403).send({ error:'REVIVE_ABILITY_NOT_UNLOCKED' });
+      }
+
       const status = await entitlementRepository.startTrial({
-        userId:request.reviveRelayUser.userId,
+        userId,
         now:new Date()
       });
       return reply.code(200).send({ pro:publicProStatus(status) });
     } catch (error) {
+      const code = error && error.code;
+      if (['VERIFICATION_CREDENTIAL_REQUIRED','VERIFICATION_CREDENTIAL_INSUFFICIENT','VERIFICATION_CREDENTIAL_INVALID','REVIVE_ABILITY_PERMISSION_REQUIRED'].includes(code)) {
+        return reply.code(409).send({ error:code });
+      }
+      if (code === 'TORN_UNAVAILABLE') {
+        return reply.code(503).send({ error:'TORN_UNAVAILABLE' });
+      }
       if (error && (error.message === 'TRIAL_NOT_ELIGIBLE' || error.message === 'TRIAL_ALREADY_USED')) {
         return reply.code(409).send({ error:error.message });
       }

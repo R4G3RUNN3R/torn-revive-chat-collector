@@ -114,13 +114,13 @@ assert.equal(subscriptionRequiresEntitlement(live), true);
 - Modify: `server/test/routes/pro.test.js`
 - Modify: `server/test/direct-pro-smoke.test.js`
 
-- [ ] **RED:** Add tests proving trial start is rejected until the authenticated account has a usable reviver-capable credential and current Torn `/user/perks` confirms `Ability to revive`. Missing capability returns a bounded verification error; missing perk returns `REVIVE_ABILITY_NOT_UNLOCKED`; missing perks permission returns `REVIVE_ABILITY_PERMISSION_REQUIRED`.
-- [ ] Confirm the current trial route incorrectly starts the trial and the new tests fail for that reason.
-- [ ] **GREEN:** Inject `verificationCredentialRepository` and `tornClient` into Pro routes, reuse `createReviveEligibilityService`, and perform credential + live ability checks before calling `entitlementRepository.startTrial`.
-- [ ] Do not require a historical reviver role before starting the trial; deliberate trial activation can precede local registration after eligibility is confirmed.
-- [ ] Update direct Pro smoke flow to bind verification and confirm eligibility before deliberate trial start.
-- [ ] Run focused route + smoke tests against disposable PostgreSQL.
-- [ ] Commit: `fix: require live revive eligibility before Pro trial`
+- [x] **RED:** Add tests proving trial start is rejected until the authenticated account has a usable reviver-capable credential and current Torn `/user/perks` confirms `Ability to revive`. Missing capability returns a bounded verification error; missing perk returns `REVIVE_ABILITY_NOT_UNLOCKED`; missing perks permission returns `REVIVE_ABILITY_PERMISSION_REQUIRED`.
+- [x] Confirm the current trial route incorrectly starts the trial and the new tests fail for that reason.
+- [x] **GREEN:** Inject `verificationCredentialRepository` and `tornClient` into Pro routes, reuse `createReviveEligibilityService`, and perform credential + live ability checks before calling `entitlementRepository.startTrial`.
+- [x] Do not require a historical reviver role before starting the trial; deliberate trial activation can precede local registration after eligibility is confirmed.
+- [x] Update direct Pro smoke flow to bind verification and confirm eligibility before deliberate trial start.
+- [x] Run focused route + smoke tests against disposable PostgreSQL.
+- [x] Commit: `fix: require live revive eligibility before Pro trial`
 
 ### Task 4: Make payment scanning and merchant startup validation mode-aware
 
