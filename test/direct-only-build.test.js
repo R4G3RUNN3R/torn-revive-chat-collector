@@ -57,3 +57,8 @@ test('0.5.0 production bundles contain direct support exactly once and zero lega
     assert.match(built, /ReviveRelay → Revive Me!/);
   }
 });
+
+
+test('current direct-only review implementation is versioned as 0.6.0', () => {
+  assert.equal(require('../package.json').version, '0.6.0');
+});

@@ -19,8 +19,9 @@ test('0.4.6 Control B remains the immutable browser rollback baseline', () => {
   assert.equal(manifest.sha256, 'f6fb5a8d2400fdaf225ba11c6988961e12b8b6b0c9cd8f6ab70dc2909aeb6564');
 });
 
+const { compareVersions } = require('../src/versioning');
 const packageJson = require('../package.json');
 
-test('direct-only release boundary starts at package version 0.5.0', () => {
-  assert.equal(packageJson.version, '0.5.0');
+test('current package remains at or beyond the direct-only 0.5.0 boundary', () => {
+  assert.equal(compareVersions(packageJson.version, '0.5.0') >= 0, true);
 });

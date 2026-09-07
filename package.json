@@ -1,6 +1,6 @@
 {
   "name": "torn-revive-chat-collector",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
   "description": "ReviveRelay public revive-candidate client and isolated direct-request backend for Torn.",
   "scripts": {

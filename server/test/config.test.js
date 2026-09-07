@@ -21,11 +21,12 @@ test('loadConfig accepts a complete development environment', () => {
     ADMIN_API_TOKEN: 'admin-test-token',
     SHEETS_MIRROR_URL: '',
     SHEETS_MIRROR_TOKEN: '',
-    PAID_TIER_ENABLED: 'false'
+    SUBSCRIPTION_MODE: 'free'
   });
 
   assert.equal(cfg.PORT, 3100);
-  assert.equal(cfg.PAID_TIER_ENABLED, false);
+  assert.equal(cfg.SUBSCRIPTION_MODE, 'free');
+  assert.equal(Object.hasOwn(cfg, 'PAID_TIER_ENABLED'), false);
 });
 
 test('Google error mirror configuration defaults safely and accepts explicit ReviveRelay values', () => {

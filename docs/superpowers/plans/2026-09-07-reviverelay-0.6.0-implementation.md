@@ -45,7 +45,7 @@
 - Modify: `test/direct-only-build.test.js`
 - Modify: `test/browser-proven-baseline.test.js` only if its immutable historical assertion explicitly hardcodes the current package version rather than a frozen fixture
 
-- [ ] **RED:** Replace legacy config expectations with tests proving `SUBSCRIPTION_MODE` defaults to `free`, accepts only `free|review|live`, and requires both merchant fields in `review`/`live` but not `free`. Assert `PAID_TIER_ENABLED` is no longer part of loaded canonical config.
+- [x] **RED:** Replace legacy config expectations with tests proving `SUBSCRIPTION_MODE` defaults to `free`, accepts only `free|review|live`, and requires both merchant fields in `review`/`live` but not `free`. Assert `PAID_TIER_ENABLED` is no longer part of loaded canonical config.
 
 ```js
 const free = loadConfig(BASE);
@@ -56,12 +56,12 @@ const review = loadConfig({...BASE, SUBSCRIPTION_MODE:review, PRO_RECEIVER_TORN_
 assert.equal(review.SUBSCRIPTION_MODE, review);
 ```
 
-- [ ] Run `node --test server/test/config-pro.test.js server/test/config.test.js` and confirm failure because `SUBSCRIPTION_MODE` is not implemented.
-- [ ] **GREEN:** Replace the boolean schema with `SUBSCRIPTION_MODE: z.enum([free,review,live]).default(free)`; require merchant ID/key only outside free mode. Do not add compatibility aliases that can create two sources of truth.
-- [ ] Change package version from `0.5.0` to `0.6.0` and update current-release tests to 0.6.0 while preserving frozen historical fixtures.
-- [ ] Change spec status to `Approved for implementation - 7 September 2026`.
-- [ ] Run focused config/version tests and `npm run build`; confirm green.
-- [ ] Commit: `chore: lock ReviveRelay 0.6.0 subscription modes`
+- [x] Run `node --test server/test/config-pro.test.js server/test/config.test.js` and confirm failure because `SUBSCRIPTION_MODE` is not implemented.
+- [x] **GREEN:** Replace the boolean schema with `SUBSCRIPTION_MODE: z.enum([free,review,live]).default(free)`; require merchant ID/key only outside free mode. Do not add compatibility aliases that can create two sources of truth.
+- [x] Change package version from `0.5.0` to `0.6.0` and update current-release tests to 0.6.0 while preserving frozen historical fixtures.
+- [x] Change spec status to `Approved for implementation - 7 September 2026`.
+- [x] Run focused config/version tests and `npm run build`; confirm green.
+- [x] Commit: `chore: lock ReviveRelay 0.6.0 subscription modes`
 
 ### Task 2: Add server capability metadata and one shared subscription access policy
 

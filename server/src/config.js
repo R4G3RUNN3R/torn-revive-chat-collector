@@ -1,10 +1,5 @@
 const { z } = require('zod');
 
-const booleanFromString = z.preprocess(
-  value => value === 'true',
-  z.boolean()
-);
-
 const optionalPositiveInteger = z.preprocess(
   value => value === '' || value === null || value === undefined ? undefined : value,
   z.coerce.number().int().positive().optional()
@@ -31,16 +26,24 @@ const configSchema = z.object({
   REVIVERELAY_ERROR_SHEET_ID: z.string().default(''),
   REVIVERELAY_ERROR_SHEET_TAB: z.string().default('ReviveRelay Issues'),
   REVIVERELAY_RELEASE_MANIFEST_FILE: z.string().default(''),
-  PAID_TIER_ENABLED: booleanFromString.default(false),
+  SUBSCRIPTION_MODE: z.enum(['free', 'review', 'live']).default('free'),
   PRO_RECEIVER_TORN_ID: optionalPositiveInteger,
   PRO_RECEIVER_API_KEY: optionalSecret
 }).superRefine((value, ctx) => {
-  if (value.PAID_TIER_ENABLED !== true) return;
+  if (value.SUBSCRIPTION_MODE === 'free') return;
   if (!value.PRO_RECEIVER_TORN_ID) {
-    ctx.addIssue({ code:z.ZodIssueCode.custom, path:['PRO_RECEIVER_TORN_ID'], message:'PRO_RECEIVER_TORN_ID is required when PAID_TIER_ENABLED=true' });
+    ctx.addIssue({
+      code:z.ZodIssueCode.custom,
+      path:['PRO_RECEIVER_TORN_ID'],
+      message:`PRO_RECEIVER_TORN_ID is required when SUBSCRIPTION_MODE=${value.SUBSCRIPTION_MODE}`
+    });
   }
   if (!value.PRO_RECEIVER_API_KEY) {
-    ctx.addIssue({ code:z.ZodIssueCode.custom, path:['PRO_RECEIVER_API_KEY'], message:'PRO_RECEIVER_API_KEY is required when PAID_TIER_ENABLED=true' });
+    ctx.addIssue({
+      code:z.ZodIssueCode.custom,
+      path:['PRO_RECEIVER_API_KEY'],
+      message:`PRO_RECEIVER_API_KEY is required when SUBSCRIPTION_MODE=${value.SUBSCRIPTION_MODE}`
+    });
   }
 });
 

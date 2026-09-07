@@ -9,27 +9,41 @@ const BASE={
   SESSION_TOKEN_PEPPER:'pepper'
 };
 
-test('paid tier disabled does not require receiving-account credentials',()=>{
-  const config=loadConfig({...BASE,PAID_TIER_ENABLED:'false'});
-  assert.equal(config.PAID_TIER_ENABLED,false);
+test('subscription mode defaults to free without merchant credentials or legacy paid-tier boolean',()=>{
+  const config=loadConfig(BASE);
+  assert.equal(config.SUBSCRIPTION_MODE,'free');
+  assert.equal(Object.hasOwn(config,'PAID_TIER_ENABLED'),false);
   assert.equal(config.PRO_RECEIVER_TORN_ID,undefined);
   assert.equal(config.PRO_RECEIVER_API_KEY,undefined);
 });
 
-test('paid tier requires both receiving Torn ID and API key',()=>{
-  assert.throws(()=>loadConfig({...BASE,PAID_TIER_ENABLED:'true'}),/PRO_RECEIVER/);
-  assert.throws(()=>loadConfig({...BASE,PAID_TIER_ENABLED:'true',PRO_RECEIVER_TORN_ID:'123456'}),/PRO_RECEIVER_API_KEY/);
-  assert.throws(()=>loadConfig({...BASE,PAID_TIER_ENABLED:'true',PRO_RECEIVER_API_KEY:'restricted-key'}),/PRO_RECEIVER_TORN_ID/);
+test('subscription mode accepts only free review or live',()=>{
+  for (const mode of ['free','review','live']) {
+    const extra=mode==='free' ? {} : {PRO_RECEIVER_TORN_ID:'3877028',PRO_RECEIVER_API_KEY:'restricted-key'};
+    assert.equal(loadConfig({...BASE,SUBSCRIPTION_MODE:mode,...extra}).SUBSCRIPTION_MODE,mode);
+  }
+  assert.throws(()=>loadConfig({...BASE,SUBSCRIPTION_MODE:'disabled'}),/SUBSCRIPTION_MODE|Invalid enum|Invalid option/i);
+  assert.throws(()=>loadConfig({...BASE,SUBSCRIPTION_MODE:'paid'}),/SUBSCRIPTION_MODE|Invalid enum|Invalid option/i);
 });
 
-test('paid tier accepts a complete receiving-account configuration',()=>{
-  const config=loadConfig({
-    ...BASE,
-    PAID_TIER_ENABLED:'true',
-    PRO_RECEIVER_TORN_ID:'123456',
-    PRO_RECEIVER_API_KEY:'restricted-key'
-  });
-  assert.equal(config.PAID_TIER_ENABLED,true);
-  assert.equal(config.PRO_RECEIVER_TORN_ID,123456);
-  assert.equal(config.PRO_RECEIVER_API_KEY,'restricted-key');
+test('review and live require both receiving Torn ID and restricted merchant API credential',()=>{
+  for (const mode of ['review','live']) {
+    assert.throws(()=>loadConfig({...BASE,SUBSCRIPTION_MODE:mode}),/PRO_RECEIVER/);
+    assert.throws(()=>loadConfig({...BASE,SUBSCRIPTION_MODE:mode,PRO_RECEIVER_TORN_ID:'3877028'}),/PRO_RECEIVER_API_KEY/);
+    assert.throws(()=>loadConfig({...BASE,SUBSCRIPTION_MODE:mode,PRO_RECEIVER_API_KEY:'restricted-key'}),/PRO_RECEIVER_TORN_ID/);
+  }
+});
+
+test('review and live accept complete receiving-account configuration',()=>{
+  for (const mode of ['review','live']) {
+    const config=loadConfig({
+      ...BASE,
+      SUBSCRIPTION_MODE:mode,
+      PRO_RECEIVER_TORN_ID:'3877028',
+      PRO_RECEIVER_API_KEY:'restricted-key'
+    });
+    assert.equal(config.SUBSCRIPTION_MODE,mode);
+    assert.equal(config.PRO_RECEIVER_TORN_ID,3877028);
+    assert.equal(config.PRO_RECEIVER_API_KEY,'restricted-key');
+  }
 });
