@@ -13,6 +13,7 @@ const { createTornClient } = require('./torn/client');
 const { createLogMetadataResolver } = require('./torn/log-metadata');
 const { createTornEvidenceService } = require('./torn/evidence');
 const { createProBillingEvidenceService } = require('./torn/pro-billing-evidence');
+const { paymentsEnabled, PRO_MERCHANT_TORN_ID } = require('./domain/subscription-mode');
 const { createPaymentVerifyHandler } = require('./worker/payment-verify');
 const { createReviveVerifyHandler } = require('./worker/revive-verify');
 const { createRefundVerifyHandler } = require('./worker/refund-verify');
@@ -28,6 +29,43 @@ function unimplementedHandler(stage, type) {
   };
 }
 
+async function configureSubscriptionScan({
+  config,
+  tornClient,
+  logMetadataResolver,
+  proInvoiceRepository,
+  jobRepository,
+  evidenceFactory = createProBillingEvidenceService,
+  handlerFactory = createSubscriptionScanHandler
+}) {
+  const mode = config && config.SUBSCRIPTION_MODE;
+  if (!paymentsEnabled(mode)) return null;
+  if (Number(config.PRO_RECEIVER_TORN_ID) !== PRO_MERCHANT_TORN_ID) {
+    throw new Error(`ReviveRelay Pro canonical merchant Torn ID must be ${PRO_MERCHANT_TORN_ID}`);
+  }
+  const evidenceService = evidenceFactory({
+    tornClient,
+    logMetadataResolver,
+    receiverApiKey:config.PRO_RECEIVER_API_KEY,
+    receiverTornId:config.PRO_RECEIVER_TORN_ID
+  });
+  if (!evidenceService || typeof evidenceService.validateCredential !== 'function') {
+    throw new Error('Pro billing evidence service must support credential validation');
+  }
+  await evidenceService.validateCredential();
+  const subscriptionScanHandler = handlerFactory({
+    invoiceRepository:proInvoiceRepository,
+    evidenceService
+  });
+  await jobRepository.enqueueUniqueJob({
+    type:'subscription.scan',
+    runAt:new Date(),
+    dedupeKey:'subscription.scan:reviver-pro',
+    payload:{}
+  });
+  return subscriptionScanHandler;
+}
+
 function buildStageThreeHandlers({ paymentVerifyHandler, reviveVerifyHandler, refundVerifyHandler, sheetsMirrorHandler = null, telemetryRetentionHandler = null, subscriptionScanHandler = null }) {
   if (typeof paymentVerifyHandler !== 'function') throw new Error('paymentVerifyHandler is required');
   if (typeof reviveVerifyHandler !== 'function') throw new Error('reviveVerifyHandler is required');
@@ -37,7 +75,11 @@ function buildStageThreeHandlers({ paymentVerifyHandler, reviveVerifyHandler, re
     if (type === 'payment.verify') return [type, paymentVerifyHandler];
     if (type === 'revive.verify') return [type, reviveVerifyHandler];
     if (type === 'refund.verify') return [type, refundVerifyHandler];
-    if (type === 'subscription.scan' && typeof subscriptionScanHandler === 'function') return [type, subscriptionScanHandler];
+    if (type === 'subscription.scan') {
+      return [type, typeof subscriptionScanHandler === 'function'
+        ? subscriptionScanHandler
+        : async () => ({ status:'complete' })];
+    }
     if (type === 'sheets.mirror' && typeof sheetsMirrorHandler === 'function') return [type, sheetsMirrorHandler];
     if (type === 'telemetry.retention' && typeof telemetryRetentionHandler === 'function') return [type, telemetryRetentionHandler];
     return [type, unimplementedHandler('Stage 3', type)];
@@ -70,26 +112,13 @@ async function start() {
     verificationCredentialRepository,
     logMetadataResolver
   });
-  let subscriptionScanHandler = null;
-  if (config.PAID_TIER_ENABLED) {
-    const proBillingEvidenceService = createProBillingEvidenceService({
-      tornClient,
-      logMetadataResolver,
-      receiverApiKey: config.PRO_RECEIVER_API_KEY,
-      receiverTornId: config.PRO_RECEIVER_TORN_ID
-    });
-    await proBillingEvidenceService.validateCredential();
-    subscriptionScanHandler = createSubscriptionScanHandler({
-      invoiceRepository: proInvoiceRepository,
-      evidenceService: proBillingEvidenceService
-    });
-    await jobRepository.enqueueUniqueJob({
-      type: 'subscription.scan',
-      runAt: new Date(),
-      dedupeKey: 'subscription.scan:reviver-pro',
-      payload: {}
-    });
-  }
+  const subscriptionScanHandler = await configureSubscriptionScan({
+    config,
+    tornClient,
+    logMetadataResolver,
+    proInvoiceRepository,
+    jobRepository
+  });
   const paymentVerifyHandler = createPaymentVerifyHandler({
     paymentRepository,
     transactionService,
@@ -176,6 +205,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  configureSubscriptionScan,
   buildStageThreeHandlers,
   start
 };

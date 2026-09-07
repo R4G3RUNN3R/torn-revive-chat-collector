@@ -133,12 +133,12 @@ assert.equal(subscriptionRequiresEntitlement(live), true);
 - Modify: `deploy/.env.example`
 - Modify: `deploy/README.md`
 
-- [ ] **RED:** Add tests around a small exported worker setup decision proving `free` does not instantiate/validate the merchant evidence service or enqueue `subscription.scan`, while `review` and `live` do.
-- [ ] Confirm tests fail while worker still branches on `PAID_TIER_ENABLED`.
-- [ ] **GREEN:** Branch only on canonical subscription mode; review/live validate merchant credential at startup before scanning. Free mode leaves existing invoices/history untouched and simply stops new scanning/enqueue.
-- [ ] Update deployment examples to `SUBSCRIPTION_MODE=free` and document required merchant environment names for review/live without example secrets.
-- [ ] Run worker/config/merchant-evidence tests.
-- [ ] Commit: `feat: make Pro payment scanning subscription-mode aware`
+- [x] **RED:** Add tests around a small exported worker setup decision proving `free` does not instantiate/validate the merchant evidence service or enqueue `subscription.scan`, while `review` and `live` do.
+- [x] Confirm tests fail while worker still branches on `PAID_TIER_ENABLED`.
+- [x] **GREEN:** Branch only on canonical subscription mode; review/live validate merchant credential at startup before scanning. Free mode leaves existing invoices/history untouched and simply stops new scanning/enqueue.
+- [x] Update deployment examples to `SUBSCRIPTION_MODE=free` and document required merchant environment names for review/live without example secrets.
+- [x] Run worker/config/merchant-evidence tests.
+- [x] Commit: `feat: make Pro payment scanning subscription-mode aware`
 
 ### Task 5: Expose REVOKED state and add durable refund/admin adjustment records
 

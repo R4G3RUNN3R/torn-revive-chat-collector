@@ -1,5 +1,6 @@
 const SUBSCRIPTION_MODES = Object.freeze(['free','review','live']);
 const PRO_MERCHANT_NAME = 'R4G3RUNN3R';
+const PRO_MERCHANT_TORN_ID = 3877028;
 
 function normalizeSubscriptionMode(value) {
   const mode = value === undefined || value === null || value === '' ? 'free' : String(value);
@@ -19,8 +20,8 @@ function publicSubscriptionState({ mode, receiverTornId = null, plans = [] } = {
   const normalized = normalizeSubscriptionMode(mode);
   const enabled = paymentsEnabled(normalized);
   const merchantId = receiverTornId === undefined || receiverTornId === null ? null : Number(receiverTornId);
-  if (enabled && (!Number.isSafeInteger(merchantId) || merchantId <= 0)) {
-    throw new Error('Subscription merchant Torn ID is required when payments are enabled');
+  if (enabled && merchantId !== PRO_MERCHANT_TORN_ID) {
+    throw new Error(`Subscription merchant must be ${PRO_MERCHANT_NAME} [${PRO_MERCHANT_TORN_ID}]`);
   }
   return {
     mode:normalized,
@@ -33,6 +34,7 @@ function publicSubscriptionState({ mode, receiverTornId = null, plans = [] } = {
 module.exports = {
   SUBSCRIPTION_MODES,
   PRO_MERCHANT_NAME,
+  PRO_MERCHANT_TORN_ID,
   normalizeSubscriptionMode,
   paymentsEnabled,
   subscriptionRequiresEntitlement,
