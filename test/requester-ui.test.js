@@ -146,3 +146,19 @@ test('previously registered revivers remain gated by current Torn revive eligibi
   assert.match(source, /!hasRole\('reviver'\) \|\| !hasCredentialCapability\('reviver'\) \|\| !hasConfirmedReviveAbility\(\)/);
   assert.doesNotMatch(source, /const eligibilityStatus = hasRole\('reviver'\)\s*\?\s*'Registered'/);
 });
+
+
+test('requester workflow remains independent of subscription mode', () => {
+  const requestStart=source.indexOf('async function requestReviveFromSidebar()');
+  const requestEnd=source.indexOf('async function cancelActiveRequest()',requestStart);
+  const requestFn=requestStart>=0 && requestEnd>requestStart ? source.slice(requestStart,requestEnd) : '';
+  assert.ok(requestFn.length>0);
+  assert.match(requestFn,/state\.api\.createRequest\(validation\.preset\)/);
+  assert.doesNotMatch(requestFn,/subscriptionMode|subscriptionPaymentsEnabled|hasReviverSubscriptionAccess|isProActive/);
+
+  const renderStart=source.indexOf('function renderRequestPanel()');
+  const renderEnd=source.indexOf('function renderCertifiedRequest(',renderStart);
+  const renderFn=renderStart>=0 && renderEnd>renderStart ? source.slice(renderStart,renderEnd) : '';
+  assert.ok(renderFn.length>0);
+  assert.doesNotMatch(renderFn,/subscriptionMode|subscriptionPaymentsEnabled|hasReviverSubscriptionAccess|isProActive/);
+});

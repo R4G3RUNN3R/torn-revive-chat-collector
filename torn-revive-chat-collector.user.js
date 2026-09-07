@@ -34,11 +34,6 @@
   const MAX_SEEN_REQUEST_IDS = 200;
   const REVIVER_VERIFICATION_KEY_URL = 'https://www.torn.com/preferences.php#tab=api?step=addNewKey&title=ReviveRelay%20Reviver%20Verification&user=basic,revives,log,perks&logIds=14,15,16,17';
   const MASKED_VERIFICATION_KEY = '••••••••••••••••';
-  const PRO_LAUNCH_REFERENCE = Object.freeze([
-    'Monthly: 10 Xanax or $10,000,000',
-    '6 Months: 55 Xanax or $55,000,000',
-    'Yearly: 100 Xanax or $100,000,000'
-  ]);
 
   const KEYS = Object.freeze({
     sessionToken: 'reviverelay_session_token',
@@ -80,6 +75,7 @@
     reviverEligibility: null,
     reviverQueue: [],
     proStatus: null,
+    subscription: null,
     proPlans: [],
     currentInvoice: null,
     submittingRequest: false,
@@ -194,6 +190,18 @@
     return state.proStatus?.state === 'TRIAL' || state.proStatus?.state === 'ACTIVE';
   }
 
+  function subscriptionMode() {
+    return state.subscription?.mode || 'free';
+  }
+
+  function subscriptionPaymentsEnabled() {
+    return state.subscription?.paymentsEnabled === true;
+  }
+
+  function hasReviverSubscriptionAccess() {
+    return subscriptionMode() === 'free' || isProActive();
+  }
+
   function hasConfirmedReviveAbility() {
     return state.reviverEligibility?.canRevive === true;
   }
@@ -231,13 +239,28 @@
     return 'REQUEST_FAILED';
   }
 
+  function userFacingApiErrorMessage(error, fallback = 'ReviveRelay request failed.') {
+    const code = apiErrorCode(error);
+    const messages = {
+      REVIVE_ABILITY_NOT_UNLOCKED: 'This Torn account does not currently have permanent revive ability.',
+      REVIVE_ABILITY_PERMISSION_REQUIRED: 'Update your Reviver Verification key so ReviveRelay can confirm revive ability.',
+      VERIFICATION_CREDENTIAL_INSUFFICIENT: 'Update your Reviver Verification key with the required permissions.',
+      INVOICE_NOT_FOUND: 'This Pro invoice is unavailable for your account.',
+      INVOICE_EXPIRED: 'This Pro invoice has expired. Create a new invoice.',
+      CLIENT_UPDATE_REQUIRED: 'Update ReviveRelay before continuing.',
+      TORN_UNAVAILABLE: 'Torn is temporarily unavailable. Try again shortly.',
+      SUBSCRIPTION_PAYMENTS_DISABLED: 'Reviver Pro payments are not required in the current subscription mode.'
+    };
+    return messages[code] || fallback;
+  }
+
   function handleApiFailure(error, operation, userMessage = 'ReviveRelay request failed.') {
     captureClientError(error, operation);
-    if (Number(error && error.status) === 401) {
+    if (apiErrorCode(error) === 'AUTH_REQUIRED') {
       clearSession('Your ReviveRelay session expired. Verify & connect again.');
       return;
     }
-    setStatus(`${userMessage} (${apiErrorCode(error)})`, true);
+    setStatus(userFacingApiErrorMessage(error, userMessage), true);
   }
 
   function clearSession(message = 'Disconnected from ReviveRelay.') {
@@ -250,6 +273,7 @@
     state.reviverEligibility = null;
     state.reviverQueue = [];
     state.proStatus = null;
+    state.subscription = null;
     state.proPlans = [];
     state.currentInvoice = null;
     state.submittingRequest = false;
@@ -269,6 +293,10 @@
       roles: Array.isArray(me?.roles) ? me.roles : []
     };
     if (me?.pro) state.proStatus = me.pro;
+    if (me?.subscription) {
+      state.subscription = me.subscription;
+      state.proPlans = Array.isArray(state.subscription?.plans) ? state.subscription.plans : [];
+    }
     GM_setValue(KEYS.publicIdentity, publicIdentity());
     return me;
   }
@@ -311,15 +339,14 @@
   async function refreshProState({ includePlans = false } = {}) {
     if (!state.sessionToken) {
       state.proStatus = null;
+      state.subscription = null;
       state.proPlans = [];
       return;
     }
     const result = await state.api.getProStatus();
     state.proStatus = result?.pro || null;
-    if (includePlans || !state.proPlans.length) {
-      const plans = await state.api.getProPlans();
-      state.proPlans = Array.isArray(plans?.plans) ? plans.plans : [];
-    }
+    state.subscription = result?.subscription || null;
+    state.proPlans = Array.isArray(state.subscription?.plans) ? state.subscription.plans : [];
   }
 
   async function refreshActiveRequest() {
@@ -342,7 +369,7 @@
   }
 
   async function refreshVerificationCredential() {
-    if (!state.sessionToken || !isProActive()) {
+    if (!state.sessionToken || !hasReviverSubscriptionAccess()) {
       state.verificationCredential = null;
       state.reviverEligibility = null;
       return;
@@ -353,7 +380,7 @@
   }
 
   async function refreshReviverEligibility() {
-    if (!state.sessionToken || !isProActive() || !hasCredentialCapability('reviver')) {
+    if (!state.sessionToken || !hasReviverSubscriptionAccess() || !hasCredentialCapability('reviver')) {
       state.reviverEligibility = null;
       return;
     }
@@ -377,7 +404,7 @@
   }
 
   function notifyNewQueueRequests(requests) {
-    if (!isProActive() || !hasRole('reviver') || !hasCredentialCapability('reviver') || !hasConfirmedReviveAbility()) return;
+    if (!hasReviverSubscriptionAccess() || !hasRole('reviver') || !hasCredentialCapability('reviver') || !hasConfirmedReviveAbility()) return;
     const seen = new Set(readSeenRequestIds());
     const next = [...seen];
     for (const request of Array.isArray(requests) ? requests : []) {
@@ -405,7 +432,7 @@
   }
 
   async function refreshReviverQueue() {
-    if (!state.sessionToken || !isProActive()) {
+    if (!state.sessionToken || !hasReviverSubscriptionAccess()) {
       state.reviverQueue = [];
       return;
     }
@@ -515,6 +542,10 @@
   }
 
   async function createProInvoice() {
+    if (!subscriptionPaymentsEnabled()) {
+      setStatus('Reviver Pro payments are not required in the current subscription mode.');
+      return;
+    }
     const planId = document.getElementById('rr-pro-plan')?.value;
     const currency = document.getElementById('rr-pro-currency')?.value;
     try {
@@ -575,7 +606,7 @@
   }
 
   async function registerMarketplaceReviver() {
-    if (!isProActive() || !hasCredentialCapability('reviver') || !hasConfirmedReviveAbility()) return;
+    if (!hasReviverSubscriptionAccess() || !hasCredentialCapability('reviver') || !hasConfirmedReviveAbility()) return;
     try {
       await state.api.registerReviver();
       await refreshMe();
@@ -588,7 +619,7 @@
   }
 
   async function acceptMarketplaceRequest(requestId) {
-    if (!isProActive() || !hasRole('reviver') || !hasCredentialCapability('reviver') || !hasConfirmedReviveAbility()) return;
+    if (!hasReviverSubscriptionAccess() || !hasRole('reviver') || !hasCredentialCapability('reviver') || !hasConfirmedReviveAbility()) return;
     try {
       const result = await state.api.acceptRequest(requestId);
       state.activeTransaction = result?.transaction || null;
@@ -752,7 +783,7 @@
       target.innerHTML = '<div class="rr-card">Connect ReviveRelay first.</div>';
       return;
     }
-    if (!isProActive()) {
+    if (!hasReviverSubscriptionAccess()) {
       target.innerHTML = `<div class="rr-card rr-pro-gate">
         <div class="rr-card-title">Reviver Pro required</div>
         <p>The certified request queue, notifications and Accept are Reviver Pro features.</p>
@@ -829,26 +860,31 @@
   }
 
   function selectedPlanOptions() {
-    if (!state.proPlans.length) return '<option value="">Plans unavailable</option>';
-    return state.proPlans.map(plan => `<option value="${escapeHtml(plan.id)}">${escapeHtml(plan.label)} · ${plan.xanax} Xanax / ${formatMoney(plan.cash)}</option>`).join('');
+    const plans = Array.isArray(state.subscription?.plans) ? state.subscription.plans : [];
+    if (!plans.length) return '<option value="">Plans unavailable</option>';
+    return plans.map(plan => `<option value="${escapeHtml(plan.id)}">${escapeHtml(plan.label)} · ${plan.xanax} Xanax / ${formatMoney(plan.cash)}</option>`).join('');
   }
 
   function renderInvoice() {
     if (!state.currentInvoice) return '<div class="rr-muted">No open Pro invoice.</div>';
     const invoice = state.currentInvoice;
     const target = invoice.paymentTarget?.tornId;
+    const expired = invoice.state === 'EXPIRED'
+      ? '<div class="rr-warning">This invoice has expired. Create a new invoice if you still want Pro time.</div>'
+      : '';
     return `<div class="rr-invoice">
       <div class="rr-kv"><span>State</span><strong>${escapeHtml(invoice.state)}</strong></div>
       <div class="rr-kv"><span>Amount</span><strong>${escapeHtml(formatOffer(invoice.currency, invoice.expectedAmount))}</strong></div>
       <div class="rr-kv"><span>Send to Torn ID</span><strong>${escapeHtml(target || '—')}</strong></div>
       <div class="rr-kv"><span>Expires</span><strong>${escapeHtml(formatDate(invoice.expiresAt))}</strong></div>
+      ${expired}
       ${invoice.state === 'PENDING' ? '<button id="rr-refresh-invoice">Check payment status</button>' : ''}
     </div>`;
   }
 
   function renderVerificationSettings() {
     if (!state.sessionToken) return '<div class="rr-muted">Connect ReviveRelay first.</div>';
-    if (!isProActive()) return '<div class="rr-muted">Reviver Verification becomes available with an active Reviver Pro trial or subscription.</div>';
+    if (!hasReviverSubscriptionAccess()) return '<div class="rr-muted">Reviver Verification becomes available with an active Reviver Pro trial or subscription.</div>';
     const credential = state.verificationCredential;
     const usable = Boolean(credential?.usable);
     const reviver = Boolean(credential?.capabilities?.reviver);
@@ -896,24 +932,34 @@
   function renderProPanel() {
     const target = document.getElementById('rr-pro-content');
     if (!target) return;
+    const mode = subscriptionMode();
     const proState = state.proStatus?.state || 'NONE';
-    const trialButton = state.sessionToken && state.proStatus?.trialEligible
+    const merchantName = state.subscription?.merchant?.name || 'Configured ReviveRelay merchant';
+    const merchantTornId = state.subscription?.merchant?.tornId || null;
+    const trialButton = mode !== 'free' && state.sessionToken && state.proStatus?.trialEligible
       ? '<button id="rr-start-trial">Start 7-day Reviver Pro trial</button>' : '';
+    const subscriptionBody = mode === 'free'
+      ? `<p class="rr-muted">Reviver access is currently free. No Pro payment is required while ReviveRelay is in free mode.</p>`
+      : state.sessionToken && subscriptionPaymentsEnabled()
+        ? `<div class="rr-kv"><span>Payment recipient</span><strong>${escapeHtml(merchantName)}${merchantTornId ? ` [${escapeHtml(merchantTornId)}]` : ''}</strong></div>
+          <p class="rr-muted">Send payment manually in Torn after creating an invoice. ReviveRelay never sends cash or items for you.</p>
+          <div class="rr-form-row">
+            <select id="rr-pro-plan">${selectedPlanOptions()}</select>
+            <select id="rr-pro-currency"><option value="xanax">Xanax</option><option value="cash">Torn cash</option></select>
+            <button id="rr-create-pro-invoice">Create Pro invoice</button>
+          </div><div id="rr-invoice-status">${renderInvoice()}</div>`
+        : '<div class="rr-muted">Connect ReviveRelay to view Pro plans.</div>';
     target.innerHTML = `<div class="rr-card" id="rr-pro-settings">
       <div class="rr-card-title">ReviveRelay Pro</div>
-      <p>Pro unlocks the certified reviver queue, request notifications and Accept controls.</p>
+      <p>Pro unlocks the certified reviver queue, request notifications and Accept controls when paid access is required.</p>
+      <div class="rr-kv"><span>Mode</span><strong>${escapeHtml(mode)}</strong></div>
       <div class="rr-kv"><span>Status</span><strong id="rr-pro-state">${escapeHtml(proState)}</strong></div>
       <div class="rr-kv"><span>Valid until</span><strong id="rr-pro-valid-until">${escapeHtml(state.proStatus?.validUntil ? formatDate(state.proStatus.validUntil) : '—')}</strong></div>
       ${trialButton}
     </div>
     <div class="rr-card">
       <div class="rr-card-title">Subscription</div>
-      <p class="rr-muted">${PRO_LAUNCH_REFERENCE.map(escapeHtml).join(' · ')}</p>
-      ${state.sessionToken ? `<div class="rr-form-row">
-        <select id="rr-pro-plan">${selectedPlanOptions()}</select>
-        <select id="rr-pro-currency"><option value="xanax">Xanax</option><option value="cash">Torn cash</option></select>
-        <button id="rr-create-pro-invoice">Create Pro invoice</button>
-      </div><div id="rr-invoice-status">${renderInvoice()}</div>` : '<div class="rr-muted">Connect ReviveRelay to view Pro plans.</div>'}
+      ${subscriptionBody}
     </div>`;
   }
 
@@ -1294,7 +1340,7 @@
       refreshProState({ includePlans: false }).then(() => refreshVerificationCredential()).then(() => refreshReviverEligibility()).then(renderLiveState).catch(error => handleApiFailure(error, 'poll.pro'));
     }, PRO_POLL_MS);
     queueTimer = setInterval(() => {
-      if (!state.sessionToken || !isProActive()) return;
+      if (!state.sessionToken || !hasReviverSubscriptionAccess()) return;
       refreshReviverQueue().then(renderLiveState).catch(error => handleApiFailure(error, 'poll.queue'));
     }, QUEUE_POLL_MS);
     invoiceTimer = setInterval(() => {

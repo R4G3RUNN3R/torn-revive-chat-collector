@@ -217,14 +217,14 @@ throw new DirectApiClientError(serverCode || fallbackCode, {status, retryable, d
 - Modify: `test/requester-ui.test.js`
 - Create or modify: `test/subscription-mode-ui.test.js`
 
-- [ ] **RED:** Replace tests that search the userscript for hard-coded launch prices with state-rendering tests/static assertions proving plan labels/amounts are rendered from server response data.
-- [ ] **RED:** Add tests for exact UI policy: free = no purchase/invoice button and explanatory free-mode copy; review/live = plans + manual payment creation; requester path unchanged in all modes; merchant shown from server public metadata.
-- [ ] **RED:** Add error mapping assertions for revive ability/key update/invoice expiry/client update/Torn unavailable so raw server codes remain Diagnostics-only.
-- [ ] Confirm current UI fails because prices/actions are hard-coded and mode-unaware.
-- [ ] **GREEN:** Store `subscription` capability state from the server and render Pro controls from it. Keep only currency formatting logic client-side, not authoritative plan values.
-- [ ] Ensure invoice instructions explicitly say the payment must be sent manually in Torn and never imply ReviveRelay performs the payment.
-- [ ] Run Pro/subscription/requester UI tests.
-- [ ] Commit: `feat: render Reviver Pro from server subscription state`
+- [x] **RED:** Replace tests that search the userscript for hard-coded launch prices with state-rendering tests/static assertions proving plan labels/amounts are rendered from server response data.
+- [x] **RED:** Add tests for exact UI policy: free = no purchase/invoice button and explanatory free-mode copy; review/live = plans + manual payment creation; requester path unchanged in all modes; merchant shown from server public metadata.
+- [x] **RED:** Add error mapping assertions for revive ability/key update/invoice expiry/client update/Torn unavailable so raw server codes remain Diagnostics-only.
+- [x] Confirm current UI fails because prices/actions are hard-coded and mode-unaware.
+- [x] **GREEN:** Store `subscription` capability state from the server and render Pro controls from it. Keep only currency formatting logic client-side, not authoritative plan values.
+- [x] Ensure invoice instructions explicitly say the payment must be sent manually in Torn and never imply ReviveRelay performs the payment.
+- [x] Run Pro/subscription/requester UI tests.
+- [x] Commit: `feat: render Reviver Pro from server subscription state`
 
 ### Task 9: Harden polling, mutation idempotence UX, optional GM APIs, and dynamic text sinks
 
