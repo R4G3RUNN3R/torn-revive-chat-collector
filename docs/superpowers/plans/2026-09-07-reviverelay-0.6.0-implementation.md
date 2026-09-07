@@ -154,14 +154,14 @@ assert.equal(subscriptionRequiresEntitlement(live), true);
 - Modify: `server/test/routes/admin-pro.test.js`
 - Modify: `server/test/db/migrations.test.js`
 
-- [ ] **RED:** Change revoked entitlement expectation from EXPIRED to `REVOKED` and prove `validUntil` remains historical informational data while access is denied.
-- [ ] **RED:** Add DB tests for immutable adjustment records containing invoice reference when applicable, adjustment type (`FULL_REFUND`, `ENTITLEMENT_CORRECTION`, `COMPLIMENTARY_GRANT`), currency/value snapshot when applicable, reason, actor identity, timestamp, previous/new entitlement state and previous/new validity.
-- [ ] **RED:** Add admin route test for full refund against a PAID invoice; it must record adjustment and revoke/reduce paid access through one audited transaction/service boundary. Partial automatic prorating remains absent.
-- [ ] Confirm RED failures because no adjustment table/repository exists and revoked state is still EXPIRED.
-- [ ] **GREEN:** Add migration with foreign keys, bounded enum checks, non-negative values and immutable insert-only repository interface. Expose a transactional admin billing service or repository method so adjustment + entitlement change cannot diverge.
-- [ ] Preserve original invoice/payment evidence; never mutate a PAID invoice back to pending or delete consumed Torn evidence.
-- [ ] Run migration, entitlement, admin and concurrency-relevant DB tests against disposable PostgreSQL.
-- [ ] Commit: `feat: audit Reviver Pro refunds and entitlement adjustments`
+- [x] **RED:** Change revoked entitlement expectation from EXPIRED to `REVOKED` and prove `validUntil` remains historical informational data while access is denied.
+- [x] **RED:** Add DB tests for immutable adjustment records containing invoice reference when applicable, adjustment type (`FULL_REFUND`, `ENTITLEMENT_CORRECTION`, `COMPLIMENTARY_GRANT`), currency/value snapshot when applicable, reason, actor identity, timestamp, previous/new entitlement state and previous/new validity.
+- [x] **RED:** Add admin route test for full refund against a PAID invoice; it must record adjustment and revoke/reduce paid access through one audited transaction/service boundary. Partial automatic prorating remains absent.
+- [x] Confirm RED failures because no adjustment table/repository exists and revoked state is still EXPIRED.
+- [x] **GREEN:** Add migration with foreign keys, bounded enum checks, non-negative values and immutable insert-only repository interface. Expose a transactional admin billing service or repository method so adjustment + entitlement change cannot diverge.
+- [x] Preserve original invoice/payment evidence; never mutate a PAID invoice back to pending or delete consumed Torn evidence.
+- [x] Run migration, entitlement, admin and concurrency-relevant DB tests against disposable PostgreSQL.
+- [x] Commit: `feat: audit Reviver Pro refunds and entitlement adjustments`
 
 ### Task 6: Implement authenticated ReviveRelay account/data deletion
 

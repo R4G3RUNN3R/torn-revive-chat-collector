@@ -4,6 +4,7 @@ const {withDisposableDatabase}=require('../../test-support/database');
 const {buildApp}=require('../../src/app');
 const {createIdentityRepository}=require('../../src/db/users');
 const {createProEntitlementRepository}=require('../../src/db/pro-entitlements');
+const {createProInvoiceRepository}=require('../../src/db/pro-invoices');
 
 async function insertUser(pool,tornId,name) {
   const result=await pool.query('INSERT INTO users (torn_id,current_name) VALUES ($1,$2) RETURNING id',[tornId,name]);
@@ -89,7 +90,7 @@ test('bounded manual grant activates Pro and writes non-secret audit details',as
   });
 });
 
-test('manual revoke expires Pro and records previous/new state',async()=>{
+test('manual revoke exposes REVOKED Pro state and records previous/new state',async()=>{
   await withDisposableDatabase('admin_revoke',async pool=>{
     const userId=await insertUser(pool,125,'Revoke Target');
     const repo=createProEntitlementRepository(pool);
@@ -98,13 +99,13 @@ test('manual revoke expires Pro and records previous/new state',async()=>{
     try {
       const response=await app.inject({method:'POST',url:'/v1/admin/pro/revoke',headers:ADMIN,payload:{tornId:125,reason:'verified revocation'}});
       assert.equal(response.statusCode,200);
-      assert.equal(response.json().pro.state,'EXPIRED');
+      assert.equal(response.json().pro.state,'REVOKED');
       const audit=await pool.query(`SELECT details FROM audit_events WHERE entity_id=$1 AND action='pro.revoked' ORDER BY created_at DESC LIMIT 1`,[userId]);
       assert.equal(audit.rowCount,1);
       assert.equal(audit.rows[0].details.operatorTornId,3877028);
       assert.equal(audit.rows[0].details.reason,'verified revocation');
       assert.equal(audit.rows[0].details.previousState,'ACTIVE');
-      assert.equal(audit.rows[0].details.newState,'EXPIRED');
+      assert.equal(audit.rows[0].details.newState,'REVOKED');
     } finally { await app.close(); }
   });
 });
@@ -127,6 +128,68 @@ test('correction is bounded to 24 months and strict schemas reject extra fields'
       });
       assert.equal(injected.statusCode,422);
       assert.equal(injected.json().error,'INVALID_ADMIN_REQUEST');
+    } finally { await app.close(); }
+  });
+});
+
+
+test('full refund preserves paid invoice/evidence, records one immutable adjustment, and revokes access atomically',async()=>{
+  await withDisposableDatabase('admin_full_refund',async pool=>{
+    const tornId=127;
+    const userId=await insertUser(pool,tornId,'Refund Target');
+    const invoices=createProInvoiceRepository(pool);
+    const entitlements=createProEntitlementRepository(pool);
+    const createdAt=new Date('2026-09-07T09:00:00Z');
+    const invoice=await invoices.createInvoice({userId,tornId,planId:'monthly',currency:'cash',now:createdAt});
+    const paidAt=new Date('2026-09-07T09:02:00Z');
+    const paid=await invoices.markPaidWithEvidence({
+      invoiceId:invoice.id,
+      tornLogId:'refund-paid-log-1',
+      senderTornId:tornId,
+      currency:'cash',
+      amount:10000000,
+      evidenceAt:new Date('2026-09-07T09:01:00Z'),
+      paidAt
+    });
+    assert.equal(paid.paid,true);
+    assert.equal((await entitlements.getStatus(userId,paidAt)).state,'ACTIVE');
+
+    const app=makeApp(pool);
+    try {
+      const response=await app.inject({
+        method:'POST',url:'/v1/admin/pro/refund',headers:ADMIN,
+        payload:{tornId,invoiceId:invoice.id,reason:'approved full refund'}
+      });
+      assert.equal(response.statusCode,200,response.body);
+      assert.equal(response.json().pro.state,'REVOKED');
+      assert.deepEqual(response.json().adjustment,{
+        type:'FULL_REFUND',
+        invoiceId:invoice.id,
+        currency:'cash',
+        amount:10000000
+      });
+
+      const storedInvoice=await pool.query('SELECT state,matched_torn_log_id FROM pro_invoices WHERE id=$1',[invoice.id]);
+      assert.deepEqual(storedInvoice.rows[0],{state:'PAID',matched_torn_log_id:'refund-paid-log-1'});
+      assert.equal((await pool.query('SELECT count(*)::int AS count FROM pro_payment_evidence WHERE invoice_id=$1',[invoice.id])).rows[0].count,1);
+
+      const adjustment=await pool.query(`
+        SELECT adjustment_type,currency,amount,reason,actor_type,actor_torn_id,previous_state,new_state
+        FROM pro_billing_adjustments WHERE invoice_id=$1
+      `,[invoice.id]);
+      assert.equal(adjustment.rowCount,1);
+      assert.deepEqual(adjustment.rows[0],{
+        adjustment_type:'FULL_REFUND',currency:'cash',amount:'10000000',reason:'approved full refund',
+        actor_type:'operator',actor_torn_id:'3877028',previous_state:'ACTIVE',new_state:'REVOKED'
+      });
+
+      const repeated=await app.inject({
+        method:'POST',url:'/v1/admin/pro/refund',headers:ADMIN,
+        payload:{tornId,invoiceId:invoice.id,reason:'duplicate refund attempt'}
+      });
+      assert.equal(repeated.statusCode,409,repeated.body);
+      assert.equal(repeated.json().error,'INVOICE_ALREADY_REFUNDED');
+      assert.equal((await pool.query('SELECT count(*)::int AS count FROM pro_billing_adjustments WHERE invoice_id=$1',[invoice.id])).rows[0].count,1);
     } finally { await app.close(); }
   });
 });

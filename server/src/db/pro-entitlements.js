@@ -1,4 +1,5 @@
 const { extendCalendarDuration } = require('../domain/pro-plans');
+const { recordAdjustmentWithClient } = require('./pro-billing-adjustments');
 
 const TRIAL_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -28,7 +29,7 @@ function statusFromRow(row, now) {
   const paidUntil = row.paid_until || null;
   let state;
 
-  if (row.revoked_at) state = 'EXPIRED';
+  if (row.revoked_at) state = 'REVOKED';
   else if (paidUntil && paidUntil.getTime() > now.getTime()) state = 'ACTIVE';
   else if (trialEndsAt && trialEndsAt.getTime() > now.getTime()) state = 'TRIAL';
   else if (trialStartedAt || row.ever_paid) state = 'EXPIRED';
@@ -37,7 +38,7 @@ function statusFromRow(row, now) {
   let validUntil = null;
   if (state === 'ACTIVE') validUntil = paidUntil;
   else if (state === 'TRIAL') validUntil = trialEndsAt;
-  else if (state === 'EXPIRED') {
+  else if (state === 'EXPIRED' || state === 'REVOKED') {
     const candidates = [paidUntil, trialEndsAt].filter(Boolean);
     validUntil = candidates.length ? maxDate(...candidates) : null;
   }
@@ -207,6 +208,17 @@ async function grantManual(pool,{userId,months,reason,operatorTornId=null,now=ne
       RETURNING *
     `,[userId,now,validUntil]);
     const newStatus=statusFromRow(updated.rows[0],now);
+    await recordAdjustmentWithClient(client,{
+      userId,
+      adjustmentType:'COMPLIMENTARY_GRANT',
+      entitlementMonths:months,
+      reason:reason.trim(),
+      actorType:'operator',
+      actorTornId:operatorTornId,
+      createdAt:now,
+      previousStatus,
+      newStatus
+    });
     await writeOperatorAudit(client,{
       userId,action:'pro.manual_grant',operatorTornId,reason:reason.trim(),previousStatus,newStatus,now
     });
@@ -243,11 +255,84 @@ async function correctExpiry(pool,{userId,validUntil,reason,operatorTornId=null,
       RETURNING *
     `,[userId,now,validUntil]);
     const newStatus=statusFromRow(updated.rows[0],now);
+    await recordAdjustmentWithClient(client,{
+      userId,
+      adjustmentType:'ENTITLEMENT_CORRECTION',
+      reason:reason.trim(),
+      actorType:'operator',
+      actorTornId:operatorTornId,
+      createdAt:now,
+      previousStatus,
+      newStatus
+    });
     await writeOperatorAudit(client,{
       userId,action:'pro.expiry_corrected',operatorTornId,reason:reason.trim(),previousStatus,newStatus,now
     });
     await client.query('COMMIT');
     return newStatus;
+  } catch(error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function fullRefund(pool,{userId,invoiceId,reason,operatorTornId,now=new Date()}) {
+  assertDate(now,'INVALID_REFUND_DATE');
+  if (typeof invoiceId!=='string' || !invoiceId.trim()) throw new Error('INVALID_INVOICE_ID');
+  if (typeof reason!=='string' || !reason.trim()) throw new Error('REFUND_REASON_REQUIRED');
+  const client=await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const invoiceResult=await client.query(`
+      SELECT *
+      FROM pro_invoices
+      WHERE id=$1
+      FOR UPDATE
+    `,[invoiceId.trim()]);
+    if (invoiceResult.rowCount!==1 || invoiceResult.rows[0].user_id!==userId) throw new Error('INVOICE_NOT_FOUND');
+    const invoice=invoiceResult.rows[0];
+    if (invoice.state!=='PAID') throw new Error('INVOICE_NOT_PAID');
+
+    const priorRefund=await client.query(`
+      SELECT id
+      FROM pro_billing_adjustments
+      WHERE invoice_id=$1 AND adjustment_type='FULL_REFUND'
+      LIMIT 1
+    `,[invoice.id]);
+    if (priorRefund.rowCount>0) throw new Error('INVOICE_ALREADY_REFUNDED');
+
+    const current=await ensureLockedRow(client,userId);
+    const previousStatus=statusFromRow(current,now);
+    const updated=await client.query(`
+      UPDATE pro_entitlements
+      SET revoked_at=$2,
+          revoke_reason=$3,
+          updated_at=$2
+      WHERE user_id=$1
+      RETURNING *
+    `,[userId,now,reason.trim()]);
+    const newStatus=statusFromRow(updated.rows[0],now);
+    const adjustment=await recordAdjustmentWithClient(client,{
+      userId,
+      invoiceId:invoice.id,
+      adjustmentType:'FULL_REFUND',
+      currency:invoice.currency,
+      amount:Number(invoice.expected_amount),
+      entitlementMonths:Number(invoice.entitlement_months),
+      reason:reason.trim(),
+      actorType:'operator',
+      actorTornId:operatorTornId,
+      createdAt:now,
+      previousStatus,
+      newStatus
+    });
+    await writeOperatorAudit(client,{
+      userId,action:'pro.full_refund',operatorTornId,reason:reason.trim(),previousStatus,newStatus,now
+    });
+    await client.query('COMMIT');
+    return {status:newStatus,adjustment};
   } catch(error) {
     await client.query('ROLLBACK');
     throw error;
@@ -298,6 +383,7 @@ function createProEntitlementRepository(pool) {
     activatePaid(input) { return activatePaid(pool, input); },
     grantManual(input) { return grantManual(pool, input); },
     correctExpiry(input) { return correctExpiry(pool, input); },
+    fullRefund(input) { return fullRefund(pool, input); },
     revoke(input) { return revoke(pool, input); }
   };
 }
@@ -312,6 +398,7 @@ module.exports = {
   activatePaid,
   grantManual,
   correctExpiry,
+  fullRefund,
   revoke,
   createProEntitlementRepository
 };

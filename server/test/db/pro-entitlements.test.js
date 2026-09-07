@@ -96,7 +96,7 @@ test('revocation takes precedence over future paid validity', async () => {
       paidAt: now
     });
     const revoked = await repo.revoke({ userId, reason: 'operator action', now: new Date('2026-09-01T12:00:00Z') });
-    assert.equal(revoked.state, 'EXPIRED');
+    assert.equal(revoked.state, 'REVOKED');
     assert.equal(revoked.trialEligible, false);
     assert.equal(revoked.validUntil.toISOString(), '2027-08-30T12:00:00.000Z');
   });

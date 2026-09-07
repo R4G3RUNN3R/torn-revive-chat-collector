@@ -17,6 +17,11 @@ const correctSchema=z.object({
   validUntil:z.string().datetime(),
   reason:z.string().trim().min(3).max(500)
 }).strict();
+const refundSchema=z.object({
+  tornId:z.number().int().positive(),
+  invoiceId:z.string().uuid(),
+  reason:z.string().trim().min(3).max(500)
+}).strict();
 
 function publicUser(user) {
   return {tornId:user.tornId,name:user.name};
@@ -29,6 +34,7 @@ async function registerAdminProRoutes(app,{config,identityRepository,entitlement
       typeof entitlementRepository.getStatus!=='function' ||
       typeof entitlementRepository.grantManual!=='function' ||
       typeof entitlementRepository.correctExpiry!=='function' ||
+      typeof entitlementRepository.fullRefund!=='function' ||
       typeof entitlementRepository.revoke!=='function') {
     throw new Error('entitlementRepository admin methods are required');
   }
@@ -82,6 +88,37 @@ async function registerAdminProRoutes(app,{config,identityRepository,entitlement
     return reply.code(200).send({user:publicUser(user),pro:publicProStatus(status)});
   });
 
+  app.post('/v1/admin/pro/refund',{preHandler:adminAuthenticate},async(request,reply)=>{
+    const parsed=refundSchema.safeParse(request.body||{});
+    if (!parsed.success) return reply.code(422).send({error:'INVALID_ADMIN_REQUEST'});
+    const user=await resolveUser(parsed.data.tornId,reply);
+    if (!user) return;
+    try {
+      const result=await entitlementRepository.fullRefund({
+        userId:user.userId,
+        invoiceId:parsed.data.invoiceId,
+        reason:parsed.data.reason,
+        operatorTornId,
+        now:new Date()
+      });
+      return reply.code(200).send({
+        user:publicUser(user),
+        pro:publicProStatus(result.status),
+        adjustment:{
+          type:result.adjustment.adjustmentType,
+          invoiceId:result.adjustment.invoiceId,
+          currency:result.adjustment.currency,
+          amount:result.adjustment.amount
+        }
+      });
+    } catch(error) {
+      if (error && error.message==='INVOICE_NOT_FOUND') return reply.code(404).send({error:'INVOICE_NOT_FOUND'});
+      if (error && error.message==='INVOICE_NOT_PAID') return reply.code(409).send({error:'INVOICE_NOT_PAID'});
+      if (error && error.message==='INVOICE_ALREADY_REFUNDED') return reply.code(409).send({error:'INVOICE_ALREADY_REFUNDED'});
+      throw error;
+    }
+  });
+
   app.post('/v1/admin/pro/correct',{preHandler:adminAuthenticate},async(request,reply)=>{
     const parsed=correctSchema.safeParse(request.body||{});
     if (!parsed.success) return reply.code(422).send({error:'INVALID_ADMIN_REQUEST'});
@@ -107,5 +144,6 @@ module.exports={
   grantSchema,
   revokeSchema,
   correctSchema,
+  refundSchema,
   registerAdminProRoutes
 };
