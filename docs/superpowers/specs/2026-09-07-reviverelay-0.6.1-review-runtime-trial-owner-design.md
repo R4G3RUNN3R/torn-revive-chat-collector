@@ -1,7 +1,7 @@
 # ReviveRelay 0.6.1 Review Runtime, Trial Persistence, and Owner Pro Design
 
 **Date:** 7 September 2026  
-**Status:** Approved architecture in chat; written specification awaiting final user review
+**Status:** APPROVED by owner on 7 September 2026
 
 ## 1. Purpose
 
@@ -41,6 +41,8 @@ https://reviverelay.voidsmithindustries.com/review/v1/...
 The review userscript sets its API base to the review path. Caddy routes the review path to a dedicated review API container/service on a separate localhost port. The stable `/v1/*` reverse proxy remains unchanged.
 
 The review API may use the existing isolated ReviveRelay PostgreSQL database because identity, entitlement, invoice, and security records belong to ReviveRelay rather than to a release channel. Review migrations must remain backward-compatible with the stable runtime. No Nexis or DungeonMasterOS database is involved.
+
+While the stable 0.4.4 worker remains active, review-only subscription billing scans must not be enqueued into the shared generic `jobs` queue. The stable worker knows the historical `subscription.scan` job type but, with its paid tier disabled, can claim such a row without a live billing handler. Therefore 0.6.1 uses a dedicated review subscription-scan process that calls the existing tested scan handler directly on its one-minute cadence. Stable API and stable worker code remain untouched.
 
 ## 4. Review runtime contract
 
