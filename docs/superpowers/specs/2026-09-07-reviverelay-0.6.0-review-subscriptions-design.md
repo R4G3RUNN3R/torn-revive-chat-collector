@@ -1,6 +1,6 @@
 # ReviveRelay 0.6.0 Torn Review, Subscription, and Client-Hardening Design
 
-Status: Design approved in chat; written specification awaiting final user review
+Status: Approved for implementation - 7 September 2026
 Date: 2026-09-07
 Repository: `R4G3RUNN3R/torn-revive-chat-collector`
 Target branch: `feat/reviverelay-auto-debug`
