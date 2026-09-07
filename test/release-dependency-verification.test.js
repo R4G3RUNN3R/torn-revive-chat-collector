@@ -11,13 +11,13 @@ function currentCommit() {
 
 test('release validation accepts self-contained artifacts, rejects runtime @require, and rejects stale build provenance', () => {
   assert.equal(typeof releaseClient.validatePinnedArtifacts, 'function');
-  const auto = fs.readFileSync('dist/reviverelay-auto.user.js', 'utf8');
-  const manual = fs.readFileSync('dist/reviverelay-manual.user.js', 'utf8');
-  const meta = fs.readFileSync('dist/reviverelay-auto.meta.js', 'utf8');
+  const pkg = require('../package.json');
+  const auto = fs.readFileSync(`dist/review/ReviveRelay-${pkg.version}.user.js`, 'utf8');
+  const meta = fs.readFileSync(`dist/review/ReviveRelay-${pkg.version}.meta.js`, 'utf8');
   const head = currentCommit();
 
   const validated = releaseClient.validatePinnedArtifacts({
-    artifactTexts: [auto, manual, meta],
+    artifactTexts: [auto, meta],
     expectedCommit: head
   });
   assert.equal(validated.commit, head);
@@ -28,19 +28,20 @@ test('release validation accepts self-contained artifacts, rejects runtime @requ
     '// @require      https://raw.githubusercontent.com/example/dependency.js\n// @run-at       document-idle'
   );
   assert.throws(() => releaseClient.validatePinnedArtifacts({
-    artifactTexts: [withRuntimeRequire, manual, meta],
+    artifactTexts: [withRuntimeRequire, meta],
     expectedCommit: head
   }), /self-contained|@require|external/i);
 
   assert.throws(() => releaseClient.validatePinnedArtifacts({
-    artifactTexts: [auto, manual, meta],
+    artifactTexts: [auto, meta],
     expectedCommit: 'f'.repeat(40)
   }), /stale|commit|provenance/i);
 });
 
 test('release verification compares every direct support module byte-for-byte with committed local source', async () => {
   assert.equal(typeof releaseClient.verifyPinnedDependencyBytes, 'function');
-  const auto = fs.readFileSync('dist/reviverelay-auto.user.js', 'utf8');
+  const pkg = require('../package.json');
+  const auto = fs.readFileSync(`dist/review/ReviveRelay-${pkg.version}.user.js`, 'utf8');
   const head = currentCommit();
   const validated = releaseClient.validatePinnedArtifacts({ artifactTexts: [auto], expectedCommit: head });
   const requested = [];
@@ -75,7 +76,8 @@ test('release verification compares every direct support module byte-for-byte wi
 });
 
 test('release validation rejects an executable artifact whose embedded support-module bytes were altered', () => {
-  const auto = fs.readFileSync('dist/reviverelay-auto.user.js', 'utf8');
+  const pkg = require('../package.json');
+  const auto = fs.readFileSync(`dist/review/ReviveRelay-${pkg.version}.user.js`, 'utf8');
   const head = currentCommit();
   const start = '/* ReviveRelay bundled module: src/core.js */\n';
   assert.ok(auto.includes(start));

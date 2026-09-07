@@ -41,20 +41,21 @@ test('main bootstrap consumes the exact core global exported by src/core.js', ()
   assert.doesNotMatch(mainSource, /TornReviveChatCollectorCore/);
 });
 
-test('0.5.0 production bundles contain direct support exactly once and zero legacy chat/candidate modules', () => {
-  for (const filename of ['reviverelay-auto.user.js', 'reviverelay-manual.user.js']) {
-    const built = fs.readFileSync(path.resolve(__dirname, '..', 'dist', filename), 'utf8');
-    for (const modulePath of REQUIRED) {
-      assert.equal(built.split(bundledMarker(modulePath)).length - 1, 1, `${filename}: ${modulePath}`);
-    }
-    for (const modulePath of FORBIDDEN) {
-      assert.equal(built.includes(bundledMarker(modulePath)), false, `${filename}: ${modulePath}`);
-    }
-    assert.doesNotMatch(built, /\/v1\/candidates|Shared public chat requests|Live Capture|Rescan public chats/);
-    assert.doesNotMatch(built, /ReviveRelayApiClient|ReviveRelayProClient|createProClient|submitCandidate|drainCandidateOutbox|createOutboxEntry/);
-    assert.match(built, /ReviveRelayDirectApiClient/);
-    assert.match(built, /ReviveRelay → Revive Me!/);
+test('0.6.0 review bundle contains direct support exactly once and zero legacy chat/candidate modules', () => {
+  const version = require('../package.json').version;
+  const filename = `review/ReviveRelay-${version}.user.js`;
+  const built = fs.readFileSync(path.resolve(__dirname, '..', 'dist', filename), 'utf8');
+  for (const modulePath of REQUIRED) {
+    assert.equal(built.split(bundledMarker(modulePath)).length - 1, 1, `${filename}: ${modulePath}`);
   }
+  for (const modulePath of FORBIDDEN) {
+    assert.equal(built.includes(bundledMarker(modulePath)), false, `${filename}: ${modulePath}`);
+  }
+  assert.doesNotMatch(built, /\/v1\/candidates|Shared public chat requests|Live Capture|Rescan public chats/);
+  assert.doesNotMatch(built, /ReviveRelayApiClient|ReviveRelayProClient|createProClient|submitCandidate|drainCandidateOutbox|createOutboxEntry/);
+  assert.match(built, /ReviveRelayDirectApiClient/);
+  assert.match(built, /ReviveRelay → Revive Me!/);
+  assert.match(built, /const UPDATE_CHANNEL = 'review'/);
 });
 
 

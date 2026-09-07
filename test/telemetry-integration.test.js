@@ -14,7 +14,8 @@ test('direct API client submits telemetry to the dedicated endpoint', async () =
 
 test('userscript bundles telemetry dependency, global hooks and diagnostics toggle', () => {
   const source=fs.readFileSync('torn-revive-chat-collector.user.js','utf8');
-  const artifact=fs.readFileSync('dist/reviverelay-auto.user.js','utf8');
+  const version=require('../package.json').version;
+  const artifact=fs.readFileSync(`dist/review/ReviveRelay-${version}.user.js`,'utf8');
   assert.match(artifact, /ReviveRelay bundled module: src\/telemetry-client\.js/);
   assert.match(source, /ReviveRelayTelemetryClient/);
   assert.ok(source.includes("addEventListener('error'"));

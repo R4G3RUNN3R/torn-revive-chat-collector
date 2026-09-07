@@ -125,7 +125,8 @@ test('candidate preserves exact original message text while classification may n
 
 test('production runtime and bundle exclude legacy candidate pipeline while historical module remains testable', () => {
   const source = fs.readFileSync(path.resolve(__dirname, '..', 'torn-revive-chat-collector.user.js'), 'utf8');
-  const artifact = fs.readFileSync(path.resolve(__dirname, '..', 'dist', 'reviverelay-auto.user.js'), 'utf8');
+  const version = require('../package.json').version;
+  const artifact = fs.readFileSync(path.resolve(__dirname, '..', 'dist', 'review', `ReviveRelay-${version}.user.js`), 'utf8');
   const inventory = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'client-modules.js'), 'utf8');
 
   assert.doesNotMatch(artifact, /^\/\/ @require\s+/m);

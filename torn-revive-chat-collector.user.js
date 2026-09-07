@@ -16,6 +16,7 @@
 // @updateURL    __REVIVERELAY_UPDATE_URL__
 // @downloadURL  __REVIVERELAY_DOWNLOAD_URL__
 // ReviveRelay-Build-Commit: __REVIVERELAY_GIT_COMMIT__
+// ReviveRelay-Build-Timestamp: __REVIVERELAY_BUILD_TIMESTAMP__
 // ==/UserScript==
 
 (function () {
@@ -24,6 +25,7 @@
   const VERSION = '__REVIVERELAY_VERSION__';
   const UPDATE_CHANNEL = '__REVIVERELAY_UPDATE_CHANNEL__';
   const BUILD_COMMIT = '__REVIVERELAY_GIT_COMMIT__';
+  const BUILD_TIMESTAMP = '__REVIVERELAY_BUILD_TIMESTAMP__';
   const API_BASE = 'https://reviverelay.voidsmithindustries.com';
   const REQUEST_POLL_MS = 10_000;
   const PRO_POLL_MS = 60_000;
@@ -1130,7 +1132,7 @@
         <div class="rr-kv"><span>Latest</span><strong id="rr-update-latest">${escapeHtml(updateResult?.latestVersion || 'Unknown')}</strong></div>
         <div class="rr-kv"><span>Checked</span><strong id="rr-update-checked">${escapeHtml(updateResult?.lastCheckedAt ? formatDate(updateResult.lastCheckedAt) : 'Not yet')}</strong></div>
         <div id="rr-update-banner">${updateResult?.updateAvailable ? `Update ${escapeHtml(updateResult.latestVersion)} available.` : ''}</div>
-        <div class="rr-actions"><button id="rr-update-check">Check updates</button><button id="rr-update-switch">Switch update channel</button></div>
+        <div class="rr-actions"><button id="rr-update-check">Check updates</button></div>
       </div>
     </details>
     <details class="rr-settings-section">
@@ -1322,9 +1324,8 @@
     if (force) renderSettingsDrawer();
   }
 
-  function switchUpdateChannel() {
-    const target = UPDATE_CHANNEL === 'automatic' ? 'manual' : 'automatic';
-    if (!state.updateManager.switchChannel(target)) setStatus('Update channel cannot be switched until a manifest has been loaded.', true);
+  function openAvailableUpdate() {
+    if (!state.updateManager.openUpdate()) setStatus('No validated ReviveRelay update is available for this release channel.', true);
   }
 
   function createPanel() {
@@ -1409,7 +1410,6 @@
       if (target.id === 'rr-disconnect') return clearSession();
       if (target.id === 'rr-delete-account') return deleteReviveRelayAccount();
       if (target.id === 'rr-update-check') return checkUpdates(true);
-      if (target.id === 'rr-update-switch') return switchUpdateChannel();
       if (target.id === 'rr-minimize') {
         state.minimized = !state.minimized;
         GM_setValue(KEYS.minimized, state.minimized);

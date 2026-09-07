@@ -25,11 +25,21 @@ const configSchema = z.object({
   REVIVERELAY_GOOGLE_SERVICE_ACCOUNT_FILE: z.string().default(''),
   REVIVERELAY_ERROR_SHEET_ID: z.string().default(''),
   REVIVERELAY_ERROR_SHEET_TAB: z.string().default('ReviveRelay Issues'),
-  REVIVERELAY_RELEASE_MANIFEST_FILE: z.string().default(''),
+  REVIVERELAY_REVIEW_MANIFEST_FILE: z.string().default(''),
+  REVIVERELAY_STABLE_MANIFEST_FILE: z.string().default(''),
   SUBSCRIPTION_MODE: z.enum(['free', 'review', 'live']).default('free'),
   PRO_RECEIVER_TORN_ID: optionalPositiveInteger,
   PRO_RECEIVER_API_KEY: optionalSecret
 }).superRefine((value, ctx) => {
+  const hasReviewManifest = Boolean(value.REVIVERELAY_REVIEW_MANIFEST_FILE);
+  const hasStableManifest = Boolean(value.REVIVERELAY_STABLE_MANIFEST_FILE);
+  if (hasReviewManifest !== hasStableManifest) {
+    ctx.addIssue({
+      code:z.ZodIssueCode.custom,
+      path:[hasReviewManifest ? 'REVIVERELAY_STABLE_MANIFEST_FILE' : 'REVIVERELAY_REVIEW_MANIFEST_FILE'],
+      message:'REVIVERELAY_REVIEW_MANIFEST_FILE and REVIVERELAY_STABLE_MANIFEST_FILE must be configured together'
+    });
+  }
   if (value.SUBSCRIPTION_MODE === 'free') return;
   if (!value.PRO_RECEIVER_TORN_ID) {
     ctx.addIssue({

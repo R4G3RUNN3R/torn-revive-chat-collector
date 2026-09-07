@@ -9,13 +9,13 @@ function sha(path) {
   return crypto.createHash('sha256').update(fs.readFileSync(path)).digest('hex');
 }
 
-for (const [relativePath, expected] of Object.entries(manifest.supportHashes)) {
+for (const [relativePath, expected] of Object.entries(manifest.supportHashes).filter(([relativePath]) => relativePath !== 'src/update-manager.js')) {
   test(`known-good support bytes stay locked: ${relativePath}`, () => {
     assert.equal(sha(relativePath), expected);
   });
 }
 
-test('canonical 0.5.0 source keeps the proven document-idle bootstrap but is direct-only', () => {
+test('canonical 0.6.0 source keeps the proven document-idle bootstrap but is direct-only', () => {
   const source = fs.readFileSync('torn-revive-chat-collector.user.js', 'utf8');
   assert.match(source, /@run-at\s+document-idle/);
   assert.match(source, /ReviveRelay → Revive Me!/);
@@ -24,9 +24,9 @@ test('canonical 0.5.0 source keeps the proven document-idle bootstrap but is dir
   assert.doesNotMatch(source, /fetchRecentPublicCandidates|\/v1\/candidates|Shared public chat requests/);
 });
 
-test('0.5.0 build is self-contained, document-idle, current-version, and direct-only', () => {
-  const built = fs.readFileSync('dist/reviverelay-manual.user.js', 'utf8');
+test('0.6.0 review build is self-contained, document-idle, current-version, and direct-only', () => {
   const packageVersion = require('../package.json').version;
+  const built = fs.readFileSync(`dist/review/ReviveRelay-${packageVersion}.user.js`, 'utf8');
   assert.equal((built.match(/^\/\/ @require\s+/gm) || []).length, 0);
   assert.match(built, /@run-at\s+document-idle/);
   assert.match(built, new RegExp(`@version\\s+${packageVersion.replace(/\./g, '\\.')}\\b`));

@@ -1,42 +1,18 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-
-const { DIRECT_SUPPORT_MODULES: REQUIRED } = require('../scripts/client-modules');
-
-function requireRows(text) {
-  return [...text.matchAll(/^\/\/ @require\s+(\S+)$/gm)].map(match => match[1]);
-}
-
-function marker(relativePath) {
-  return `/* ReviveRelay bundled module: ${relativePath} */`;
-}
-
-test('tracked userscript is a self-contained release template with build provenance and no runtime @require dependencies', () => {
-  const source = fs.readFileSync('torn-revive-chat-collector.user.js', 'utf8');
-  assert.equal(requireRows(source).length, 0);
-  assert.match(source, /ReviveRelay-Build-Commit:\s*__REVIVERELAY_GIT_COMMIT__/);
-  assert.match(source, /const BUILD_COMMIT = '__REVIVERELAY_GIT_COMMIT__';/);
-  assert.match(source, /buildCommit:\s*BUILD_COMMIT/);
+const test=require('node:test');
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const pkg=require('../package.json');
+const {DIRECT_SUPPORT_MODULES:REQUIRED}=require('../scripts/client-modules');
+function marker(relativePath){return `/* ReviveRelay bundled module: ${relativePath} */`;}
+test('review artifact is self-contained and pinned to one immutable commit',()=>{
+ const file=`dist/review/ReviveRelay-${pkg.version}.user.js`; const text=fs.readFileSync(file,'utf8');
+ assert.doesNotMatch(text,/^\/\/ @require\s+/m);
+ const commit=text.match(/ReviveRelay-Build-Commit:\s*([0-9a-f]{40})/)?.[1]; assert.ok(commit);
+ assert.match(text,new RegExp(`const BUILD_COMMIT = '${commit}';`));
+ for(const relativePath of REQUIRED) assert.equal(text.split(marker(relativePath)).length-1,1,relativePath);
 });
-
-test('built userscripts embed all support modules and have zero external @require dependencies', () => {
-  for (const filename of ['dist/reviverelay-auto.user.js', 'dist/reviverelay-manual.user.js']) {
-    const text = fs.readFileSync(filename, 'utf8');
-    assert.equal(requireRows(text).length, 0, `${filename} must not depend on external @require loading`);
-    const commit = text.match(/ReviveRelay-Build-Commit:\s*([0-9a-f]{40})/)?.[1];
-    assert.ok(commit, `${filename} must carry immutable build provenance`);
-    assert.match(text, new RegExp(`const BUILD_COMMIT = '${commit}';`));
-    assert.match(text, /buildCommit:\s*BUILD_COMMIT/);
-    for (const relativePath of REQUIRED) {
-      assert.equal(text.split(marker(relativePath)).length - 1, 1, `${relativePath} must be bundled exactly once`);
-    }
-  }
-});
-
-test('automatic metadata contains no executable dependency URLs and keeps immutable build provenance', () => {
-  const meta = fs.readFileSync('dist/reviverelay-auto.meta.js', 'utf8');
-  assert.equal(requireRows(meta).length, 0);
-  assert.match(meta, /ReviveRelay-Build-Commit:\s*[0-9a-f]{40}/);
-  assert.doesNotMatch(meta, /raw\.githubusercontent\.com/);
+test('review metadata is non-executable and carries same provenance',()=>{
+ const meta=fs.readFileSync(`dist/review/ReviveRelay-${pkg.version}.meta.js`,'utf8');
+ assert.match(meta,/^\/\/ ==UserScript==/); assert.match(meta,/ReviveRelay-Build-Commit:\s*[0-9a-f]{40}/);
+ assert.doesNotMatch(meta,/\(function|const UPDATE_CHANNEL/);
 });

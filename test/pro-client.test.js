@@ -9,7 +9,8 @@ test('legacy Pro client is not a production dependency in 0.6.0',()=>{
   assert.doesNotMatch(source,/ReviveRelayProClient|createProClient|state\.proApi/);
   assert.match(source,/ReviveRelayDirectApiClient/);
   assert.match(source,/state\.api\.getProStatus\(/);
-  assert.match(source,/state\.api\.getProPlans\(/);
+  assert.doesNotMatch(source,/state\.api\.getProPlans\(/);
+  assert.match(source,/state\.subscription\?\.plans/);
   assert.match(source,/state\.api\.createProInvoice\(/);
   assert.match(source,/state\.api\.getProInvoice\(/);
   assert.match(source,/state\.api\.startProTrial\(/);

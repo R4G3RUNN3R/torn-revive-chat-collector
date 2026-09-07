@@ -1,198 +1,24 @@
-const fs = require('node:fs');
-const path = require('node:path');
-const crypto = require('node:crypto');
-const cp = require('node:child_process');
-const { DIRECT_SUPPORT_MODULES } = require('./client-modules');
-const { validateReleaseManifest } = require('../server/src/domain/client-version');
-
-const root = path.resolve(__dirname, '..');
-const URLS = {
-  autoInstall: 'https://reviverelay.voidsmithindustries.com/install/reviverelay-auto.user.js',
-  autoMeta: 'https://reviverelay.voidsmithindustries.com/install/reviverelay-auto.meta.js',
-  manualInstall: 'https://reviverelay.voidsmithindustries.com/install/reviverelay-manual.user.js'
-};
-const REQUIRED_SUPPORT_MODULES = DIRECT_SUPPORT_MODULES;
-const RAW_BASE = 'https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector';
-
-function buildReleaseManifest({ version, minimumVersion, mandatory = false, releaseNotes, releasedAt, gitCommit, autoSha256, manualSha256 }) {
-  return validateReleaseManifest({
-    latestVersion: version,
-    minimumVersion,
-    releasedAt,
-    releaseNotes,
-    gitCommit,
-    automatic: { installUrl: URLS.autoInstall, metaUrl: URLS.autoMeta, sha256: autoSha256 },
-    manual: { installUrl: URLS.manualInstall, sha256: manualSha256 },
-    mandatory: Boolean(mandatory)
-  });
-}
-
-function sha256(file) {
-  return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
-}
-
-function git(...args) {
-  return cp.execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
-}
-
-function parseArgs(argv) {
-  const out = { mandatory: false };
-  for (let i = 0; i < argv.length; i += 1) {
-    const arg = argv[i];
-    if (arg === '--mandatory') out.mandatory = true;
-    else if (arg === '--minimum') out.minimumVersion = argv[++i];
-    else if (arg === '--notes-file') out.notesFile = argv[++i];
-    else throw new Error(`Unknown argument: ${arg}`);
-  }
-  return out;
-}
-
-function dependenciesForCommit(commit) {
-  return REQUIRED_SUPPORT_MODULES.map(relativePath => ({
-    url: `${RAW_BASE}/${commit}/${relativePath}`,
-    commit,
-    relativePath
-  }));
-}
-
-function validateBundledModuleBytes(source) {
-  for (const relativePath of REQUIRED_SUPPORT_MODULES) {
-    const startMarker = `/* ReviveRelay bundled module: ${relativePath} */\n`;
-    const endMarker = `/* ReviveRelay end bundled module: ${relativePath} */`;
-    const startIndex = source.indexOf(startMarker);
-    if (startIndex < 0 || source.indexOf(startMarker, startIndex + startMarker.length) >= 0) {
-      throw new Error(`Bundled support module marker mismatch for ${relativePath}`);
-    }
-    const contentStart = startIndex + startMarker.length;
-    const endIndex = source.indexOf(endMarker, contentStart);
-    if (endIndex < 0 || source.indexOf(endMarker, endIndex + endMarker.length) >= 0) {
-      throw new Error(`Bundled support module end marker mismatch for ${relativePath}`);
-    }
-    const expected = fs.readFileSync(path.join(root, relativePath), 'utf8');
-    let embedded = source.slice(contentStart, endIndex);
-    if (!expected.endsWith('\n') && embedded === `${expected}\n`) embedded = expected;
-    if (embedded !== expected) {
-      throw new Error(`Bundled support module byte mismatch for ${relativePath}`);
-    }
-  }
-}
-
-function parsePinnedArtifact(text) {
-  const source = String(text || '');
-  if (/^\/\/ @require\s+/m.test(source)) {
-    throw new Error('Release artifact must be self-contained and must not use runtime @require dependencies');
-  }
-
-  const provenanceMatches = [...source.matchAll(/ReviveRelay-Build-Commit:\s*([0-9a-f]{40})/g)];
-  if (provenanceMatches.length !== 1) {
-    throw new Error('Release artifact must contain exactly one immutable build provenance commit');
-  }
-  const commit = provenanceMatches[0][1];
-
-  const buildCommitMatch = source.match(/const BUILD_COMMIT = '([0-9a-f]{40})';/);
-  const isExecutableArtifact = source.includes('/* ReviveRelay bundled module: src/core.js */');
-  if (isExecutableArtifact && !buildCommitMatch) {
-    throw new Error('Release userscript is missing telemetry build provenance');
-  }
-  if (buildCommitMatch && buildCommitMatch[1] !== commit) {
-    throw new Error('Release telemetry build commit does not match metadata build provenance');
-  }
-  if (isExecutableArtifact) validateBundledModuleBytes(source);
-
-  return { commit, dependencies: dependenciesForCommit(commit) };
-}
-
-function validatePinnedArtifacts({ artifactTexts, expectedCommit }) {
-  if (!/^[0-9a-f]{40}$/.test(String(expectedCommit || ''))) throw new Error('Expected release commit must be 40-hex');
-  if (!Array.isArray(artifactTexts) || artifactTexts.length < 1) throw new Error('Release artifacts are required');
-
-  let pinnedCommit = null;
-  let dependencies = null;
-  for (const text of artifactTexts) {
-    const parsed = parsePinnedArtifact(text);
-    if (parsed.commit !== expectedCommit) {
-      throw new Error(`Stale release artifact commit ${parsed.commit}; expected ${expectedCommit}`);
-    }
-    if (pinnedCommit && parsed.commit !== pinnedCommit) throw new Error('Release artifacts disagree on pinned commit');
-    pinnedCommit = parsed.commit;
-    dependencies = dependencies || parsed.dependencies;
-  }
-  return { commit: pinnedCommit, dependencies };
-}
-
-
-async function verifyPinnedDependencyBytes({ dependencies, fetchImpl = globalThis.fetch }) {
-  if (!Array.isArray(dependencies) || dependencies.length !== REQUIRED_SUPPORT_MODULES.length) {
-    throw new Error('Pinned release dependencies are incomplete');
-  }
-  if (typeof fetchImpl !== 'function') throw new Error('A fetch implementation is required to verify pinned dependencies');
-
-  for (const dependency of dependencies) {
-    const response = await fetchImpl(dependency.url, { redirect: 'error' });
-    if (!response || response.ok !== true) {
-      throw new Error(`Pinned dependency fetch failed for ${dependency.relativePath}: HTTP ${response?.status || 0}`);
-    }
-    const remote = Buffer.from(await response.arrayBuffer());
-    const local = fs.readFileSync(path.join(root, dependency.relativePath));
-    const remoteHash = crypto.createHash('sha256').update(remote).digest('hex');
-    const localHash = crypto.createHash('sha256').update(local).digest('hex');
-    if (remoteHash !== localHash) {
-      throw new Error(`Pinned dependency SHA-256 mismatch for ${dependency.relativePath}`);
-    }
-  }
-
-  return { verified: dependencies.length, commit: dependencies[0]?.commit || null };
-}
-
-async function main(argv = process.argv.slice(2)) {
-  const args = parseArgs(argv);
-  if (!args.minimumVersion) throw new Error('--minimum is required');
-  if (!args.notesFile) throw new Error('--notes-file is required');
-  if (git('status', '--porcelain')) throw new Error('Release requires a clean Git tree');
-  const notesPath = path.resolve(args.notesFile);
-  if (!fs.existsSync(notesPath)) throw new Error('Release notes file does not exist');
-  const releaseNotes = fs.readFileSync(notesPath, 'utf8').trim();
-  if (releaseNotes.length > 4000) throw new Error('Release notes exceed 4000 characters');
-
-  const gitCommit = git('rev-parse', 'HEAD');
-  const pinned = validatePinnedArtifacts({
-    artifactTexts: [
-      fs.readFileSync(path.join(root, 'dist/reviverelay-auto.user.js'), 'utf8'),
-      fs.readFileSync(path.join(root, 'dist/reviverelay-manual.user.js'), 'utf8'),
-      fs.readFileSync(path.join(root, 'dist/reviverelay-auto.meta.js'), 'utf8')
-    ],
-    expectedCommit: gitCommit
-  });
-  await verifyPinnedDependencyBytes({ dependencies: pinned.dependencies });
-
-  const pkg = require(path.join(root, 'package.json'));
-  const manifest = buildReleaseManifest({
-    version: pkg.version,
-    minimumVersion: args.minimumVersion,
-    mandatory: args.mandatory,
-    releaseNotes,
-    releasedAt: new Date().toISOString(),
-    gitCommit,
-    autoSha256: sha256(path.join(root, 'dist/reviverelay-auto.user.js')),
-    manualSha256: sha256(path.join(root, 'dist/reviverelay-manual.user.js'))
-  });
-  fs.writeFileSync(path.join(root, 'dist/release-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
-  console.log(`Built release manifest ${manifest.latestVersion} at ${manifest.gitCommit}`);
-  return manifest;
-}
-
-if (require.main === module) {
-  main().catch(error => {
-    console.error(error.message);
-    process.exitCode = 1;
-  });
-}
-
-module.exports = {
-  buildReleaseManifest,
-  parseArgs,
-  parsePinnedArtifact,
-  validatePinnedArtifacts,
-  verifyPinnedDependencyBytes,
-  main
-};
+const fs=require('node:fs');
+const path=require('node:path');
+const crypto=require('node:crypto');
+const cp=require('node:child_process');
+const {DIRECT_SUPPORT_MODULES}=require('./client-modules');
+const {buildChannelArtifact,RELEASE_CHANNELS}=require('./build');
+const {validateReleaseManifest}=require('../server/src/domain/client-version');
+const root=path.resolve(__dirname,'..');
+const REQUIRED_SUPPORT_MODULES=DIRECT_SUPPORT_MODULES;
+const RAW_BASE='https://raw.githubusercontent.com/R4G3RUNN3R/torn-revive-chat-collector';
+function sha256Buffer(buffer){return crypto.createHash('sha256').update(buffer).digest('hex');}
+function sha256(file){return sha256Buffer(fs.readFileSync(file));}
+function git(...args){return cp.execFileSync('git',args,{cwd:root,encoding:'utf8'}).trim();}
+function channelUrls(channel,version){if(!RELEASE_CHANNELS.includes(channel))throw new Error('Invalid release channel');const base=`https://reviverelay.voidsmithindustries.com/releases/${channel}/${version}`;return {installUrl:`${base}/ReviveRelay-${version}.user.js`,metaUrl:`${base}/ReviveRelay-${version}.meta.js`};}
+function buildReleaseManifest({version,minimumVersion,mandatory=false,releaseNotes,buildTimestamp,gitCommit,releaseChannel,sha256:artifactSha256,apiCompatibility={minimum:1,current:1}}){return validateReleaseManifest({latestVersion:version,minimumVersion,buildTimestamp,releaseNotes,gitCommit,releaseChannel,sha256:artifactSha256,apiCompatibility,install:channelUrls(releaseChannel,version),mandatory:Boolean(mandatory)});}
+function parseArgs(argv){const out={mandatory:false,channel:'review'};for(let i=0;i<argv.length;i+=1){const arg=argv[i];if(arg==='--mandatory')out.mandatory=true;else if(arg==='--minimum')out.minimumVersion=argv[++i];else if(arg==='--notes-file')out.notesFile=argv[++i];else if(arg==='--channel')out.channel=argv[++i];else throw new Error(`Unknown argument: ${arg}`);}if(!RELEASE_CHANNELS.includes(out.channel))throw new Error('Invalid release channel');return out;}
+function dependenciesForCommit(commit){return REQUIRED_SUPPORT_MODULES.map(relativePath=>({url:`${RAW_BASE}/${commit}/${relativePath}`,commit,relativePath}));}
+function validateBundledModuleBytes(source){for(const relativePath of REQUIRED_SUPPORT_MODULES){const startMarker=`/* ReviveRelay bundled module: ${relativePath} */\n`;const endMarker=`/* ReviveRelay end bundled module: ${relativePath} */`;const startIndex=source.indexOf(startMarker);if(startIndex<0||source.indexOf(startMarker,startIndex+startMarker.length)>=0)throw new Error(`Bundled support module marker mismatch for ${relativePath}`);const contentStart=startIndex+startMarker.length;const endIndex=source.indexOf(endMarker,contentStart);if(endIndex<0||source.indexOf(endMarker,endIndex+endMarker.length)>=0)throw new Error(`Bundled support module end marker mismatch for ${relativePath}`);const expected=fs.readFileSync(path.join(root,relativePath),'utf8');let embedded=source.slice(contentStart,endIndex);if(!expected.endsWith('\n')&&embedded===`${expected}\n`)embedded=expected;if(embedded!==expected)throw new Error(`Bundled support module byte mismatch for ${relativePath}`);}}
+function parsePinnedArtifact(text){const source=String(text||'');if(/^\/\/ @require\s+/m.test(source))throw new Error('Release artifact must be self-contained');const provenance=[...source.matchAll(/ReviveRelay-Build-Commit:\s*([0-9a-f]{40})/g)];if(provenance.length!==1)throw new Error('Release artifact must contain exactly one immutable build provenance commit');const commit=provenance[0][1];const buildCommitMatch=source.match(/const BUILD_COMMIT = '([0-9a-f]{40})';/);const executable=source.includes('/* ReviveRelay bundled module: src/core.js */');if(executable&&!buildCommitMatch)throw new Error('Release userscript is missing telemetry build provenance');if(buildCommitMatch&&buildCommitMatch[1]!==commit)throw new Error('Release telemetry build commit does not match metadata build provenance');if(executable)validateBundledModuleBytes(source);return {commit,dependencies:dependenciesForCommit(commit)};}
+function validatePinnedArtifacts({artifactTexts,expectedCommit}){if(!/^[0-9a-f]{40}$/.test(String(expectedCommit||'')))throw new Error('Expected release commit must be 40-hex');let pinned=null,deps=null;for(const text of artifactTexts){const parsed=parsePinnedArtifact(text);if(parsed.commit!==expectedCommit)throw new Error(`Stale release artifact commit ${parsed.commit}; expected ${expectedCommit}`);if(pinned&&pinned!==parsed.commit)throw new Error('Release artifacts disagree on pinned commit');pinned=parsed.commit;deps=deps||parsed.dependencies;}return {commit:pinned,dependencies:deps};}
+async function verifyPinnedDependencyBytes({dependencies,fetchImpl=globalThis.fetch}){if(!Array.isArray(dependencies)||dependencies.length!==REQUIRED_SUPPORT_MODULES.length)throw new Error('Pinned release dependencies are incomplete');if(typeof fetchImpl!=='function')throw new Error('A fetch implementation is required');for(const dep of dependencies){const response=await fetchImpl(dep.url,{redirect:'error'});if(!response||response.ok!==true)throw new Error(`Pinned dependency fetch failed for ${dep.relativePath}: HTTP ${response?.status||0}`);const remote=Buffer.from(await response.arrayBuffer());const local=fs.readFileSync(path.join(root,dep.relativePath));if(sha256Buffer(remote)!==sha256Buffer(local))throw new Error(`Pinned dependency SHA-256 mismatch for ${dep.relativePath}`);}return {verified:dependencies.length,commit:dependencies[0]?.commit||null};}
+async function main(argv=process.argv.slice(2)){const args=parseArgs(argv);if(!args.minimumVersion)throw new Error('--minimum is required');if(!args.notesFile)throw new Error('--notes-file is required');if(git('status','--porcelain'))throw new Error('Release requires a clean Git tree');const notesPath=path.resolve(args.notesFile);if(!fs.existsSync(notesPath))throw new Error('Release notes file does not exist');const releaseNotes=fs.readFileSync(notesPath,'utf8').trim();if(releaseNotes.length>4000)throw new Error('Release notes exceed 4000 characters');const gitCommit=git('rev-parse','HEAD');const buildTimestamp=new Date().toISOString();const artifact=buildChannelArtifact(args.channel,{gitCommit,buildTimestamp,write:true});const pinned=validatePinnedArtifacts({artifactTexts:[artifact.artifact,artifact.meta],expectedCommit:gitCommit});await verifyPinnedDependencyBytes({dependencies:pinned.dependencies});const manifest=buildReleaseManifest({version:artifact.version,minimumVersion:args.minimumVersion,mandatory:args.mandatory,releaseNotes,buildTimestamp,gitCommit,releaseChannel:args.channel,sha256:sha256(artifact.userPath),apiCompatibility:{minimum:1,current:1}});const manifestPath=path.join(root,'dist',args.channel,'release-manifest.json');fs.writeFileSync(manifestPath,`${JSON.stringify(manifest,null,2)}\n`);console.log(`Built ${args.channel} release manifest ${manifest.latestVersion} at ${manifest.gitCommit}`);return manifest;}
+if(require.main===module){main().catch(error=>{console.error(error.message);process.exitCode=1;});}
+module.exports={buildReleaseManifest,parseArgs,parsePinnedArtifact,validatePinnedArtifacts,verifyPinnedDependencyBytes,channelUrls,main};

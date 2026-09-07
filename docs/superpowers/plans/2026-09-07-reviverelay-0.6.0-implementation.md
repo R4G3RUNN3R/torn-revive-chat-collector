@@ -279,15 +279,15 @@ throw new DirectApiClientError(serverCode || fallbackCode, {status, retryable, d
 - Modify: `server/test/release/registry.test.js`
 - Create: `test/review-release-smoke.test.js`
 
-- [ ] **RED:** Define exact manifest schema carrying semantic version, minimum version, build timestamp, Git SHA, release channel (`review|stable`), SHA-256, API compatibility, release notes and immutable install metadata. Review manifest may reference only review URLs; stable manifest only stable URLs.
-- [ ] **RED:** Build tests require `ReviveRelay-0.6.0.user.js` review artifact, metadata `@version 0.6.0`, `ReviveRelay-Build-Commit`, build timestamp, and `review` channel. No stale `0.5.0`, `automatic`, or `manual` release-channel metadata may remain in the candidate artifact.
-- [ ] **RED:** Compatibility handler chooses install URL for the requesting client channel and never routes a review client to stable or vice versa.
-- [ ] Confirm RED with current automatic/manual build model.
-- [ ] **GREEN:** Rework build variants around review/stable. Build timestamp is generated once per build and embedded consistently; each channel has separate output directory/manifest and immutable versioned filename. Stable build capability exists but 0.6.0 is generated only for review during this plan.
-- [ ] Preserve self-contained bundle and pinned Git provenance verification.
-- [ ] Add simulated userscript smoke test proving metadata parses, support globals exist once, bootstrap parses/loads, sidebar boot path is present, and legacy chat runtime modules are absent.
-- [ ] Run release/domain/smoke tests and syntax checks.
-- [ ] Commit: `build: add immutable review and stable release channels`
+- [x] **RED:** Define exact manifest schema carrying semantic version, minimum version, build timestamp, Git SHA, release channel (`review|stable`), SHA-256, API compatibility, release notes and immutable install metadata. Review manifest may reference only review URLs; stable manifest only stable URLs.
+- [x] **RED:** Build tests require `ReviveRelay-0.6.0.user.js` review artifact, metadata `@version 0.6.0`, `ReviveRelay-Build-Commit`, build timestamp, and `review` channel. No stale `0.5.0`, `automatic`, or `manual` release-channel metadata may remain in the candidate artifact.
+- [x] **RED:** Compatibility handler chooses install URL for the requesting client channel and never routes a review client to stable or vice versa.
+- [x] Confirm RED with current automatic/manual build model.
+- [x] **GREEN:** Rework build variants around review/stable. Build timestamp is generated once per build and embedded consistently; each channel has separate output directory/manifest and immutable versioned filename. Stable build capability exists but 0.6.0 is generated only for review during this plan.
+- [x] Preserve self-contained bundle and pinned Git provenance verification.
+- [x] Add simulated userscript smoke test proving metadata parses, support globals exist once, bootstrap parses/loads, sidebar boot path is present, and legacy chat runtime modules are absent.
+- [x] Run release/domain/smoke tests and syntax checks.
+- [x] Commit: `build: add immutable review and stable release channels`
 
 ### Task 12: Produce Torn review documentation, static security audit, and exact-candidate verification report
 

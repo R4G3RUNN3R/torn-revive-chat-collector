@@ -9,8 +9,8 @@
     "test:client": "node --test test",
     "test:server": "npm --prefix server test",
     "build": "node scripts/build.js",
-    "check": "npm test && npm run build && node --check dist/reviverelay-auto.user.js && node --check dist/reviverelay-manual.user.js",
-    "release:client": "npm run check && node scripts/release-client.js"
+    "check": "npm test && npm run build && node --check dist/review/ReviveRelay-0.6.0.user.js",
+    "release:client": "npm run check && node scripts/release-client.js --channel review"
   },
   "engines": {
     "node": ">=20"
