@@ -563,6 +563,44 @@
     });
   }
 
+  async function deleteReviveRelayAccount() {
+    if (!state.sessionToken) return;
+    const confirmed = window.confirm(
+      'Delete ReviveRelay account/data? This immediately removes or invalidates your verification credential, active sessions, service preferences, and active reviver registration where safe. Minimal billing/payment and security/audit evidence may be retained to prevent payment reuse and support refunds or disputes.'
+    );
+    if (!confirmed) return;
+    return runMutation('account-delete', async () => {
+      try {
+        await state.api.deleteAccount();
+        state.sessionToken = '';
+        state.identity = null;
+        state.preset = null;
+        state.activeRequest = null;
+        state.activeTransaction = null;
+        state.verificationCredential = null;
+        state.verificationEditing = false;
+        state.reviverEligibility = null;
+        state.reviverQueue = [];
+        state.proStatus = null;
+        state.subscription = null;
+        state.proPlans = [];
+        state.currentInvoice = null;
+        GM_setValue(KEYS.sessionToken, '');
+        GM_setValue(KEYS.publicIdentity, null);
+        GM_setValue(KEYS.requestPreset, null);
+        GM_setValue(KEYS.seenRequestIds, []);
+        GM_setValue(KEYS.updateState, {});
+        GM_setValue(KEYS.clientDiagnosticsEnabled, false);
+        GM_setValue(KEYS.telemetryOutbox, []);
+        setStatus('ReviveRelay account data deletion completed. Minimal billing/security evidence may remain only where required for payment-reuse prevention, refunds, disputes, or audit history.');
+        refreshSidebarState();
+        renderAll();
+      } catch (error) {
+        handleApiFailure(error, 'account.delete', 'ReviveRelay account deletion failed.');
+      }
+    });
+  }
+
   function saveRequestPreset() {
     const method = document.getElementById('rr-preset-method')?.value;
     const rawAmount = document.getElementById('rr-preset-amount')?.value;
@@ -976,6 +1014,7 @@
       <div class="rr-kv"><span>Revive ability</span><strong>${escapeHtml(eligibilityStatus)}</strong></div>
       ${broadAccess ? '<div class="rr-warning"><strong>Full/Broad Access key accepted.</strong> This key grants more access than ReviveRelay requires. You can keep using it, or replace it with the recommended restricted key below.</div>' : ''}
       <p class="rr-muted">ReviveRelay needs Torn API access to confirm your revives and payments automatically. The key is sent to ReviveRelay for secure verification and is never stored in Tampermonkey.</p>
+      ${credential ? '<p class="rr-muted">Revoking here disconnects ReviveRelay. For complete key revocation, also delete the key in <a href="https://www.torn.com/preferences.php#tab=api" target="_blank" rel="noopener noreferrer">Torn API settings</a>.</p>' : ''}
       <div class="rr-permission-list">
         <strong>Recommended Torn access</strong>
         <span>Revives</span><span>Perks (revive ability)</span><span>Money incoming</span><span>Money outgoing</span><span>Items incoming</span><span>Items outgoing</span>
@@ -1092,6 +1131,22 @@
         <div class="rr-kv"><span>Checked</span><strong id="rr-update-checked">${escapeHtml(updateResult?.lastCheckedAt ? formatDate(updateResult.lastCheckedAt) : 'Not yet')}</strong></div>
         <div id="rr-update-banner">${updateResult?.updateAvailable ? `Update ${escapeHtml(updateResult.latestVersion)} available.` : ''}</div>
         <div class="rr-actions"><button id="rr-update-check">Check updates</button><button id="rr-update-switch">Switch update channel</button></div>
+      </div>
+    </details>
+    <details class="rr-settings-section">
+      <summary>About &amp; Privacy</summary>
+      <div class="rr-settings-body">
+        <div class="rr-kv"><span>Version</span><strong>${escapeHtml(VERSION)}</strong></div>
+        <div class="rr-kv"><span>Release channel</span><strong>${escapeHtml(UPDATE_CHANNEL)}</strong></div>
+        <div class="rr-kv"><span>Payment recipient</span><strong>${escapeHtml(state.subscription?.merchant?.name || 'Not configured')}${state.subscription?.merchant?.tornId ? ` [${escapeHtml(state.subscription.merchant.tornId)}]` : ''}</strong></div>
+        <p><strong>Torn API purpose.</strong> ReviveRelay uses Torn API data only to bind identity, verify reviver eligibility/revives and transaction or payment evidence, prevent abuse, and manage entitlement. No Torn password is requested.</p>
+        <p><strong>Data stored.</strong> ReviveRelay stores the service data needed for your account, certified revive workflow, entitlement and limited security/audit history. Your user verification key is encrypted at rest; plaintext credentials are never returned after binding and credentials are not sold or shared with advertisers or unrelated third parties.</p>
+        <p><strong>Recommended permissions.</strong> Use the restricted Reviver Verification key shown above. A Broad/Full Access key may work, but grants more access than ReviveRelay needs.</p>
+        <p><strong>Subscription terms.</strong> Requester access is free. Where Reviver Pro payments are enabled, subscriptions are prepaid and payment is sent manually in Torn to the server-listed Payment recipient. ReviveRelay never sends payment for you.</p>
+        <p><strong>Diagnostics consent.</strong> Sanitized diagnostics are off by default and are sent only when you enable the Diagnostics option.</p>
+        <p><strong>Revoke Reviver Verification.</strong> Disconnect the credential above, then delete the same key in Torn API settings if you want Torn to invalidate it completely.</p>
+        <p><a href="https://github.com/R4G3RUNN3R/torn-revive-chat-collector/blob/main/PRIVACY.md" target="_blank" rel="noopener noreferrer">Privacy document (PRIVACY.md)</a> · <a href="https://github.com/R4G3RUNN3R/torn-revive-chat-collector/tree/main/docs/review" target="_blank" rel="noopener noreferrer">Torn review documentation (docs/review)</a></p>
+        ${state.sessionToken ? `<div class="rr-warning"><strong>Delete ReviveRelay account/data</strong><p>Operational account data is removed or invalidated immediately where safe. Minimal billing/payment and security/audit evidence may be retained to prevent payment evidence reuse and support refunds or disputes.</p><button id="rr-delete-account"${disabledAttr('account-delete')}>Delete ReviveRelay account/data</button></div>` : ''}
       </div>
     </details>
     <details class="rr-settings-section">
@@ -1352,6 +1407,7 @@
       if (target.id === 'rr-register-reviver') return registerMarketplaceReviver();
       if (target.id === 'rr-refresh') return refreshMarketplaceState({ includePlans: true }).then(renderAll).catch(error => handleApiFailure(error, 'manual.refresh'));
       if (target.id === 'rr-disconnect') return clearSession();
+      if (target.id === 'rr-delete-account') return deleteReviveRelayAccount();
       if (target.id === 'rr-update-check') return checkUpdates(true);
       if (target.id === 'rr-update-switch') return switchUpdateChannel();
       if (target.id === 'rr-minimize') {

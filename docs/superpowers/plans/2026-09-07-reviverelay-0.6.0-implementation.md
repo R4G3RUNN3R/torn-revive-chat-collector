@@ -253,12 +253,12 @@ throw new DirectApiClientError(serverCode || fallbackCode, {status, retryable, d
 - Modify: `test/requester-ui.test.js`
 - Modify: `test/verification-credential-ui.test.js`
 
-- [ ] **RED:** Add UI tests requiring an `About & Privacy` settings section with version/channel, API purpose, data stored, encrypted-key statement, recommended permissions, broad-key warning, subscription terms, merchant, diagnostics consent, verification revocation, delete-account action, and review/privacy-document links.
-- [ ] **RED:** Require deletion confirmation copy that distinguishes immediate operational deletion from retained minimal billing/security evidence.
-- [ ] **RED:** Require Reviver Verification revoke copy/link instructing the user to delete the key in Torn API settings too.
-- [ ] **GREEN:** Implement the section using safe static text + escaped server state; account delete calls unified API endpoint only after explicit local confirmation and clears local ReviveRelay session/preset/preferences after successful server response.
-- [ ] Run privacy/settings/verification tests.
-- [ ] Commit: `feat: add ReviveRelay privacy and deletion controls`
+- [x] **RED:** Add UI tests requiring an `About & Privacy` settings section with version/channel, API purpose, data stored, encrypted-key statement, recommended permissions, broad-key warning, subscription terms, merchant, diagnostics consent, verification revocation, delete-account action, and review/privacy-document links.
+- [x] **RED:** Require deletion confirmation copy that distinguishes immediate operational deletion from retained minimal billing/security evidence.
+- [x] **RED:** Require Reviver Verification revoke copy/link instructing the user to delete the key in Torn API settings too.
+- [x] **GREEN:** Implement the section using safe static text + escaped server state; account delete calls unified API endpoint only after explicit local confirmation and clears local ReviveRelay session/preset/preferences after successful server response.
+- [x] Run privacy/settings/verification tests.
+- [x] Commit: `feat: add ReviveRelay privacy and deletion controls`
 
 ### Task 11: Build immutable review/stable release channels and exact 0.6.0 review artifact
 
