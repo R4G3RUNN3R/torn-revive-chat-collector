@@ -1,13 +1,8 @@
 const { z } = require('zod');
-const { PRO_PLANS } = require('../domain/pro-plans');
+const { publicProPlans } = require('../domain/pro-plans');
+const { paymentsEnabled, publicSubscriptionState } = require('../domain/subscription-mode');
 const { publicProStatus } = require('../security/pro-access');
 const { RATE_LIMITS } = require('../security/rate-limits');
-
-const PLAN_LABELS = Object.freeze({
-  monthly:'Monthly',
-  six_months:'6 Months',
-  yearly:'Yearly'
-});
 
 const createInvoiceSchema = z.object({
   planId:z.enum(['monthly','six_months','yearly']),
@@ -16,13 +11,7 @@ const createInvoiceSchema = z.object({
 const invoiceIdSchema = z.string().uuid();
 
 function publicPlans() {
-  return Object.values(PRO_PLANS).map(plan => ({
-    id:plan.id,
-    label:PLAN_LABELS[plan.id],
-    months:plan.months,
-    xanax:plan.xanax,
-    cash:plan.cash
-  }));
+  return publicProPlans();
 }
 
 function publicInvoice(invoice) {
@@ -48,9 +37,18 @@ async function registerProRoutes(app, { entitlementRepository, proInvoiceReposit
     throw new Error('entitlementRepository is required');
   }
 
+  const subscription = publicSubscriptionState({
+    mode:config.SUBSCRIPTION_MODE,
+    receiverTornId:config.PRO_RECEIVER_TORN_ID,
+    plans:publicPlans()
+  });
+
   app.get('/v1/pro/status', { preHandler:app.authenticate }, async (request, reply) => {
     const status = await entitlementRepository.getStatus(request.reviveRelayUser.userId, new Date());
-    return reply.code(200).send({ pro:publicProStatus(status) });
+    return reply.code(200).send({
+      pro:publicProStatus(status),
+      subscription
+    });
   });
 
   app.get('/v1/pro/plans', { preHandler:app.authenticate }, async (_request, reply) => {
@@ -78,16 +76,16 @@ async function registerProRoutes(app, { entitlementRepository, proInvoiceReposit
     throw new Error('proInvoiceRepository is invalid');
   }
 
-  function paidTierGuard(_request, reply, done) {
-    if (config.PAID_TIER_ENABLED !== true) {
-      reply.code(503).send({ error:'PAID_TIER_DISABLED' });
+  function subscriptionPaymentsGuard(_request, reply, done) {
+    if (!paymentsEnabled(subscription.mode)) {
+      reply.code(503).send({ error:'SUBSCRIPTION_PAYMENTS_DISABLED' });
       return;
     }
     done();
   }
 
   app.post('/v1/pro/invoices', {
-    preHandler:[app.authenticate, paidTierGuard],
+    preHandler:[app.authenticate, subscriptionPaymentsGuard],
     config:{ rateLimit:RATE_LIMITS.PRO_INVOICE_WRITE }
   }, async (request, reply) => {
     const parsed=createInvoiceSchema.safeParse(request.body || {});
@@ -101,12 +99,12 @@ async function registerProRoutes(app, { entitlementRepository, proInvoiceReposit
     });
     return reply.code(201).send({
       invoice:publicInvoice(invoice),
-      paymentTarget:{ tornId:Number(config.PRO_RECEIVER_TORN_ID) }
+      paymentTarget:{ tornId:subscription.merchant.tornId }
     });
   });
 
   app.get('/v1/pro/invoices/:id', {
-    preHandler:[app.authenticate, paidTierGuard],
+    preHandler:[app.authenticate, subscriptionPaymentsGuard],
     config:{ rateLimit:RATE_LIMITS.PRO_INVOICE_READ }
   }, async (request, reply) => {
     const parsed=invoiceIdSchema.safeParse(request.params.id);
@@ -118,7 +116,7 @@ async function registerProRoutes(app, { entitlementRepository, proInvoiceReposit
     if (!invoice) return reply.code(404).send({ error:'INVOICE_NOT_FOUND' });
     return reply.code(200).send({
       invoice:publicInvoice(invoice),
-      paymentTarget:{ tornId:Number(config.PRO_RECEIVER_TORN_ID) }
+      paymentTarget:{ tornId:subscription.merchant.tornId }
     });
   });
 }

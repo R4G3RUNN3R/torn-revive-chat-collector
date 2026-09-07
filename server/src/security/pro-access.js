@@ -1,3 +1,5 @@
+const { normalizeSubscriptionMode, subscriptionRequiresEntitlement } = require('../domain/subscription-mode');
+
 function hasActivePro(status) {
   return Boolean(status && (status.state === 'TRIAL' || status.state === 'ACTIVE'));
 }
@@ -12,11 +14,16 @@ function publicProStatus(status) {
   };
 }
 
-function requireActivePro(entitlementRepository) {
-  if (!entitlementRepository || typeof entitlementRepository.getStatus !== 'function') {
+function requireReviverSubscriptionAccess({ entitlementRepository, subscriptionMode } = {}) {
+  const mode = normalizeSubscriptionMode(subscriptionMode);
+  if (subscriptionRequiresEntitlement(mode) &&
+      (!entitlementRepository || typeof entitlementRepository.getStatus !== 'function')) {
     throw new Error('entitlementRepository is required');
   }
-  return async function proGuard(request, reply) {
+
+  return async function subscriptionGuard(request, reply) {
+    request.reviveRelaySubscriptionMode = mode;
+    if (!subscriptionRequiresEntitlement(mode)) return;
     const status = await entitlementRepository.getStatus(request.reviveRelayUser.userId, new Date());
     if (!hasActivePro(status)) {
       return reply.code(403).send({ error:'REVIVER_PRO_REQUIRED' });
@@ -25,8 +32,13 @@ function requireActivePro(entitlementRepository) {
   };
 }
 
+function requireActivePro(entitlementRepository) {
+  return requireReviverSubscriptionAccess({ entitlementRepository, subscriptionMode:'review' });
+}
+
 module.exports = {
   hasActivePro,
   publicProStatus,
+  requireReviverSubscriptionAccess,
   requireActivePro
 };

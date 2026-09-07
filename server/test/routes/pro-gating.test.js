@@ -5,12 +5,23 @@ const { buildApp } = require('../../src/app');
 const REQUEST_ID='55555555-5555-4555-8555-555555555555';
 const AUTH={authorization:'Bearer reviver-token'};
 
-function makeApp({ state, reviverStanding='active', credentialStatus={id:'cred',usable:true,capabilities:{reviver:true,requester:false}} }) {
+function makeApp({
+  state,
+  subscriptionMode='review',
+  reviverStanding='active',
+  credentialStatus={id:'cred',usable:true,capabilities:{reviver:true,requester:false}},
+  perksJob=['+ Ability to revive']
+}) {
   return buildApp({
-    config:{API_KEY_ENCRYPTION_KEY:'bb'.repeat(32),SESSION_TOKEN_PEPPER:'gate-pepper'},
+    config:{
+      API_KEY_ENCRYPTION_KEY:'bb'.repeat(32),
+      SESSION_TOKEN_PEPPER:'gate-pepper',
+      SUBSCRIPTION_MODE:subscriptionMode,
+      PRO_RECEIVER_TORN_ID:3877028
+    },
     tornClient:{
       async getKeyInfo(){throw new Error('not used');},
-      async getUserPerks(){return {job:['+ Ability to revive']};}
+      async getUserPerks(){return {job:perksJob};}
     },
     identityRepository:{async bindIdentity(){}},
     sessionRepository:{
@@ -41,35 +52,44 @@ function makeApp({ state, reviverStanding='active', credentialStatus={id:'cred',
   });
 }
 
-for (const state of ['NONE','EXPIRED']) {
-  test(`${state} entitlement cannot read queue, accept, or register as reviver`, async t => {
-    const app=makeApp({state,reviverStanding:null,credentialStatus:null});
-    t.after(()=>app.close());
-    const queue=await app.inject({method:'GET',url:'/v1/reviver/queue',headers:AUTH});
-    const accept=await app.inject({method:'POST',url:`/v1/requests/${REQUEST_ID}/accept`,headers:AUTH});
-    const register=await app.inject({method:'POST',url:'/v1/reviver/register',headers:AUTH});
-    for (const response of [queue,accept,register]) {
-      assert.equal(response.statusCode,403);
-      assert.equal(response.json().error,'REVIVER_PRO_REQUIRED');
-    }
-  });
+for (const subscriptionMode of ['review','live']) {
+  for (const state of ['NONE','EXPIRED','REVOKED']) {
+    test(`${subscriptionMode} mode blocks ${state} entitlement from reviver surfaces`, async t => {
+      const app=makeApp({state,subscriptionMode});
+      t.after(()=>app.close());
+      const queue=await app.inject({method:'GET',url:'/v1/reviver/queue',headers:AUTH});
+      const accept=await app.inject({method:'POST',url:`/v1/requests/${REQUEST_ID}/accept`,headers:AUTH});
+      const register=await app.inject({method:'POST',url:'/v1/reviver/register',headers:AUTH});
+      for (const response of [queue,accept,register]) {
+        assert.equal(response.statusCode,403,response.body);
+        assert.equal(response.json().error,'REVIVER_PRO_REQUIRED');
+      }
+    });
+  }
 }
 
-for (const state of ['TRIAL','ACTIVE']) {
-  test(`${state} entitlement reaches existing reviver and credential authorization`, async t => {
-    const app=makeApp({state});
-    t.after(()=>app.close());
-    const queue=await app.inject({method:'GET',url:'/v1/reviver/queue',headers:AUTH});
-    const accept=await app.inject({method:'POST',url:`/v1/requests/${REQUEST_ID}/accept`,headers:AUTH});
-    const register=await app.inject({method:'POST',url:'/v1/reviver/register',headers:AUTH});
-    assert.equal(queue.statusCode,200);
-    assert.equal(accept.statusCode,200);
-    assert.equal(register.statusCode,200);
-  });
+for (const subscriptionMode of ['review','live']) {
+  for (const state of ['TRIAL','ACTIVE']) {
+    test(`${subscriptionMode} mode allows ${state} entitlement to reach reviver authorization`, async t => {
+      const app=makeApp({state,subscriptionMode});
+      t.after(()=>app.close());
+      assert.equal((await app.inject({method:'GET',url:'/v1/reviver/queue',headers:AUTH})).statusCode,200);
+      assert.equal((await app.inject({method:'POST',url:`/v1/requests/${REQUEST_ID}/accept`,headers:AUTH})).statusCode,200);
+      assert.equal((await app.inject({method:'POST',url:'/v1/reviver/register',headers:AUTH})).statusCode,200);
+    });
+  }
 }
 
-test('active Pro guard runs before reviver standing and transaction credential checks', async t => {
-  const app=makeApp({state:'TRIAL',reviverStanding:null,credentialStatus:null});
+test('free mode waives only Pro entitlement and allows an otherwise eligible reviver', async t => {
+  const app=makeApp({state:'NONE',subscriptionMode:'free'});
+  t.after(()=>app.close());
+  assert.equal((await app.inject({method:'GET',url:'/v1/reviver/queue',headers:AUTH})).statusCode,200);
+  assert.equal((await app.inject({method:'POST',url:`/v1/requests/${REQUEST_ID}/accept`,headers:AUTH})).statusCode,200);
+  assert.equal((await app.inject({method:'POST',url:'/v1/reviver/register',headers:AUTH})).statusCode,200);
+});
+
+test('free mode still requires reviver role for queue and verification credential for registration', async t => {
+  const app=makeApp({state:'NONE',subscriptionMode:'free',reviverStanding:null,credentialStatus:null});
   t.after(()=>app.close());
   const queue=await app.inject({method:'GET',url:'/v1/reviver/queue',headers:AUTH});
   assert.equal(queue.statusCode,403);
@@ -77,4 +97,17 @@ test('active Pro guard runs before reviver standing and transaction credential c
   const register=await app.inject({method:'POST',url:'/v1/reviver/register',headers:AUTH});
   assert.equal(register.statusCode,409);
   assert.equal(register.json().error,'VERIFICATION_CREDENTIAL_REQUIRED');
+});
+
+test('free mode still blocks a grandfathered reviver without current Torn revive ability', async t => {
+  const app=makeApp({state:'NONE',subscriptionMode:'free',perksJob:['+ 10% Crime success']});
+  t.after(()=>app.close());
+  for (const response of [
+    await app.inject({method:'GET',url:'/v1/reviver/queue',headers:AUTH}),
+    await app.inject({method:'POST',url:`/v1/requests/${REQUEST_ID}/accept`,headers:AUTH}),
+    await app.inject({method:'POST',url:'/v1/reviver/register',headers:AUTH})
+  ]) {
+    assert.equal(response.statusCode,403,response.body);
+    assert.equal(response.json().error,'REVIVE_ABILITY_NOT_UNLOCKED');
+  }
 });

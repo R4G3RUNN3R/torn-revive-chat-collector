@@ -79,7 +79,7 @@ assert.equal(review.SUBSCRIPTION_MODE, review);
 - Modify: `server/test/routes/revivers.test.js`
 - Modify: `server/test/routes/me.test.js`
 
-- [ ] **RED:** Add policy tests proving `free` bypasses only Pro entitlement while `review`/`live` require TRIAL/ACTIVE; NONE/EXPIRED/REVOKED fail with `REVIVER_PRO_REQUIRED` in review/live. Existing credential, role and live Torn ability failures must still occur in free mode.
+- [x] **RED:** Add policy tests proving `free` bypasses only Pro entitlement while `review`/`live` require TRIAL/ACTIVE; NONE/EXPIRED/REVOKED fail with `REVIVER_PRO_REQUIRED` in review/live. Existing credential, role and live Torn ability failures must still occur in free mode.
 
 ```js
 assert.equal(subscriptionRequiresEntitlement(free), false);
@@ -87,7 +87,7 @@ assert.equal(subscriptionRequiresEntitlement(review), true);
 assert.equal(subscriptionRequiresEntitlement(live), true);
 ```
 
-- [ ] **RED:** Add authenticated capability response assertions. `GET /v1/pro/status` must return `subscription` containing mode, `paymentsEnabled`, merchant public identity when applicable, and server-owned plans; free mode must not expose a payment target or invoice creation capability.
+- [x] **RED:** Add authenticated capability response assertions. `GET /v1/pro/status` must return `subscription` containing mode, `paymentsEnabled`, merchant public identity when applicable, and server-owned plans; free mode must not expose a payment target or invoice creation capability.
 
 ```json
 {
@@ -99,12 +99,12 @@ assert.equal(subscriptionRequiresEntitlement(live), true);
 }
 ```
 
-- [ ] Run focused route/security tests and confirm RED.
-- [ ] **GREEN:** Implement `normalizeSubscriptionMode`, `paymentsEnabled`, `subscriptionRequiresEntitlement`, and a shared `requireReviverAccessPolicy`/mode-aware Pro guard. Route factories receive canonical config/mode instead of reimplementing booleans.
-- [ ] Keep plan catalogue server-owned and return it from the Pro capability/status surface. Invoice creation returns a stable mode-specific error such as `SUBSCRIPTION_PAYMENTS_DISABLED` in free mode only when called directly; normal client UI must never offer the action there.
-- [ ] Preserve current Torn eligibility revalidation in queue and Accept after mode policy.
-- [ ] Run all focused tests, including the grandfathered eligibility regression.
-- [ ] Commit: `feat: centralize ReviveRelay subscription access policy`
+- [x] Run focused route/security tests and confirm RED.
+- [x] **GREEN:** Implement `normalizeSubscriptionMode`, `paymentsEnabled`, `subscriptionRequiresEntitlement`, and a shared `requireReviverAccessPolicy`/mode-aware Pro guard. Route factories receive canonical config/mode instead of reimplementing booleans.
+- [x] Keep plan catalogue server-owned and return it from the Pro capability/status surface. Invoice creation returns a stable mode-specific error such as `SUBSCRIPTION_PAYMENTS_DISABLED` in free mode only when called directly; normal client UI must never offer the action there.
+- [x] Preserve current Torn eligibility revalidation in queue and Accept after mode policy.
+- [x] Run all focused tests, including the grandfathered eligibility regression.
+- [x] Commit: `feat: centralize ReviveRelay subscription access policy`
 
 ### Task 3: Gate the one-time trial behind live reviver eligibility
 

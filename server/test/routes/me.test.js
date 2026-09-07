@@ -7,7 +7,8 @@ function appWithSession(record) {
   return buildApp({
     config: {
       API_KEY_ENCRYPTION_KEY: '22'.repeat(32),
-      SESSION_TOKEN_PEPPER: 'me-test-pepper'
+      SESSION_TOKEN_PEPPER: 'me-test-pepper',
+      SUBSCRIPTION_MODE: 'free'
     },
     tornClient: { async getKeyInfo() { throw new Error('not used'); } },
     identityRepository: { async bindIdentity() { throw new Error('not used'); } },
@@ -49,7 +50,17 @@ test('GET /v1/me returns authenticated public identity, roles and safe Pro state
   assert.deepEqual(response.json(), {
     user: { tornId: 24680, name: 'TestReviver' },
     roles: ['requester', 'reviver'],
-    pro: { state:'NONE', trialEligible:true, trialStartedAt:null, validUntil:null }
+    pro: { state:'NONE', trialEligible:true, trialStartedAt:null, validUntil:null },
+    subscription: {
+      mode:'free',
+      paymentsEnabled:false,
+      merchant:null,
+      plans:[
+        {id:'monthly',label:'Monthly',months:1,xanax:10,cash:10000000},
+        {id:'six_months',label:'6 Months',months:6,xanax:55,cash:55000000},
+        {id:'yearly',label:'Yearly',months:12,xanax:100,cash:100000000}
+      ]
+    }
   });
   assert.doesNotMatch(response.body, /apiKey|ciphertext|authTag|access_scope/i);
 });

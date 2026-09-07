@@ -4,6 +4,22 @@ const PRO_PLANS = Object.freeze({
   yearly: Object.freeze({ id:'yearly', months:12, xanax:100, cash:100000000 })
 });
 
+const PRO_PLAN_LABELS = Object.freeze({
+  monthly:'Monthly',
+  six_months:'6 Months',
+  yearly:'Yearly'
+});
+
+function publicProPlans() {
+  return Object.values(PRO_PLANS).map(plan => ({
+    id:plan.id,
+    label:PRO_PLAN_LABELS[plan.id],
+    months:plan.months,
+    xanax:plan.xanax,
+    cash:plan.cash
+  }));
+}
+
 function getProPlan(planId) {
   const plan = typeof planId === 'string' ? PRO_PLANS[planId] : null;
   if (!plan) throw new Error('UNKNOWN_PRO_PLAN');
@@ -33,6 +49,8 @@ function extendCalendarDuration(base, months) {
 
 module.exports = {
   PRO_PLANS,
+  PRO_PLAN_LABELS,
+  publicProPlans,
   getProPlan,
   amountForCurrency,
   extendCalendarDuration

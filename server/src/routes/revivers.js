@@ -1,5 +1,5 @@
 const { assertCredentialCapability } = require('../security/verification-credential');
-const { requireActivePro } = require('../security/pro-access');
+const { requireReviverSubscriptionAccess } = require('../security/pro-access');
 const { createReviveEligibilityService } = require('../torn/revive-eligibility');
 
 const CREDENTIAL_ERRORS = new Set([
@@ -18,14 +18,18 @@ async function registerReviverRoutes(app, {
   tornClient,
   verificationCredentialRepository,
   reviverRepository,
-  entitlementRepository
+  entitlementRepository,
+  config = {}
 }) {
   if (typeof app.authenticate !== 'function') throw new Error('reviver routes require session authentication');
   if (!verificationCredentialRepository || typeof verificationCredentialRepository.getStatus !== 'function') {
     throw new Error('verificationCredentialRepository is required');
   }
   if (!reviverRepository || typeof reviverRepository.register !== 'function') throw new Error('reviverRepository is required');
-  const requirePro = requireActivePro(entitlementRepository);
+  const requireSubscriptionAccess = requireReviverSubscriptionAccess({
+    entitlementRepository,
+    subscriptionMode:config.SUBSCRIPTION_MODE
+  });
   const eligibilityService = createReviveEligibilityService({ tornClient, verificationCredentialRepository });
 
   async function assertReviverCredential(userId) {
@@ -33,7 +37,7 @@ async function registerReviverRoutes(app, {
     assertCredentialCapability(status, 'reviver');
   }
 
-  app.get('/v1/reviver/eligibility', { preHandler: [app.authenticate, requirePro] }, async (request, reply) => {
+  app.get('/v1/reviver/eligibility', { preHandler: [app.authenticate, requireSubscriptionAccess] }, async (request, reply) => {
     const userId = request.reviveRelayUser.userId;
     try {
       await assertReviverCredential(userId);
@@ -57,7 +61,7 @@ async function registerReviverRoutes(app, {
     }
   });
 
-  app.post('/v1/reviver/register', { preHandler: [app.authenticate, requirePro] }, async (request, reply) => {
+  app.post('/v1/reviver/register', { preHandler: [app.authenticate, requireSubscriptionAccess] }, async (request, reply) => {
     const userId = request.reviveRelayUser.userId;
     try {
       await assertReviverCredential(userId);

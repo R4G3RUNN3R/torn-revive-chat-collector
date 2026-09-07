@@ -104,17 +104,17 @@ test('/v1/me projects only public Pro entitlement state', async t => {
     trialStartedAt:'2026-08-20T10:00:00.000Z',
     validUntil:'2027-09-09T12:00:00.000Z'
   });
-  assert.doesNotMatch(response.body,/everPaid|revokeReason|invoice|payment/i);
+  assert.doesNotMatch(response.body,/everPaid|revokeReason|matchedTornLogId|ciphertext|authTag|PRO_RECEIVER_API_KEY/i);
 });
 
 
-function makeBillingApp({ enabled=true, invoiceRepository } = {}) {
+function makeBillingApp({ mode='review', invoiceRepository } = {}) {
   return buildApp({
     config:{
       API_KEY_ENCRYPTION_KEY:'cc'.repeat(32),
       SESSION_TOKEN_PEPPER:'billing-test-pepper',
-      PAID_TIER_ENABLED:enabled,
-      PRO_RECEIVER_TORN_ID:999999
+      SUBSCRIPTION_MODE:mode,
+      PRO_RECEIVER_TORN_ID:3877028
     },
     tornClient:{async getKeyInfo(){throw new Error('not used');}},
     identityRepository:{async bindIdentity(){throw new Error('not used');}},
@@ -127,15 +127,15 @@ function makeBillingApp({ enabled=true, invoiceRepository } = {}) {
   });
 }
 
-test('Pro invoice creation is unavailable while paid tier is disabled', async t => {
-  const app=makeBillingApp({enabled:false,invoiceRepository:{
+test('Pro invoice creation is unavailable in free subscription mode', async t => {
+  const app=makeBillingApp({mode:'free',invoiceRepository:{
     async createInvoice(){throw new Error('must not be called');},
     async getInvoiceForUser(){return null;}
   }});
   t.after(()=>app.close());
   const response=await app.inject({method:'POST',url:'/v1/pro/invoices',headers:AUTH,payload:{planId:'monthly',currency:'cash'}});
   assert.equal(response.statusCode,503);
-  assert.equal(response.json().error,'PAID_TIER_DISABLED');
+  assert.equal(response.json().error,'SUBSCRIPTION_PAYMENTS_DISABLED');
 });
 
 test('strict invoice route rejects client price or duration injection', async t => {
@@ -171,12 +171,41 @@ test('valid invoice response uses authenticated Torn identity and exposes only s
   assert.equal(seen.planId,'monthly');
   assert.equal(seen.currency,'cash');
   assert.equal(Object.hasOwn(seen,'expectedAmount'),false);
-  assert.deepEqual(created.json().paymentTarget,{tornId:999999});
+  assert.deepEqual(created.json().paymentTarget,{tornId:3877028});
   assert.equal(created.json().invoice.expectedAmount,10000000);
   assert.doesNotMatch(created.body,/api.?key|secret|ciphertext/i);
 
   const fetched=await app.inject({method:'GET',url:`/v1/pro/invoices/${invoice.id}`,headers:AUTH});
   assert.equal(fetched.statusCode,200);
   assert.equal(fetched.json().invoice.id,invoice.id);
-  assert.deepEqual(fetched.json().paymentTarget,{tornId:999999});
+  assert.deepEqual(fetched.json().paymentTarget,{tornId:3877028});
+});
+
+
+test('Pro status exposes canonical subscription capability, merchant and server-owned plans', async t => {
+  const app=makeBillingApp({mode:'review'});
+  t.after(()=>app.close());
+  const response=await app.inject({method:'GET',url:'/v1/pro/status',headers:AUTH});
+  assert.equal(response.statusCode,200,response.body);
+  assert.deepEqual(response.json().subscription,{
+    mode:'review',
+    paymentsEnabled:true,
+    merchant:{tornId:3877028,name:'R4G3RUNN3R'},
+    plans:[
+      {id:'monthly',label:'Monthly',months:1,xanax:10,cash:10000000},
+      {id:'six_months',label:'6 Months',months:6,xanax:55,cash:55000000},
+      {id:'yearly',label:'Yearly',months:12,xanax:100,cash:100000000}
+    ]
+  });
+});
+
+test('free Pro status exposes plans for reference but no merchant or payment capability', async t => {
+  const app=makeBillingApp({mode:'free'});
+  t.after(()=>app.close());
+  const response=await app.inject({method:'GET',url:'/v1/pro/status',headers:AUTH});
+  assert.equal(response.statusCode,200,response.body);
+  assert.equal(response.json().subscription.mode,'free');
+  assert.equal(response.json().subscription.paymentsEnabled,false);
+  assert.equal(response.json().subscription.merchant,null);
+  assert.equal(response.json().subscription.plans.length,3);
 });

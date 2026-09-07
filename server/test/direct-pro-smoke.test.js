@@ -16,7 +16,7 @@ const { extendCalendarDuration } = require('../src/domain/pro-plans');
 const REQUESTER_TORN_ID = 920001;
 const REVIVER_TORN_ID = 920002;
 const BUYER_TORN_ID = 920003;
-const RECEIVER_TORN_ID = 929999;
+const RECEIVER_TORN_ID = 3877028;
 
 function identityInfo(tornId, name) {
   return {
@@ -107,7 +107,7 @@ test('direct ReviveRelay flow enforces Pro, certifies requests, and activates pa
       config: {
         API_KEY_ENCRYPTION_KEY: 'ab'.repeat(32),
         SESSION_TOKEN_PEPPER: 'direct-pro-smoke-pepper',
-        PAID_TIER_ENABLED: true,
+        SUBSCRIPTION_MODE: 'review',
         PRO_RECEIVER_TORN_ID: RECEIVER_TORN_ID
       },
       tornClient,

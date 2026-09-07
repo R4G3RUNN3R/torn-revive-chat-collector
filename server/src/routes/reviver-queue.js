@@ -1,12 +1,12 @@
 const { z } = require('zod');
 const { RATE_LIMITS } = require('../security/rate-limits');
 const { assertCredentialCapability } = require('../security/verification-credential');
-const { requireActivePro } = require('../security/pro-access');
+const { requireReviverSubscriptionAccess } = require('../security/pro-access');
 const { createReviveEligibilityService } = require('../torn/revive-eligibility');
 
 const requestIdSchema = z.string().uuid();
 
-async function registerReviverQueueRoutes(app, { transactionRepository, verificationCredentialRepository, entitlementRepository, tornClient }) {
+async function registerReviverQueueRoutes(app, { transactionRepository, verificationCredentialRepository, entitlementRepository, tornClient, config = {} }) {
   if (!transactionRepository ||
       typeof transactionRepository.listAvailableRequests !== 'function' ||
       typeof transactionRepository.acceptRequest !== 'function') {
@@ -18,7 +18,10 @@ async function registerReviverQueueRoutes(app, { transactionRepository, verifica
   if (!verificationCredentialRepository || typeof verificationCredentialRepository.getStatus !== 'function') {
     throw new Error('reviver queue routes require verificationCredentialRepository');
   }
-  const requirePro = requireActivePro(entitlementRepository);
+  const requireSubscriptionAccess = requireReviverSubscriptionAccess({
+    entitlementRepository,
+    subscriptionMode:config.SUBSCRIPTION_MODE
+  });
   const eligibilityService = createReviveEligibilityService({ tornClient, verificationCredentialRepository });
 
   async function requireReviver(request, reply) {
@@ -60,7 +63,7 @@ async function registerReviverQueueRoutes(app, { transactionRepository, verifica
   }
 
   app.get('/v1/reviver/queue', {
-    preHandler: [app.authenticate, requirePro, requireReviver, requireReviverCredential, requireReviveAbility],
+    preHandler: [app.authenticate, requireSubscriptionAccess, requireReviver, requireReviverCredential, requireReviveAbility],
     config: {
       rateLimit: RATE_LIMITS.REVIVER_QUEUE
     }
@@ -70,7 +73,7 @@ async function registerReviverQueueRoutes(app, { transactionRepository, verifica
   });
 
   app.post('/v1/requests/:id/accept', {
-    preHandler: [app.authenticate, requirePro, requireReviver, requireReviverCredential, requireReviveAbility],
+    preHandler: [app.authenticate, requireSubscriptionAccess, requireReviver, requireReviverCredential, requireReviveAbility],
     config: {
       rateLimit: RATE_LIMITS.ACCEPT
     }

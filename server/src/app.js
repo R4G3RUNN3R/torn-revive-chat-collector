@@ -56,7 +56,7 @@ function buildApp({
       pepper: config.SESSION_TOKEN_PEPPER
     });
     app.register(async instance => {
-      await registerMeRoute(instance, { entitlementRepository });
+      await registerMeRoute(instance, { entitlementRepository, config });
     });
     if (entitlementRepository) {
       app.register(async instance => {
@@ -109,7 +109,8 @@ function buildApp({
         tornClient,
         verificationCredentialRepository,
         reviverRepository,
-        entitlementRepository
+        entitlementRepository,
+        config
       });
     });
   }
@@ -143,7 +144,8 @@ function buildApp({
         transactionRepository,
         verificationCredentialRepository,
         entitlementRepository,
-        tornClient
+        tornClient,
+        config
       });
     });
   }
