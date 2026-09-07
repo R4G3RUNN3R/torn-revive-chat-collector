@@ -61,6 +61,6 @@ test('production source uses direct API/sidebar modules without wildcard network
   assert.doesNotMatch(source, /ReviveRelayApiClient/);
   assert.match(source, /ReviveRelayRequestPreset/);
   assert.match(source, /ReviveRelaySidebarAction/);
-  assert.match(source, /ReviveRelayProClient/);
+  assert.doesNotMatch(source, /ReviveRelayProClient|createProClient|state\.proApi/);
   assert.doesNotMatch(source, /@connect\s+\*/);
 });

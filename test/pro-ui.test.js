@@ -13,13 +13,13 @@ test('Pro UI contains approved trial and launch reference pricing',()=>{
   ]) assert.ok(source.includes(text),text);
 });
 
-test('main creates the dedicated Pro client and never embeds receiver credentials',()=>{
-  assert.match(source,/const ProClient = globalThis\.ReviveRelayProClient/);
-  assert.match(source,/ProClient\.createProClient/);
-  assert.match(source,/state\.proApi\.getStatus\(/);
-  assert.match(source,/state\.proApi\.getPlans\(/);
-  assert.match(source,/state\.proApi\.createInvoice\(/);
-  assert.match(source,/state\.proApi\.getInvoice\(/);
+test('main uses the unified direct API transport for Pro and never embeds receiver credentials',()=>{
+  assert.doesNotMatch(source,/ReviveRelayProClient|createProClient|state\.proApi/);
+  assert.match(source,/state\.api\.getProStatus\(/);
+  assert.match(source,/state\.api\.getProPlans\(/);
+  assert.match(source,/state\.api\.createProInvoice\(/);
+  assert.match(source,/state\.api\.getProInvoice\(/);
+  assert.match(source,/state\.api\.startProTrial\(/);
   assert.doesNotMatch(source,/PRO_RECEIVER_API_KEY|receiverApiKey|receiver-secret/);
 });
 

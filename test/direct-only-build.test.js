@@ -11,8 +11,7 @@ const REQUIRED = [
   'src/update-manager.js',
   'src/telemetry-client.js',
   'src/request-preset.js',
-  'src/sidebar-action.js',
-  'src/pro-client.js'
+  'src/sidebar-action.js'
 ];
 
 const FORBIDDEN = [
@@ -52,7 +51,7 @@ test('0.5.0 production bundles contain direct support exactly once and zero lega
       assert.equal(built.includes(bundledMarker(modulePath)), false, `${filename}: ${modulePath}`);
     }
     assert.doesNotMatch(built, /\/v1\/candidates|Shared public chat requests|Live Capture|Rescan public chats/);
-    assert.doesNotMatch(built, /ReviveRelayApiClient|submitCandidate|drainCandidateOutbox|createOutboxEntry/);
+    assert.doesNotMatch(built, /ReviveRelayApiClient|ReviveRelayProClient|createProClient|submitCandidate|drainCandidateOutbox|createOutboxEntry/);
     assert.match(built, /ReviveRelayDirectApiClient/);
     assert.match(built, /ReviveRelay → Revive Me!/);
   }

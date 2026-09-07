@@ -7,8 +7,7 @@ const DIRECT_SUPPORT_MODULES = Object.freeze([
   'src/update-manager.js',
   'src/telemetry-client.js',
   'src/request-preset.js',
-  'src/sidebar-action.js',
-  'src/pro-client.js'
+  'src/sidebar-action.js'
 ]);
 
 module.exports = { DIRECT_SUPPORT_MODULES };

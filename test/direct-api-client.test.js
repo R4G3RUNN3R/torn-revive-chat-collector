@@ -22,7 +22,13 @@ const REQUIRED_METHODS = [
   'requestRetry',
   'respondRetry',
   'requestRefund',
-  'checkRefund'
+  'checkRefund',
+  'getProStatus',
+  'startProTrial',
+  'getProPlans',
+  'createProInvoice',
+  'getProInvoice',
+  'deleteAccount'
 ];
 
 test('direct API client exposes only the direct marketplace/session surface', () => {
@@ -81,6 +87,12 @@ test('direct API client maps the marketplace routes and carries the bound sessio
   await api.respondRetry('tx id', 'accept');
   await api.requestRefund('tx id');
   await api.checkRefund('tx id');
+  await api.getProStatus();
+  await api.startProTrial();
+  await api.getProPlans();
+  await api.createProInvoice({ planId: 'monthly', currency: 'xanax' });
+  await api.getProInvoice('66666666-6666-4666-8666-666666666666');
+  await api.deleteAccount();
 
   assert.deepEqual(calls.map(call => [call.method, new URL(call.url).pathname]), [
     ['POST', '/v1/auth/bind'],
@@ -102,7 +114,13 @@ test('direct API client maps the marketplace routes and carries the bound sessio
     ['POST', '/v1/transactions/tx%20id/retry-request'],
     ['POST', '/v1/transactions/tx%20id/retry-response'],
     ['POST', '/v1/transactions/tx%20id/request-refund'],
-    ['POST', '/v1/transactions/tx%20id/check-refund']
+    ['POST', '/v1/transactions/tx%20id/check-refund'],
+    ['GET', '/v1/pro/status'],
+    ['POST', '/v1/pro/trial'],
+    ['GET', '/v1/pro/plans'],
+    ['POST', '/v1/pro/invoices'],
+    ['GET', '/v1/pro/invoices/66666666-6666-4666-8666-666666666666'],
+    ['DELETE', '/v1/account']
   ]);
 
   assert.equal(calls[0].headers.Authorization, undefined);
@@ -115,6 +133,8 @@ test('direct API client maps the marketplace routes and carries the bound sessio
   }
   assert.deepEqual(calls[0].body, { apiKey: 'identity-key', clientVersion: '0.5.0' });
   assert.deepEqual(calls[17].body, { decision: 'accept' });
+  assert.deepEqual(calls[23].body, { planId: 'monthly', currency: 'xanax' });
+  assert.deepEqual(calls[25].body, { confirm: 'DELETE REVIVERELAY ACCOUNT' });
 });
 
 test('direct API client contains no chat candidate or retry-outbox machinery', () => {
@@ -135,4 +155,58 @@ test('0.5.0 runtime consumes the direct API client global only', () => {
   const source = fs.readFileSync('torn-revive-chat-collector.user.js', 'utf8');
   assert.match(source, /ReviveRelayDirectApiClient/);
   assert.doesNotMatch(source, /ReviveRelayApiClient/);
+});
+
+
+test('unified client preserves bounded server error codes and retryability', async () => {
+  const direct = require('../src/direct-api-client');
+  const cases = [
+    [{ status:403, body:{ error:'REVIVER_PRO_REQUIRED', secret:'must-not-survive' } }, 'REVIVER_PRO_REQUIRED', false],
+    [{ status:409, body:{ error:'REVIVE_ABILITY_PERMISSION_REQUIRED' } }, 'REVIVE_ABILITY_PERMISSION_REQUIRED', false],
+    [{ status:422, body:{ error:'INVALID_INVOICE_REQUEST' } }, 'INVALID_INVOICE_REQUEST', false],
+    [{ status:503, body:{ error:'TORN_UNAVAILABLE' } }, 'TORN_UNAVAILABLE', true]
+  ];
+  for (const [response, expectedCode, retryable] of cases) {
+    const api=direct.createDirectApiClient({
+      baseUrl:'https://reviverelay.example',getToken:()=> 'token',request:async()=>response
+    });
+    await assert.rejects(()=>api.getProStatus(),error=>{
+      assert.equal(error.code,expectedCode);
+      assert.equal(error.status,response.status);
+      assert.equal(error.retryable,retryable);
+      assert.equal(error.details && Object.hasOwn(error.details,'secret'),false);
+      return true;
+    });
+  }
+
+  const unsafe=direct.createDirectApiClient({
+    baseUrl:'https://reviverelay.example',getToken:()=> 'token',
+    request:async()=>({status:503,body:{error:'<script>alert(1)</script>',token:'leak'}})
+  });
+  await assert.rejects(()=>unsafe.getProStatus(),error=>{
+    assert.equal(error.code,'SERVER_UNAVAILABLE');
+    assert.equal(error.retryable,true);
+    assert.deepEqual(error.details,{});
+    return true;
+  });
+});
+
+test('unified client validates invoice selection before transport', async () => {
+  const direct=require('../src/direct-api-client');
+  const calls=[];
+  const api=direct.createDirectApiClient({
+    baseUrl:'https://reviverelay.example',getToken:()=> 'token',
+    request:async input=>{calls.push(input);return {status:200,body:{}};}
+  });
+  for (const payload of [
+    {planId:'monthly',currency:'cash',expectedAmount:1},
+    {planId:'monthly',currency:'cash',months:12},
+    {planId:'monthly',currency:'cash',tornId:123},
+    {planId:'not-a-plan',currency:'cash'},
+    {planId:'monthly',currency:'gold'}
+  ]) {
+    await assert.rejects(()=>api.createProInvoice(payload),error=>error && error.code==='INVALID_INVOICE_SELECTION');
+  }
+  await assert.rejects(()=>api.getProInvoice(''),error=>error && error.code==='INVALID_INVOICE_ID');
+  assert.equal(calls.length,0);
 });

@@ -20,7 +20,7 @@ test('canonical 0.5.0 source keeps the proven document-idle bootstrap but is dir
   assert.match(source, /@run-at\s+document-idle/);
   assert.match(source, /ReviveRelay → Revive Me!/);
   assert.match(source, /ReviveRelayRequestPreset/);
-  assert.match(source, /ReviveRelayProClient/);
+  assert.doesNotMatch(source, /ReviveRelayProClient|createProClient|state\.proApi/);
   assert.doesNotMatch(source, /fetchRecentPublicCandidates|\/v1\/candidates|Shared public chat requests/);
 });
 

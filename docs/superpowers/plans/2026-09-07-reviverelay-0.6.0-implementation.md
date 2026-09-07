@@ -196,18 +196,18 @@ assert.equal(subscriptionRequiresEntitlement(live), true);
 - Modify: `test/client-privacy.test.js`
 - Modify: `test/direct-only-build.test.js`
 
-- [ ] **RED:** Extend direct-client tests with `getProStatus`, `startProTrial`, `getProPlans` or capability-derived plan access, `createProInvoice`, `getProInvoice`, and `deleteAccount`. Assert server error codes are preserved for 403/409/422/503 instead of collapsing them to generic categories, while status/retryability remain bounded.
+- [x] **RED:** Extend direct-client tests with `getProStatus`, `startProTrial`, `getProPlans` or capability-derived plan access, `createProInvoice`, `getProInvoice`, and `deleteAccount`. Assert server error codes are preserved for 403/409/422/503 instead of collapsing them to generic categories, while status/retryability remain bounded.
 
 ```js
 throw new DirectApiClientError(serverCode || fallbackCode, {status, retryable, details:safeDetails});
 ```
 
-- [ ] **RED:** Assert the production bundle inventory no longer includes `src/pro-client.js`, userscript no longer reads `ReviveRelayProClient`, and only one transport instance owns base URL/session/version/channel headers.
-- [ ] Confirm RED.
-- [ ] **GREEN:** Move Pro methods/validation into `createDirectApiClient`, preserve safe server error codes, remove production `proApi` construction, and route all Pro calls through `state.api`.
-- [ ] Leave `src/pro-client.js` only as non-production historical source if deletion would harm history; it must not be bundled or invoked.
-- [ ] Run direct client, Pro UI, privacy and bundle tests.
-- [ ] Commit: `refactor: unify ReviveRelay client API transport`
+- [x] **RED:** Assert the production bundle inventory no longer includes `src/pro-client.js`, userscript no longer reads `ReviveRelayProClient`, and only one transport instance owns base URL/session/version/channel headers.
+- [x] Confirm RED.
+- [x] **GREEN:** Move Pro methods/validation into `createDirectApiClient`, preserve safe server error codes, remove production `proApi` construction, and route all Pro calls through `state.api`.
+- [x] Leave `src/pro-client.js` only as non-production historical source if deletion would harm history; it must not be bundled or invoked.
+- [x] Run direct client, Pro UI, privacy and bundle tests.
+- [x] Commit: `refactor: unify ReviveRelay client API transport`
 
 ### Task 8: Render subscription mode and server-owned plans without hard-coded client pricing
 

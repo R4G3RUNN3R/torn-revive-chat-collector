@@ -59,9 +59,8 @@
   const TelemetryClient = globalThis.ReviveRelayTelemetryClient;
   const RequestPreset = globalThis.ReviveRelayRequestPreset;
   const SidebarAction = globalThis.ReviveRelaySidebarAction;
-  const ProClient = globalThis.ReviveRelayProClient;
 
-  if (!Core || !DirectApiClient || !UpdateManager || !TelemetryClient || !RequestPreset || !SidebarAction || !ProClient) {
+  if (!Core || !DirectApiClient || !UpdateManager || !TelemetryClient || !RequestPreset || !SidebarAction) {
     console.error('[ReviveRelay] Required direct-runtime dependency unavailable.');
     return;
   }
@@ -69,7 +68,6 @@
   const requestTransport = DirectApiClient.createGmRequestAdapter(GM_xmlhttpRequest);
   const state = {
     api: null,
-    proApi: null,
     telemetry: null,
     updateManager: null,
     sessionToken: String(GM_getValue(KEYS.sessionToken, '') || ''),
@@ -108,14 +106,6 @@
   let clockTimer = null;
 
   state.api = DirectApiClient.createDirectApiClient({
-    baseUrl: API_BASE,
-    getToken: () => state.sessionToken,
-    request: requestTransport,
-    clientVersion: VERSION,
-    releaseChannel: UPDATE_CHANNEL
-  });
-
-  state.proApi = ProClient.createProClient({
     baseUrl: API_BASE,
     getToken: () => state.sessionToken,
     request: requestTransport,
@@ -324,10 +314,10 @@
       state.proPlans = [];
       return;
     }
-    const result = await state.proApi.getStatus();
+    const result = await state.api.getProStatus();
     state.proStatus = result?.pro || null;
     if (includePlans || !state.proPlans.length) {
-      const plans = await state.proApi.getPlans();
+      const plans = await state.api.getProPlans();
       state.proPlans = Array.isArray(plans?.plans) ? plans.plans : [];
     }
   }
@@ -430,7 +420,7 @@
 
   async function refreshCurrentInvoice() {
     if (!state.sessionToken || state.currentInvoice?.state !== 'PENDING' || !state.currentInvoice?.id) return;
-    const result = await state.proApi.getInvoice(state.currentInvoice.id);
+    const result = await state.api.getProInvoice(state.currentInvoice.id);
     state.currentInvoice = {
       ...(result?.invoice || {}),
       paymentTarget: result?.paymentTarget || state.currentInvoice.paymentTarget || null
@@ -513,7 +503,7 @@
 
   async function startProTrial() {
     try {
-      const result = await state.proApi.startTrial();
+      const result = await state.api.startProTrial();
       state.proStatus = result?.pro || null;
       setStatus('7-day Reviver Pro trial activated.');
       await refreshVerificationCredential();
@@ -528,7 +518,7 @@
     const planId = document.getElementById('rr-pro-plan')?.value;
     const currency = document.getElementById('rr-pro-currency')?.value;
     try {
-      const result = await state.proApi.createInvoice({ planId, currency });
+      const result = await state.api.createProInvoice({ planId, currency });
       state.currentInvoice = {
         ...(result?.invoice || {}),
         paymentTarget: result?.paymentTarget || null
