@@ -175,14 +175,14 @@ assert.equal(subscriptionRequiresEntitlement(live), true);
 - Modify: `server/src/security/rate-limits.js`
 - Modify: `server/src/db/migrations/007_pro_billing_adjustments.sql` only if the lifecycle design needs a tombstone/audit relation introduced in the same new migration; otherwise create `008_account_deletion.sql`
 
-- [ ] **RED:** Add integration test proving `DELETE /v1/account` requires auth and explicit confirmation payload, then immediately revokes all sessions, revokes/removes encrypted user verification credentials, removes active reviver registration/preferences/preset-linked operational data where safe, and prevents the old bearer token from authenticating again.
-- [ ] **RED:** Prove paid invoices/payment evidence/billing adjustments and minimal anti-reuse/security history survive without retaining plaintext/raw Torn payloads.
-- [ ] Confirm RED because route/service is absent.
-- [ ] **GREEN:** Implement one transactional deletion service with explicit retention behavior. Prefer pseudonymization/tombstoning of the identity row when foreign-key-retained billing history requires it rather than cascading protected finance evidence.
-- [ ] Route response must describe completion only after commit and never return retained secret/internal fields.
-- [ ] Apply a specific account-mutation rate limit.
-- [ ] Run account deletion + auth + DB privacy tests.
-- [ ] Commit: `feat: add ReviveRelay account data deletion`
+- [x] **RED:** Add integration test proving `DELETE /v1/account` requires auth and explicit confirmation payload, then immediately revokes all sessions, revokes/removes encrypted user verification credentials, removes active reviver registration/preferences/preset-linked operational data where safe, and prevents the old bearer token from authenticating again.
+- [x] **RED:** Prove paid invoices/payment evidence/billing adjustments and minimal anti-reuse/security history survive without retaining plaintext/raw Torn payloads.
+- [x] Confirm RED because route/service is absent.
+- [x] **GREEN:** Implement one transactional deletion service with explicit retention behavior. Prefer pseudonymization/tombstoning of the identity row when foreign-key-retained billing history requires it rather than cascading protected finance evidence.
+- [x] Route response must describe completion only after commit and never return retained secret/internal fields.
+- [x] Apply a specific account-mutation rate limit.
+- [x] Run account deletion + auth + DB privacy tests.
+- [x] Commit: `feat: add ReviveRelay account data deletion`
 
 ### Task 7: Consolidate Pro requests into the unified client API transport
 

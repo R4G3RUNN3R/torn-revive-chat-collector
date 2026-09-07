@@ -33,7 +33,9 @@ function createIdentityRepository(pool) {
           INSERT INTO users (torn_id, current_name)
           VALUES ($1, $2)
           ON CONFLICT (torn_id)
-          DO UPDATE SET current_name = EXCLUDED.current_name, updated_at = now()
+          DO UPDATE SET current_name = EXCLUDED.current_name,
+                        account_state = 'active',
+                        updated_at = now()
           RETURNING id
         `, [tornId, name]);
         const userId = userResult.rows[0].id;

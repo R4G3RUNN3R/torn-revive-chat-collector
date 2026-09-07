@@ -11,6 +11,7 @@ const { registerTransactionRoutes } = require("./routes/transactions");
 const { registerTelemetryRoutes } = require("./routes/telemetry");
 const { registerClientVersionRoute } = require('./routes/client-version');
 const { registerAdminProRoutes } = require('./routes/admin-pro');
+const { registerAccountRoutes } = require('./routes/account');
 const { installAuthentication } = require('./security/authenticate');
 const { createClientVersionPreHandler } = require('./security/client-version');
 
@@ -31,6 +32,7 @@ function buildApp({
   jobRepository = null,
   errorTelemetryRepository = null,
   releaseRegistry = null,
+  accountDeletionService = null,
   logger = false
 }) {
   if (!config) throw new Error('config is required');
@@ -58,6 +60,11 @@ function buildApp({
     app.register(async instance => {
       await registerMeRoute(instance, { entitlementRepository, config });
     });
+    if (accountDeletionService) {
+      app.register(async instance => {
+        await registerAccountRoutes(instance,{accountDeletionService});
+      });
+    }
     if (entitlementRepository) {
       app.register(async instance => {
         await registerProRoutes(instance, {
