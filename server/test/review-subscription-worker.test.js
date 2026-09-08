@@ -1,6 +1,7 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
+const path=require('node:path');
 const {
   runSubscriptionLoop,
   configureReviewSubscriptionHandler
@@ -64,6 +65,6 @@ test('review subscription setup rejects non-review mode and non-canonical mercha
 });
 
 test('review subscription worker has no dependency on the shared generic jobs queue',()=>{
-  const source=fs.readFileSync('server/src/review-subscription-worker.js','utf8');
+  const source=fs.readFileSync(path.resolve(__dirname,'../src/review-subscription-worker.js'),'utf8');
   assert.doesNotMatch(source,/createJobRepository|enqueueUniqueJob|claimDueJobs|\.\/db\/jobs/);
 });
