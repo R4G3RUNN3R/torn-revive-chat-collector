@@ -1,8 +1,8 @@
 const { z } = require('zod');
 const { publicProPlans } = require('../domain/pro-plans');
-const { paymentsEnabled, publicSubscriptionState } = require('../domain/subscription-mode');
+const { paymentsEnabled, publicSubscriptionState, isCanonicalOwner } = require('../domain/subscription-mode');
 const { createRuntimeContract } = require('../domain/runtime-contract');
-const { publicProStatus } = require('../security/pro-access');
+const { publicProStatus, resolvePublicProStatus } = require('../security/pro-access');
 const { assertCredentialCapability } = require('../security/verification-credential');
 const { createReviveEligibilityService } = require('../torn/revive-eligibility');
 const { RATE_LIMITS } = require('../security/rate-limits');
@@ -66,7 +66,7 @@ async function registerProRoutes(app, {
   app.get('/v1/pro/status', { preHandler:app.authenticate }, async (request, reply) => {
     const status = await entitlementRepository.getStatus(request.reviveRelayUser.userId, new Date());
     return reply.code(200).send({
-      pro:publicProStatus(status),
+      pro:resolvePublicProStatus({status,tornId:request.reviveRelayUser.tornId,subscription}),
       subscription,
       runtime
     });
@@ -78,6 +78,9 @@ async function registerProRoutes(app, {
 
   app.post('/v1/pro/trial', { preHandler:app.authenticate }, async (request, reply) => {
     const userId = request.reviveRelayUser.userId;
+    if (isCanonicalOwner({tornId:request.reviveRelayUser.tornId,subscription})) {
+      return reply.code(409).send({ error:'OWNER_PRO_NO_PURCHASE_REQUIRED' });
+    }
     if (!eligibilityService || !verificationCredentialRepository ||
         typeof verificationCredentialRepository.getStatus !== 'function') {
       return reply.code(503).send({ error:'REVIVER_ELIGIBILITY_UNAVAILABLE' });
@@ -129,6 +132,9 @@ async function registerProRoutes(app, {
     preHandler:[app.authenticate, subscriptionPaymentsGuard],
     config:{ rateLimit:RATE_LIMITS.PRO_INVOICE_WRITE }
   }, async (request, reply) => {
+    if (isCanonicalOwner({tornId:request.reviveRelayUser.tornId,subscription})) {
+      return reply.code(409).send({ error:'OWNER_PRO_NO_PURCHASE_REQUIRED' });
+    }
     const parsed=createInvoiceSchema.safeParse(request.body || {});
     if (!parsed.success) return reply.code(422).send({ error:'INVALID_INVOICE_REQUEST' });
     const invoice=await proInvoiceRepository.createInvoice({

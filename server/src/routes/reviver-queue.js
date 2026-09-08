@@ -20,7 +20,8 @@ async function registerReviverQueueRoutes(app, { transactionRepository, verifica
   }
   const requireSubscriptionAccess = requireReviverSubscriptionAccess({
     entitlementRepository,
-    subscriptionMode:config.SUBSCRIPTION_MODE
+    subscriptionMode:config.SUBSCRIPTION_MODE,
+    receiverTornId:config.PRO_RECEIVER_TORN_ID
   });
   const eligibilityService = createReviveEligibilityService({ tornClient, verificationCredentialRepository });
 

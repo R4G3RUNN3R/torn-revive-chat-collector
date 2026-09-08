@@ -5,11 +5,11 @@ const { TornApiError } = require('../../src/torn/client');
 
 const AUTH = { authorization:'Bearer pro-user-token' };
 
-function sessionRepository() {
+function sessionRepository(tornId=777001) {
   return {
     async findByTokenHash() {
       return {
-        sessionId:'session-pro', userId:'user-pro', tornId:777001, name:'Pro Tester',
+        sessionId:'session-pro', userId:'user-pro', tornId, name:'Pro Tester',
         expiresAt:null, revokedAt:null, reviverStanding:null, activeBan:false
       };
     }
@@ -182,7 +182,7 @@ test('/v1/me projects only public Pro entitlement state', async t => {
 });
 
 
-function makeBillingApp({ mode='review', invoiceRepository } = {}) {
+function makeBillingApp({ mode='review', invoiceRepository, tornId=777001 } = {}) {
   return buildApp({
     config:{
       API_KEY_ENCRYPTION_KEY:'cc'.repeat(32),
@@ -195,7 +195,7 @@ function makeBillingApp({ mode='review', invoiceRepository } = {}) {
     },
     tornClient:{async getKeyInfo(){throw new Error('not used');}},
     identityRepository:{async bindIdentity(){throw new Error('not used');}},
-    sessionRepository:sessionRepository(),
+    sessionRepository:sessionRepository(tornId),
     entitlementRepository:{
       async getStatus(){return {state:'NONE',trialEligible:true,trialStartedAt:null,validUntil:null};},
       async startTrial(){throw new Error('not used');}
@@ -292,4 +292,31 @@ test('free Pro status exposes plans for reference but no merchant or payment cap
   assert.equal(response.json().subscription.paymentsEnabled,false);
   assert.equal(response.json().subscription.merchant,null);
   assert.equal(response.json().subscription.plans.length,3);
+});
+
+
+test('OWNER receives lifetime Pro and cannot start a trial or create a subscription invoice', async t => {
+  let invoiceCalls=0;
+  const app=makeBillingApp({
+    mode:'review',
+    tornId:3877028,
+    invoiceRepository:{
+      async createInvoice(){invoiceCalls += 1; throw new Error('must not be called');},
+      async getInvoiceForUser(){return null;}
+    }
+  });
+  t.after(()=>app.close());
+
+  const status=await app.inject({method:'GET',url:'/v1/pro/status',headers:AUTH});
+  assert.equal(status.statusCode,200,status.body);
+  assert.deepEqual(status.json().pro,{state:'OWNER',trialEligible:false,trialStartedAt:null,validUntil:null});
+
+  const trial=await app.inject({method:'POST',url:'/v1/pro/trial',headers:AUTH});
+  assert.equal(trial.statusCode,409,trial.body);
+  assert.equal(trial.json().error,'OWNER_PRO_NO_PURCHASE_REQUIRED');
+
+  const invoice=await app.inject({method:'POST',url:'/v1/pro/invoices',headers:AUTH,payload:{planId:'monthly',currency:'cash'}});
+  assert.equal(invoice.statusCode,409,invoice.body);
+  assert.equal(invoice.json().error,'OWNER_PRO_NO_PURCHASE_REQUIRED');
+  assert.equal(invoiceCalls,0);
 });

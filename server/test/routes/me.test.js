@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { buildApp } = require('../../src/app');
 const { hashSessionToken } = require('../../src/security/sessions');
 
-function appWithSession(record) {
+function appWithSession(record, configOverrides = {}) {
   return buildApp({
     config: {
       API_KEY_ENCRYPTION_KEY: '22'.repeat(32),
@@ -11,7 +11,8 @@ function appWithSession(record) {
       SUBSCRIPTION_MODE: 'free',
       REVIVERELAY_SERVER_VERSION: '0.6.1',
       REVIVERELAY_MINIMUM_CLIENT_VERSION: '0.6.1',
-      REVIVERELAY_RELEASE_CHANNEL: 'stable'
+      REVIVERELAY_RELEASE_CHANNEL: 'stable',
+      ...configOverrides
     },
     tornClient: { async getKeyInfo() { throw new Error('not used'); } },
     identityRepository: { async bindIdentity() { throw new Error('not used'); } },
@@ -81,4 +82,28 @@ test('GET /v1/me returns authenticated public identity, roles and safe Pro state
     }
   });
   assert.doesNotMatch(response.body, /apiKey|ciphertext|authTag|access_scope/i);
+});
+
+
+test('GET /v1/me derives OWNER lifetime Pro only for the canonical merchant identity', async t => {
+  const app = appWithSession({
+    sessionId:'owner-session',
+    userId:'owner-user',
+    tornId:3877028,
+    name:'R4G3RUNN3R',
+    expiresAt:null,
+    revokedAt:null,
+    reviverStanding:'active',
+    activeBan:false
+  },{
+    SUBSCRIPTION_MODE:'review',
+    PRO_RECEIVER_TORN_ID:3877028,
+    REVIVERELAY_RELEASE_CHANNEL:'review'
+  });
+  t.after(()=>app.close());
+  const response=await app.inject({method:'GET',url:'/v1/me',headers:{authorization:'Bearer me-token'}});
+  assert.equal(response.statusCode,200,response.body);
+  assert.deepEqual(response.json().pro,{
+    state:'OWNER',trialEligible:false,trialStartedAt:null,validUntil:null
+  });
 });

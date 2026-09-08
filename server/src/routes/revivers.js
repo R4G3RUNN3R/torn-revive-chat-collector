@@ -28,7 +28,8 @@ async function registerReviverRoutes(app, {
   if (!reviverRepository || typeof reviverRepository.register !== 'function') throw new Error('reviverRepository is required');
   const requireSubscriptionAccess = requireReviverSubscriptionAccess({
     entitlementRepository,
-    subscriptionMode:config.SUBSCRIPTION_MODE
+    subscriptionMode:config.SUBSCRIPTION_MODE,
+    receiverTornId:config.PRO_RECEIVER_TORN_ID
   });
   const eligibilityService = createReviveEligibilityService({ tornClient, verificationCredentialRepository });
 

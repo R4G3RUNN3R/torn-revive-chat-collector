@@ -8,6 +8,7 @@ const AUTH={authorization:'Bearer reviver-token'};
 function makeApp({
   state,
   subscriptionMode='review',
+  tornId=888001,
   reviverStanding='active',
   credentialStatus={id:'cred',usable:true,capabilities:{reviver:true,requester:false}},
   perksJob=['+ Ability to revive']
@@ -27,7 +28,7 @@ function makeApp({
     sessionRepository:{
       async findByTokenHash(){
         return {
-          sessionId:'s',userId:'reviver-user',tornId:888001,name:'Gate Tester',
+          sessionId:'s',userId:'reviver-user',tornId,name:'Gate Tester',
           expiresAt:null,revokedAt:null,reviverStanding,activeBan:false
         };
       }
@@ -110,4 +111,40 @@ test('free mode still blocks a grandfathered reviver without current Torn revive
     assert.equal(response.statusCode,403,response.body);
     assert.equal(response.json().error,'REVIVE_ABILITY_NOT_UNLOCKED');
   }
+});
+
+
+test('canonical merchant receives OWNER entitlement access without a trial or paid row', async t => {
+  const app=makeApp({state:'NONE',subscriptionMode:'review',tornId:3877028});
+  t.after(()=>app.close());
+  assert.equal((await app.inject({method:'GET',url:'/v1/reviver/queue',headers:AUTH})).statusCode,200);
+  assert.equal((await app.inject({method:'POST',url:`/v1/requests/${REQUEST_ID}/accept`,headers:AUTH})).statusCode,200);
+  assert.equal((await app.inject({method:'POST',url:'/v1/reviver/register',headers:AUTH})).statusCode,200);
+});
+
+test('non-owner cannot spoof OWNER through an entitlement row', async t => {
+  const app=makeApp({state:'OWNER',subscriptionMode:'review',tornId:888001});
+  t.after(()=>app.close());
+  for (const response of [
+    await app.inject({method:'GET',url:'/v1/reviver/queue',headers:AUTH}),
+    await app.inject({method:'POST',url:`/v1/requests/${REQUEST_ID}/accept`,headers:AUTH}),
+    await app.inject({method:'POST',url:'/v1/reviver/register',headers:AUTH})
+  ]) {
+    assert.equal(response.statusCode,403,response.body);
+    assert.equal(response.json().error,'REVIVER_PRO_REQUIRED');
+  }
+});
+
+test('OWNER still requires verification credential and current Torn revive ability', async t => {
+  const missingCredential=makeApp({state:'NONE',subscriptionMode:'review',tornId:3877028,credentialStatus:null});
+  t.after(()=>missingCredential.close());
+  const credentialResponse=await missingCredential.inject({method:'POST',url:'/v1/reviver/register',headers:AUTH});
+  assert.equal(credentialResponse.statusCode,409,credentialResponse.body);
+  assert.equal(credentialResponse.json().error,'VERIFICATION_CREDENTIAL_REQUIRED');
+
+  const missingAbility=makeApp({state:'NONE',subscriptionMode:'review',tornId:3877028,perksJob:['+ 10% Crime success']});
+  t.after(()=>missingAbility.close());
+  const abilityResponse=await missingAbility.inject({method:'POST',url:'/v1/reviver/register',headers:AUTH});
+  assert.equal(abilityResponse.statusCode,403,abilityResponse.body);
+  assert.equal(abilityResponse.json().error,'REVIVE_ABILITY_NOT_UNLOCKED');
 });

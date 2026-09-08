@@ -4,8 +4,10 @@ const {
   normalizeSubscriptionMode,
   paymentsEnabled,
   subscriptionRequiresEntitlement,
-  publicSubscriptionState
+  publicSubscriptionState,
+  isCanonicalOwner
 }=require('../../src/domain/subscription-mode');
+const {hasActivePro,resolvePublicProStatus}=require('../../src/security/pro-access');
 
 const PLANS=[{id:'monthly',label:'Monthly',months:1,xanax:10,cash:10000000}];
 
@@ -31,4 +33,31 @@ test('public subscription state exposes server plans and canonical merchant only
   assert.deepEqual(publicSubscriptionState({mode:'review',receiverTornId:3877028,plans:PLANS}),{
     mode:'review',paymentsEnabled:true,merchant:{tornId:3877028,name:'R4G3RUNN3R'},plans:PLANS
   });
+});
+
+
+test('canonical payment recipient is the only server-derived OWNER identity in paid modes',()=>{
+  const subscription=publicSubscriptionState({mode:'review',receiverTornId:3877028,plans:PLANS});
+  assert.equal(isCanonicalOwner({tornId:3877028,subscription}),true);
+  assert.equal(isCanonicalOwner({tornId:3877029,subscription}),false);
+  assert.equal(isCanonicalOwner({tornId:3877028,subscription:publicSubscriptionState({mode:'free',receiverTornId:3877028,plans:PLANS})}),false);
+});
+
+test('OWNER public status is lifetime and cannot be spoofed by a non-owner entitlement row',()=>{
+  const subscription=publicSubscriptionState({mode:'review',receiverTornId:3877028,plans:PLANS});
+  assert.deepEqual(resolvePublicProStatus({
+    status:{state:'NONE',trialEligible:true,trialStartedAt:null,validUntil:null},
+    tornId:3877028,
+    subscription
+  }),{
+    state:'OWNER',trialEligible:false,trialStartedAt:null,validUntil:null
+  });
+  assert.deepEqual(resolvePublicProStatus({
+    status:{state:'OWNER',trialEligible:false,trialStartedAt:null,validUntil:null},
+    tornId:3877029,
+    subscription
+  }),{
+    state:'NONE',trialEligible:false,trialStartedAt:null,validUntil:null
+  });
+  assert.equal(hasActivePro({state:'OWNER'}),true);
 });

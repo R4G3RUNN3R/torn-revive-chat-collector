@@ -1,7 +1,7 @@
 const { publicProPlans } = require('../domain/pro-plans');
 const { publicSubscriptionState } = require('../domain/subscription-mode');
 const { createRuntimeContract } = require('../domain/runtime-contract');
-const { publicProStatus } = require('../security/pro-access');
+const { resolvePublicProStatus } = require('../security/pro-access');
 
 async function registerMeRoute(app, { entitlementRepository = null, config = {} } = {}) {
   if (typeof app.authenticate !== 'function') {
@@ -32,7 +32,7 @@ async function registerMeRoute(app, { entitlementRepository = null, config = {} 
         name: request.reviveRelayUser.name
       },
       roles: request.reviveRelayUser.roles,
-      pro: publicProStatus(status),
+      pro: resolvePublicProStatus({status,tornId:request.reviveRelayUser.tornId,subscription}),
       subscription,
       runtime
     });

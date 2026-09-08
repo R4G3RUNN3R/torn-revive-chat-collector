@@ -16,6 +16,12 @@ function subscriptionRequiresEntitlement(mode) {
   return normalizeSubscriptionMode(mode) !== 'free';
 }
 
+function isCanonicalOwner({ tornId, subscription } = {}) {
+  if (!subscription || subscription.mode === 'free') return false;
+  return Number(subscription.merchant?.tornId) === PRO_MERCHANT_TORN_ID &&
+    Number(tornId) === PRO_MERCHANT_TORN_ID;
+}
+
 function publicSubscriptionState({ mode, receiverTornId = null, plans = [] } = {}) {
   const normalized = normalizeSubscriptionMode(mode);
   const enabled = paymentsEnabled(normalized);
@@ -38,5 +44,6 @@ module.exports = {
   normalizeSubscriptionMode,
   paymentsEnabled,
   subscriptionRequiresEntitlement,
+  isCanonicalOwner,
   publicSubscriptionState
 };
