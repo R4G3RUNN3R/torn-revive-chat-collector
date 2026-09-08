@@ -1,10 +1,12 @@
 # ReviveRelay Security
 
-This document describes security controls implemented for the ReviveRelay 0.6.0 Torn review candidate.
+This document describes security controls implemented for the ReviveRelay 0.6.1 Torn review candidate.
 
 ## Trust boundary
 
 The userscript is an untrusted client. The server is authoritative for request acceptance, reviver eligibility, subscription entitlement, plan pricing, merchant identity, invoice state, payment/refund evidence, deadlines and transaction state. Client-supplied price, duration, merchant or arbitrary transaction state is not trusted.
+
+The 0.6.1 review client uses `/review/v1/` and requires an explicit compatible `review` runtime contract. Missing, malformed, stable-channel or incompatible runtime/subscription metadata fails closed. The client never interprets missing subscription state as `free`.
 
 ## Credentials
 
@@ -35,6 +37,10 @@ Protected reviver operations fail closed unless the server confirms the relevant
 
 `free` subscription mode waives only the Pro entitlement requirement. It does not waive reviver identity, credential or Torn ability checks.
 
+The 7-day trial is **one-time per canonical Torn identity** and its timestamps remain server-side across reinstall, session replacement, verification-key replacement and account delete/reactivate cycles.
+
+The canonical merchant identity **R4G3RUNN3R [3877028]** is the only identity that can be server-derived as `OWNER`. OWNER has **Lifetime** Pro access and bypasses only the paid/trial entitlement requirement. It cannot be spoofed from a client-supplied field and still requires verification capability, permanent Torn revive ability and reviver registration.
+
 ## Billing and evidence replay protection
 
 Reviver Pro invoices are server-created from the immutable plan catalogue. The client supplies only a plan ID and currency. Payment recipient is server configuration: **R4G3RUNN3R [3877028]**.
@@ -45,7 +51,7 @@ The approved review pricing is Monthly 10 Xanax / $10,000,000, 6 Months 55 Xanax
 
 ## Release security
 
-0.6.0 uses separate immutable `review` and `stable` channels. The private review artifact embeds its exact Git commit and build timestamp. Channel-specific metadata prevents review/stable crossing. Runtime `@require`, `eval` and remote executable-code loading are not permitted in the review artifact.
+0.6.1 uses separate immutable `review` and `stable` channels. The private review artifact embeds its exact Git commit and build timestamp. Channel-specific metadata prevents review/stable crossing. Runtime `@require`, `eval` and remote executable-code loading are not permitted in the review artifact.
 
 The Task 12 review audit also checks for unexpected `@connect` hosts, excessive userscript grants, secret-like literals, legacy chat runtime dependencies, unsafe unreviewed HTML sinks and stale release metadata.
 
@@ -57,6 +63,6 @@ Account deletion removes credentials, sessions and active reviver registration, 
 
 ## Scripting boundary
 
-The 0.6.0 runtime is direct-only. It does **not scrape** unfocused Torn pages and performs no public chat collection. ReviveRelay does not automatically send Torn cash/items, accept revives, or execute Torn game actions. Payment and the actual revive remain user actions in Torn.
+The 0.6.1 runtime is direct-only. It does **not scrape** unfocused Torn pages and performs no public chat collection. ReviveRelay does not automatically send Torn cash/items, accept revives, or execute Torn game actions. Payment and the actual revive remain user actions in Torn.
 
 Torn staff are explicitly asked in the review package to confirm whether ReviveRelay's **certified-request network notifications**, generated from ReviveRelay server-originated requests rather than background Torn-page scraping, are acceptable.

@@ -1,4 +1,4 @@
-# ReviveRelay 0.6.0 Payment Verification Flow
+# ReviveRelay 0.6.1 Payment Verification Flow
 
 This document covers the Reviver Pro subscription receipt flow. Revive transaction payments/refunds use separate participant evidence but the same principle: Torn actions remain manual and the server verifies bounded evidence.
 
@@ -42,7 +42,7 @@ The client sends only the selected plan ID and currency. The server owns the act
 
 Eligible revivers can receive a one-time **7-day** trial. Full payment handling is enabled in the private `review` mode specifically so Torn staff can inspect the intended monetization before launch.
 
-Paid public launch is awaiting Torn approval. Public production remains 0.4.4 and has not been promoted to the 0.6.0 paid review candidate.
+Paid public launch is awaiting Torn approval. Public production remains 0.4.4 and has not been promoted to the 0.6.1 paid review candidate.
 
 ## Related privacy controls
 

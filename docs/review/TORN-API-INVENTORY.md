@@ -1,4 +1,4 @@
-# ReviveRelay 0.6.0 Torn API Inventory
+# ReviveRelay 0.6.1 Torn API Inventory
 
 The ReviveRelay backend uses official Torn API v2 endpoints. User keys are supplied in the API-key header rather than query-string URLs.
 
@@ -36,7 +36,7 @@ The subscription worker uses a separate **restricted merchant** credential for *
 
 ## What ReviveRelay does not use
 
-The 0.6.0 runtime has **no public chat collection**, does not scrape Torn chat, and does not use background/unfocused page data as a substitute for the official API. ReviveRelay does not need the user's Torn password.
+The 0.6.1 runtime has **no public chat collection**, does not scrape Torn chat, and does not use background/unfocused page data as a substitute for the official API. ReviveRelay does not need the user's Torn password.
 
 ReviveRelay also does not use the API to execute payments or revives. Payment to R4G3RUNN3R [3877028] and the actual revive are **manual Torn actions**.
 

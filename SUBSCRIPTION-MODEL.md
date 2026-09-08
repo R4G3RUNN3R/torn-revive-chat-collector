@@ -8,11 +8,15 @@ ReviveRelay requester access is free. Reviver-side queue access can be controlle
 - **review**: the full prepaid Pro workflow is enabled for the private Torn review channel.
 - **live**: the same prepaid workflow may be used publicly only after Torn approval and explicit production promotion.
 
-Paid public launch is **awaiting Torn approval**. Public production remains 0.4.4 while the 0.6.0 review candidate is evaluated.
+Paid public launch is **awaiting Torn approval**. Public production remains 0.4.4 while the 0.6.1 review candidate is evaluated.
 
 ## 7-day trial
 
-An eligible reviver may activate the implemented **7-day** Reviver Pro trial once. Trial activation requires the reviver verification capability and current Torn permanent revive ability. Paid time stacks after any remaining trial/paid entitlement rather than destroying unused time.
+An eligible reviver may activate the implemented **7-day** Reviver Pro trial once. The trial is **one-time per canonical Torn identity**, with server-authoritative start/end timestamps. Reinstalling the userscript, clearing local storage, creating a new session, replacing the verification key, deleting/reactivating the ReviveRelay account, or restarting the application does not reset trial usage. Trial activation requires the reviver verification capability and current Torn permanent revive ability. Paid time stacks after any remaining trial/paid entitlement rather than destroying unused time.
+
+## OWNER lifetime access
+
+The authenticated Torn identity matching the canonical payment recipient **R4G3RUNN3R [3877028]** receives server-derived state `OWNER` with **Lifetime** Reviver Pro access and no expiry. OWNER is not accepted from userscript state or request data. It requires no trial or subscription invoice and is prevented from purchasing itself, while all normal reviver verification, Torn ability, registration and transaction-safety checks still apply.
 
 ## Approved launch plans
 

@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.6.1 - Private Torn review runtime hardening
+
+### Added
+
+- Dedicated `/review/v1/` API runtime for the 0.6.1 private review channel while stable 0.4.4 remains on `/v1/`.
+- Explicit server runtime contract with server version, minimum client version, release channel and subscription state.
+- Server-derived `OWNER` Reviver Pro state for the canonical payment recipient **R4G3RUNN3R [3877028]**, with Lifetime access and no expiry.
+- Regression coverage proving the 7-day trial remains one-time per canonical Torn identity across reinstall/session/key/account lifecycle events.
+- Dedicated review subscription-payment scanner that does not compete with the stable 0.4.4 generic worker queue.
+
+### Changed
+
+- Review-client subscription/runtime handling now fails closed when metadata is missing, malformed, incompatible or from the stable channel; absence never defaults to `free`.
+- Owner accounts do not render trial or subscription-purchase controls.
+- Review artifacts and documentation advance immutably to 0.6.1; 0.6.0 review bytes remain unchanged.
+
+### Security
+
+- OWNER is derived only from authenticated Torn identity plus trusted canonical merchant configuration and cannot be supplied by userscript state or request data.
+- OWNER bypasses only paid/trial entitlement; verification capability, Torn permanent revive ability, active reviver registration, requester evidence and transaction safety remain mandatory.
+- Trial timestamps remain server-authoritative and are not reset by userscript reinstall, cleared local state, new ReviveRelay sessions, verification-key replacement, account delete/reactivate or application restart.
+
+### Review status
+
+0.6.1 is for the **private review channel only**. Public production remains **0.4.4** and stable 0.4.4 is unchanged. Paid public launch still awaits Torn approval and manual browser acceptance evidence.
+
 ## 0.6.0 - Torn review candidate
 
 ### Added

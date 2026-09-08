@@ -1,10 +1,10 @@
 # ReviveRelay
 
-ReviveRelay is a Torn userscript and isolated Voidsmith backend for direct, certified revive requests. Version **0.6.0** is the private Torn review candidate. Public production remains **0.4.4** until Torn review, manual browser acceptance, and explicit owner approval are complete.
+ReviveRelay is a Torn userscript and isolated Voidsmith backend for direct, certified revive requests. Version **0.6.1** is the private Torn review candidate. Public production remains **0.4.4** until Torn review, manual browser acceptance, and explicit owner approval are complete.
 
 ## Runtime model
 
-ReviveRelay 0.6.0 is direct-only. It does **not scrape public chat**, does not collect Faction/Company/private chat, and does not make automated non-API Torn game requests. Requesters create certified requests through the ReviveRelay API; eligible revivers receive the server-certified queue and may manually accept a request.
+ReviveRelay 0.6.1 is direct-only. It does **not scrape public chat**, does not collect Faction/Company/private chat, and does not make automated non-API Torn game requests. Requesters create certified requests through the ReviveRelay API; eligible revivers receive the server-certified queue and may manually accept a request.
 
 Requester access is free. A requester can create a request immediately, but the request cannot enter the reviver queue or be accepted until **ReviveRelay Verification** has a usable requester-evidence capability. The recommended requester key is narrowly scoped to **Basic, Profile and Revives** so later revive outcome and hospital-state evidence can be checked.
 
@@ -16,6 +16,10 @@ Reviver access additionally requires:
 - Reviver Pro entitlement when subscription mode is `review` or `live`.
 
 The recommended reviver/combined key adds **Perks** and restricted Money/Items transaction-log categories used by the revive payment/refund workflow. Broad/Full keys may be accepted when they contain the required evidence access, but the UI warns that they grant more access than ReviveRelay needs.
+
+### Review runtime isolation
+
+The 0.6.1 review client uses `https://reviverelay.voidsmithindustries.com/review/v1/` and requires a compatible server-declared `review` runtime contract. Stable public 0.4.4 continues to use `/v1/` and is unchanged. Missing, malformed, stable-channel or incompatible review metadata fails closed; it never grants free/Pro access by absence.
 
 ## Subscription modes
 
@@ -34,6 +38,10 @@ Approved launch pricing is server-owned:
 | Yearly | 100 Xanax | $100,000,000 |
 
 Payment recipient: **R4G3RUNN3R [3877028]**.
+
+The Reviver Pro trial is **7 days and one-time per canonical Torn identity**. Reinstalling the userscript, replacing sessions/verification keys, or deleting/reactivating the ReviveRelay account does not reset the original server-side trial timestamps.
+
+The canonical payment-recipient identity receives server-derived `OWNER` Pro with **Lifetime** access. OWNER requires no trial or subscription invoice, but it still must satisfy reviver verification, permanent Torn revive ability, registration and transaction-safety checks.
 
 The `$` values above mean **Torn in-game cash**, not real-world currency. ReviveRelay never sends cash or items automatically. The user manually sends the exact invoice payment in Torn and the server verifies receipt from the restricted merchant incoming-payment evidence. Paid public launch is **awaiting Torn approval**.
 
@@ -78,11 +86,11 @@ The review package explicitly asks Torn staff to confirm whether ReviveRelay's *
 
 ## Source and release structure
 
-The tracked `torn-revive-chat-collector.user.js` file is the current userscript source template despite its historical filename. The 0.6.0 runtime itself is direct-only. Historical chat-related modules remain in the repository for regression/history purposes but are excluded from the generated 0.6.0 review bundle.
+The tracked `torn-revive-chat-collector.user.js` file is the current userscript source template despite its historical filename. The 0.6.1 runtime itself is direct-only. Historical chat-related modules remain in the repository for regression/history purposes but are excluded from the generated 0.6.1 review bundle.
 
 Installable review artifact:
 
-`dist/review/ReviveRelay-0.6.0.user.js`
+`dist/review/ReviveRelay-0.6.1.user.js`
 
 Review builds update only within the review channel. Stable builds update only within the stable channel. Released artifacts are immutable and carry semantic version, Git commit, build timestamp and channel-specific update/download URLs.
 

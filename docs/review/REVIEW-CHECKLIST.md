@@ -1,4 +1,4 @@
-# ReviveRelay 0.6.0 Torn Review Checklist
+# ReviveRelay 0.6.1 Torn Review Checklist
 
 This checklist is for the private review candidate. It does not represent Torn approval or completed manual browser acceptance.
 
@@ -14,7 +14,7 @@ This checklist is for the private review candidate. It does not represent Torn a
 
 ## Scripting / API boundary
 
-- [ ] Confirm 0.6.0 has no public chat collection and does not scrape unfocused Torn pages.
+- [ ] Confirm 0.6.1 has no public chat collection and does not scrape unfocused Torn pages.
 - [ ] Confirm actual payment/revive/Accept game actions remain manual user actions where applicable.
 - [ ] Confirm the userscript has no runtime `@require`, `eval` or remote executable-code loading.
 - [ ] Confirm cross-origin userscript network access is restricted to the ReviveRelay backend.

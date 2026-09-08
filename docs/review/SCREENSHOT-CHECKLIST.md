@@ -1,4 +1,4 @@
-# ReviveRelay 0.6.0 Screenshot Checklist
+# ReviveRelay 0.6.1 Screenshot Checklist
 
 These screenshots are **required human review evidence** and are currently pending capture. Automated tests cannot certify visual/browser behavior.
 
@@ -15,9 +15,9 @@ These screenshots are **required human review evidence** and are currently pendi
 - [ ] Capture desktop Tampermonkey behavior on a current Torn page.
 - [ ] Capture any TornPDA/mobile behavior that is claimed as supported before making that claim in the review submission.
 - [ ] Redact any real API key, bearer/session token, merchant credential or unrelated private Torn information.
-- [ ] Show `0.6.0` and the `review` release channel where visible.
+- [ ] Show `0.6.1` and the `review` release channel where visible.
 - [ ] Confirm the panel does not reset an edited Settings form during background polling.
-- [ ] Confirm no public chat content is displayed or collected by the 0.6.0 runtime.
+- [ ] Confirm no public chat content is displayed or collected by the 0.6.1 runtime.
 
 ## Manual acceptance evidence to accompany screenshots
 

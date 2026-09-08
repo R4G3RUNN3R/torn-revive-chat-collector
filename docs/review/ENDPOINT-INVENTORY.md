@@ -1,6 +1,6 @@
-# ReviveRelay 0.6.0 Endpoint Inventory
+# ReviveRelay 0.6.1 Endpoint Inventory
 
-This inventory describes the direct 0.6.0 runtime surface. Legacy candidate route source files remain in the repository for history/tests, but `buildApp()` does not register `/v1/candidates` or `/v1/candidates/recent` in the direct runtime; direct-only tests require those routes to return 404.
+This inventory describes the direct 0.6.1 runtime surface. Legacy candidate route source files remain in the repository for history/tests, but `buildApp()` does not register `/v1/candidates` or `/v1/candidates/recent` in the direct runtime; direct-only tests require those routes to return 404.
 
 ## Public / bootstrap
 
@@ -84,4 +84,4 @@ Administrator credentials/tokens are not included in this review package.
 
 ## Network boundary
 
-The 0.6.0 userscript's cross-origin application network permission is limited to `reviverelay.voidsmithindustries.com`. Torn API calls are made by the ReviveRelay backend. The userscript opens Torn key/settings/profile links only as explicit browser navigation; it does not use them as hidden non-API request channels.
+The 0.6.1 userscript's cross-origin application network permission is limited to `reviverelay.voidsmithindustries.com`. Torn API calls are made by the ReviveRelay backend. The userscript opens Torn key/settings/profile links only as explicit browser navigation; it does not use them as hidden non-API request channels.

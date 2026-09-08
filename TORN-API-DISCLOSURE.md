@@ -1,6 +1,6 @@
 # ReviveRelay Torn API Disclosure
 
-ReviveRelay 0.6.0 uses the official Torn API for identity, evidence and eligibility checks. The userscript does not require the user's Torn password.
+ReviveRelay 0.6.1 uses the official Torn API for identity, evidence and eligibility checks. The userscript does not require the user's Torn password.
 
 ## Data Storage
 
@@ -24,7 +24,7 @@ The implemented Torn API calls are:
 | `/user/log` | Read narrowly scoped Money/Items transaction evidence for revive payments/refunds and merchant subscription receipt verification. |
 | `/torn/logcategories` | Resolve current log category metadata where the key permits it; restricted-key permission failure uses the known bounded transaction categories rather than broadening access. |
 
-ReviveRelay 0.6.0 performs **no public chat collection** and does not scrape Torn chat or unfocused Torn pages.
+ReviveRelay 0.6.1 performs **no public chat collection** and does not scrape Torn chat or unfocused Torn pages.
 
 ## Key Storage & Sharing
 
