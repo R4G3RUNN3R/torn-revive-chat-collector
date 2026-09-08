@@ -310,7 +310,7 @@ Expected: FAIL on free fallback/review-base/runtime compatibility.
 
 - [ ] **Step 3: Implement strict runtime validation**
 
-Add a small pure validator in the userscript or direct client. It must require review channel, known subscription mode, and `serverVersion >= minimumClientVersion`/client compatibility using the existing strict version comparator. Missing data sets `state.runtimeCompatibility='incompatible'` after a completed server response, while initial/no-response stays `unknown`.
+Add a small pure validator in the userscript or direct client. It must require review channel, known subscription mode, and `clientVersion >= minimumClientVersion` using the existing strict version comparator. `serverVersion` is reported for diagnostics/provenance but is not the operand for the minimum-client gate. Missing data sets `state.runtimeCompatibility='incompatible'` after a completed server response, while initial/no-response stays `unknown`.
 
 Change review client `API_BASE` to:
 
