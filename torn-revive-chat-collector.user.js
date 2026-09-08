@@ -26,7 +26,7 @@
   const UPDATE_CHANNEL = '__REVIVERELAY_UPDATE_CHANNEL__';
   const BUILD_COMMIT = '__REVIVERELAY_GIT_COMMIT__';
   const BUILD_TIMESTAMP = '__REVIVERELAY_BUILD_TIMESTAMP__';
-  const API_BASE = 'https://reviverelay.voidsmithindustries.com';
+  const API_BASE = 'https://reviverelay.voidsmithindustries.com/review';
   const REQUEST_POLL_MS = 10_000;
   const PRO_POLL_MS = 60_000;
   const QUEUE_POLL_MS = 10_000;
@@ -78,6 +78,9 @@
     reviverEligibility: null,
     reviverQueue: [],
     proStatus: null,
+    runtime: null,
+    runtimeCompatibility: 'unknown',
+    runtimeCompatibilityReason: null,
     subscription: null,
     proPlans: [],
     currentInvoice: null,
@@ -195,16 +198,52 @@
     return state.proStatus?.state === 'TRIAL' || state.proStatus?.state === 'ACTIVE';
   }
 
+  function runtimeCompatible() {
+    return state.runtimeCompatibility === 'compatible';
+  }
+
   function subscriptionMode() {
-    return state.subscription?.mode || 'free';
+    if (state.runtimeCompatibility !== 'compatible') return 'unknown';
+    return ['free', 'review', 'live'].includes(state.subscription?.mode)
+      ? state.subscription.mode
+      : 'unknown';
   }
 
   function subscriptionPaymentsEnabled() {
-    return state.subscription?.paymentsEnabled === true;
+    return state.runtimeCompatibility === 'compatible' && state.subscription?.paymentsEnabled === true;
   }
 
   function hasReviverSubscriptionAccess() {
+    if (state.runtimeCompatibility !== 'compatible') return false;
     return subscriptionMode() === 'free' || isProActive();
+  }
+
+  function applyRuntimeContract(runtime) {
+    const result = DirectApiClient.validateReviewRuntime(runtime, {
+      clientVersion: VERSION,
+      releaseChannel: UPDATE_CHANNEL
+    });
+    state.runtime = runtime && typeof runtime === 'object' ? runtime : null;
+    state.runtimeCompatibility = result.compatible ? 'compatible' : 'incompatible';
+    state.runtimeCompatibilityReason = result.reason || null;
+    if (result.compatible) {
+      state.subscription = result.subscription;
+      state.proPlans = Array.isArray(result.subscription?.plans) ? result.subscription.plans : [];
+    } else {
+      state.subscription = null;
+      state.proPlans = [];
+      state.proStatus = null;
+      state.reviverQueue = [];
+      state.reviverEligibility = null;
+    }
+    return result;
+  }
+
+  function runtimeCompatibilityMessage() {
+    if (state.runtimeCompatibility === 'unknown') return 'Checking the ReviveRelay review backend…';
+    if (state.runtimeCompatibilityReason === 'RUNTIME_CHANNEL_MISMATCH') return 'This review client reached the wrong ReviveRelay backend. Protected actions are disabled.';
+    if (state.runtimeCompatibilityReason === 'CLIENT_TOO_OLD') return 'This ReviveRelay review build is too old for the review backend. Update ReviveRelay before continuing.';
+    return 'ReviveRelay review backend is incompatible or unavailable. Protected actions are disabled.';
   }
 
   function runSingleFlightPoll(key, operation) {
@@ -315,6 +354,9 @@
     state.reviverEligibility = null;
     state.reviverQueue = [];
     state.proStatus = null;
+    state.runtime = null;
+    state.runtimeCompatibility = 'unknown';
+    state.runtimeCompatibilityReason = null;
     state.subscription = null;
     state.proPlans = [];
     state.currentInvoice = null;
@@ -334,11 +376,8 @@
       ...(me?.user || {}),
       roles: Array.isArray(me?.roles) ? me.roles : []
     };
-    if (me?.pro) state.proStatus = me.pro;
-    if (me?.subscription) {
-      state.subscription = me.subscription;
-      state.proPlans = Array.isArray(state.subscription?.plans) ? state.subscription.plans : [];
-    }
+    const runtimeResult = applyRuntimeContract(me?.runtime || null);
+    state.proStatus = runtimeResult.compatible && me?.pro ? me.pro : null;
     GM_setValue(KEYS.publicIdentity, publicIdentity());
     return me;
   }
@@ -359,7 +398,7 @@
       state.identity = result?.user ? { ...result.user, roles: ['requester'] } : null;
       GM_setValue(KEYS.publicIdentity, publicIdentity());
       await refreshMarketplaceState({ includePlans: true });
-      setStatus('ReviveRelay connected.');
+      setStatus(runtimeCompatible() ? 'ReviveRelay connected.' : runtimeCompatibilityMessage(), !runtimeCompatible());
       refreshSidebarState();
       renderAll();
     } catch (error) {
@@ -382,20 +421,22 @@
     return runSingleFlightPoll('pro', async () => {
       if (!state.sessionToken) {
         state.proStatus = null;
+        state.runtime = null;
+        state.runtimeCompatibility = 'unknown';
+        state.runtimeCompatibilityReason = null;
         state.subscription = null;
         state.proPlans = [];
         return;
       }
       const result = await state.api.getProStatus();
-      state.proStatus = result?.pro || null;
-      state.subscription = result?.subscription || null;
-      state.proPlans = Array.isArray(state.subscription?.plans) ? state.subscription.plans : [];
+      const runtimeResult = applyRuntimeContract(result?.runtime || null);
+      state.proStatus = runtimeResult.compatible ? (result?.pro || null) : null;
     });
   }
 
   async function refreshActiveRequest() {
     return runSingleFlightPoll('request', async () => {
-      if (!state.sessionToken) {
+      if (!state.sessionToken || !runtimeCompatible()) {
         state.activeRequest = null;
         return;
       }
@@ -410,14 +451,14 @@
   async function refreshActiveTransaction(transactionId = null) {
     return runSingleFlightPoll('transaction', async () => {
       const id = transactionId || state.activeTransaction?.id || state.activeRequest?.transactionId;
-      if (!state.sessionToken || !id) return;
+      if (!state.sessionToken || !runtimeCompatible() || !id) return;
       const result = await state.api.getTransaction(id);
       state.activeTransaction = result?.transaction || result || null;
     });
   }
 
   async function refreshVerificationCredential() {
-    if (!state.sessionToken) {
+    if (!state.sessionToken || !runtimeCompatible()) {
       state.verificationCredential = null;
       state.reviverEligibility = null;
       return;
@@ -501,7 +542,7 @@
 
   async function refreshCurrentInvoice() {
     return runSingleFlightPoll('invoice', async () => {
-      if (!state.sessionToken || state.currentInvoice?.state !== 'PENDING' || !state.currentInvoice?.id) return;
+      if (!state.sessionToken || !runtimeCompatible() || state.currentInvoice?.state !== 'PENDING' || !state.currentInvoice?.id) return;
       const result = await state.api.getProInvoice(state.currentInvoice.id);
       state.currentInvoice = {
         ...(result?.invoice || {}),
@@ -519,7 +560,9 @@
   async function refreshMarketplaceState({ includePlans = false } = {}) {
     if (!state.sessionToken) return;
     await refreshMe();
+    if (!runtimeCompatible()) return;
     await refreshProState({ includePlans });
+    if (!runtimeCompatible()) return;
     await refreshActiveRequest();
     await refreshVerificationCredential();
     await refreshReviverEligibility();
@@ -529,7 +572,7 @@
 
   async function requestReviveFromSidebar() {
     const validation = RequestPreset.validatePreset(state.preset);
-    if (!state.sessionToken || !validation.ok || state.submittingRequest || state.activeRequest) return;
+    if (!state.sessionToken || !runtimeCompatible() || !validation.ok || state.submittingRequest || state.activeRequest) return;
     return runMutation('request-create', async () => {
       state.submittingRequest = true;
       lastRequestError = null;
@@ -553,7 +596,7 @@
   }
 
   async function cancelActiveRequest() {
-    if (!state.activeRequest?.id) return;
+    if (!runtimeCompatible() || !state.activeRequest?.id) return;
     return runMutation('request-cancel', async () => {
       try {
         await state.api.cancelRequest(state.activeRequest.id);
@@ -570,7 +613,7 @@
   }
 
   async function deleteReviveRelayAccount() {
-    if (!state.sessionToken) return;
+    if (!state.sessionToken || !runtimeCompatible()) return;
     const confirmed = window.confirm(
       'Delete ReviveRelay account/data? This immediately removes or invalidates your verification credential, active sessions, service preferences, and active reviver registration where safe. Minimal billing/payment and security/audit evidence may be retained to prevent payment reuse and support refunds or disputes.'
     );
@@ -588,6 +631,9 @@
         state.reviverEligibility = null;
         state.reviverQueue = [];
         state.proStatus = null;
+        state.runtime = null;
+        state.runtimeCompatibility = 'unknown';
+        state.runtimeCompatibilityReason = null;
         state.subscription = null;
         state.proPlans = [];
         state.currentInvoice = null;
@@ -629,6 +675,10 @@
   }
 
   async function startProTrial() {
+    if (!runtimeCompatible()) {
+      setStatus(runtimeCompatibilityMessage(), true);
+      return;
+    }
     return runMutation('trial-start', async () => {
       try {
         const result = await state.api.startProTrial();
@@ -644,6 +694,10 @@
   }
 
   async function createProInvoice() {
+    if (!runtimeCompatible()) {
+      setStatus(runtimeCompatibilityMessage(), true);
+      return;
+    }
     if (!subscriptionPaymentsEnabled()) {
       setStatus('Reviver Pro payments are not required in the current subscription mode.');
       return;
@@ -666,7 +720,7 @@
   }
 
   async function bindVerificationKey() {
-    if (!state.sessionToken) return;
+    if (!state.sessionToken || !runtimeCompatible()) return;
     const verificationKeyInput = document.getElementById('rr-verification-key');
     const key = String(verificationKeyInput?.value || '').trim();
     if (!key) {
@@ -698,6 +752,7 @@
   }
 
   async function revokeVerificationKey() {
+    if (!runtimeCompatible()) return;
     return runMutation('verification-revoke', async () => {
       try {
         await state.api.revokeVerificationCredential();
@@ -744,7 +799,7 @@
   }
 
   async function runTransactionAction(action, decision = null) {
-    if (!state.activeTransaction?.id) return;
+    if (!runtimeCompatible() || !state.activeTransaction?.id) return;
     const id = state.activeTransaction.id;
     try {
       if (action === 'check-payment') await state.api.checkPayment(id);
@@ -768,7 +823,7 @@
       preset: state.preset,
       submitting: state.submittingRequest,
       activeRequest: state.activeRequest,
-      lastError: lastRequestError
+      lastError: state.sessionToken && !runtimeCompatible() ? 'RUNTIME_INCOMPATIBLE' : lastRequestError
     });
   }
 
@@ -849,6 +904,13 @@
       target.innerHTML = renderOnboarding();
       return;
     }
+    if (!runtimeCompatible()) {
+      target.innerHTML = `<div class="rr-card rr-warning">
+        <div class="rr-card-title">Review backend unavailable</div>
+        <p>${escapeHtml(runtimeCompatibilityMessage())}</p>
+      </div>`;
+      return;
+    }
     const validation = RequestPreset.validatePreset(state.preset);
     const presetText = validation.ok
       ? `${formatOffer(validation.preset.paymentMethod, validation.preset.offerAmount)}${validation.preset.comment ? ` · “${escapeHtml(validation.preset.comment)}”` : ''}`
@@ -897,6 +959,13 @@
     if (!target) return;
     if (!state.sessionToken) {
       target.innerHTML = '<div class="rr-card">Connect ReviveRelay first.</div>';
+      return;
+    }
+    if (!runtimeCompatible()) {
+      target.innerHTML = `<div class="rr-card rr-warning">
+        <div class="rr-card-title">Review backend unavailable</div>
+        <p>${escapeHtml(runtimeCompatibilityMessage())}</p>
+      </div>`;
       return;
     }
     if (!hasReviverSubscriptionAccess()) {
@@ -1057,6 +1126,14 @@
   function renderProPanel() {
     const target = document.getElementById('rr-pro-content');
     if (!target) return;
+    if (state.sessionToken && !runtimeCompatible()) {
+      target.innerHTML = `<div class="rr-card rr-warning">
+        <div class="rr-card-title">Review backend unavailable</div>
+        <p>${escapeHtml(runtimeCompatibilityMessage())}</p>
+        <p class="rr-muted">Trial, subscription, queue and Accept controls remain disabled until a compatible review runtime is confirmed.</p>
+      </div>`;
+      return;
+    }
     const mode = subscriptionMode();
     const proState = state.proStatus?.state || 'NONE';
     const merchantName = state.subscription?.merchant?.name || 'Configured ReviveRelay merchant';
@@ -1475,19 +1552,22 @@
 
   function startTimers() {
     requestTimer = setInterval(() => {
-      if (!state.sessionToken) return;
+      if (!state.sessionToken || !runtimeCompatible()) return;
       refreshActiveRequest().then(renderLiveState).catch(error => handleApiFailure(error, 'poll.request'));
     }, REQUEST_POLL_MS);
     proTimer = setInterval(() => {
       if (!state.sessionToken) return;
-      refreshProState({ includePlans: false }).then(() => refreshVerificationCredential()).then(() => refreshReviverEligibility()).then(renderLiveState).catch(error => handleApiFailure(error, 'poll.pro'));
+      const refresh = runtimeCompatible()
+        ? refreshProState({ includePlans: false }).then(() => refreshVerificationCredential()).then(() => refreshReviverEligibility())
+        : refreshMe();
+      Promise.resolve(refresh).then(renderLiveState).catch(error => handleApiFailure(error, 'poll.pro'));
     }, PRO_POLL_MS);
     queueTimer = setInterval(() => {
       if (!state.sessionToken || !hasReviverSubscriptionAccess()) return;
       refreshReviverQueue().then(renderLiveState).catch(error => handleApiFailure(error, 'poll.queue'));
     }, QUEUE_POLL_MS);
     invoiceTimer = setInterval(() => {
-      if (state.minimized || document.visibilityState !== 'visible' || state.currentInvoice?.state !== 'PENDING') return;
+      if (!runtimeCompatible() || state.minimized || document.visibilityState !== 'visible' || state.currentInvoice?.state !== 'PENDING') return;
       refreshCurrentInvoice().then(renderLiveState).catch(error => handleApiFailure(error, 'poll.invoice'));
     }, INVOICE_POLL_MS);
     sidebarTimer = setInterval(refreshSidebarState, SIDEBAR_RECONCILE_MS);

@@ -86,7 +86,7 @@ test('background live-state refresh still avoids rebuilding Settings forms',()=>
 test('ReviveRelay Verification binding is available to any connected requester, independent of paid entitlement',()=>{
   const bind=functionSlice('bindVerificationKey','beginVerificationReplacement');
   assert.ok(bind.length>0);
-  assert.match(bind,/if \(!state\.sessionToken\) return/);
+  assert.match(bind,/if \(!state\.sessionToken \|\| !runtimeCompatible\(\)\) return/);
   assert.doesNotMatch(bind,/if \(!isProActive\(\)\) return|hasReviverSubscriptionAccess\(\)/);
 
   const settings=functionSlice('renderSettingsDrawer','renderSummary');

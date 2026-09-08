@@ -28,6 +28,48 @@
     return baseUrl;
   }
 
+  function versioning() {
+    if (typeof globalThis !== 'undefined' &&
+        globalThis.ReviveRelayVersioning &&
+        typeof globalThis.ReviveRelayVersioning.compareVersions === 'function') {
+      return globalThis.ReviveRelayVersioning;
+    }
+    if (typeof require === 'function') return require('./versioning');
+    throw new Error('ReviveRelay versioning unavailable');
+  }
+
+  function incompatibleRuntime(reason) {
+    return Object.freeze({ compatible:false, reason, subscription:null });
+  }
+
+  function validateReviewRuntime(runtime, { clientVersion = '', releaseChannel = '' } = {}) {
+    if (!runtime || typeof runtime !== 'object' || Array.isArray(runtime)) {
+      return incompatibleRuntime('RUNTIME_MISSING');
+    }
+    if (releaseChannel !== 'review') return incompatibleRuntime('CLIENT_CHANNEL_INVALID');
+    if (runtime.releaseChannel !== 'review') return incompatibleRuntime('RUNTIME_CHANNEL_MISMATCH');
+
+    const subscription = runtime.subscription;
+    if (!subscription || typeof subscription !== 'object' || Array.isArray(subscription) ||
+        !['free','review','live'].includes(subscription.mode)) {
+      return incompatibleRuntime('RUNTIME_SUBSCRIPTION_INVALID');
+    }
+
+    try {
+      const { compareVersions } = versioning();
+      compareVersions(runtime.serverVersion, '0.0.0');
+      compareVersions(runtime.minimumClientVersion, '0.0.0');
+      compareVersions(clientVersion, '0.0.0');
+      if (compareVersions(clientVersion, runtime.minimumClientVersion) < 0) {
+        return incompatibleRuntime('CLIENT_TOO_OLD');
+      }
+    } catch (_) {
+      return incompatibleRuntime('RUNTIME_VERSION_INVALID');
+    }
+
+    return Object.freeze({ compatible:true, reason:null, subscription });
+  }
+
   function safeParseBody(response) {
     if (response && response.body && typeof response.body === 'object') return response.body;
     const raw = response && typeof response.responseText === 'string' ? response.responseText : '';
@@ -208,6 +250,7 @@
     DirectApiClientError,
     safeDetails,
     mapHttpError,
+    validateReviewRuntime,
     createGmRequestAdapter,
     createDirectApiClient
   };

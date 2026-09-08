@@ -10,15 +10,20 @@ function functionSlice(name,nextName) {
   return start>=0 ? source.slice(start,end>start?end:undefined) : '';
 }
 
-test('subscription capability is stored from authenticated server state and plans come from that server payload',()=>{
+test('subscription capability is accepted only from the validated runtime contract',()=>{
   assert.match(source,/subscription:\s*null/);
+  assert.match(source,/runtimeCompatibility:\s*'unknown'/);
   const refresh=functionSlice('refreshProState','refreshActiveRequest');
   assert.ok(refresh.length>0);
-  assert.match(refresh,/state\.subscription\s*=\s*result\?\.subscription\s*\|\|\s*null/);
-  assert.match(refresh,/state\.subscription\?\.plans/);
+  assert.match(refresh,/applyRuntimeContract\(result\?\.runtime\s*\|\|\s*null\)/);
+  assert.doesNotMatch(refresh,/state\.subscription\s*=\s*result\?\.subscription/);
   assert.doesNotMatch(refresh,/getProPlans\(/);
   const refreshMe=functionSlice('refreshMe','connectIdentity');
-  assert.match(refreshMe,/me\?\.subscription/);
+  assert.match(refreshMe,/applyRuntimeContract\(me\?\.runtime\s*\|\|\s*null\)/);
+  assert.doesNotMatch(refreshMe,/me\?\.subscription/);
+  const apply=functionSlice('applyRuntimeContract','runtimeCompatibilityMessage');
+  assert.match(apply,/result\.subscription/);
+  assert.match(apply,/state\.proPlans/);
 });
 
 test('free mode hides payment creation and explains that reviver access is currently free',()=>{
@@ -97,4 +102,16 @@ test('only genuine ReviveRelay session-auth failures clear the local session',()
   assert.doesNotMatch(handler,/Number\(error\s*&&\s*error\.status\)\s*===\s*401/);
   assert.match(handler,/AUTH_REQUIRED/);
   assert.match(handler,/clearSession/);
+});
+
+
+test('review runtime compatibility is required before subscription access can be granted',()=>{
+  const subscription=functionSlice('subscriptionMode','subscriptionPaymentsEnabled');
+  assert.match(subscription,/runtimeCompatibility/);
+  assert.match(subscription,/unknown/);
+  assert.doesNotMatch(subscription,/\|\|\s*['"]free['"]/);
+
+  const access=functionSlice('hasReviverSubscriptionAccess','runSingleFlightPoll');
+  assert.match(access,/runtimeCompatibility/);
+  assert.match(access,/compatible/);
 });

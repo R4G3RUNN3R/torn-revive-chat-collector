@@ -210,3 +210,21 @@ test('unified client validates invoice selection before transport', async () => 
   await assert.rejects(()=>api.getProInvoice(''),error=>error && error.code==='INVALID_INVOICE_ID');
   assert.equal(calls.length,0);
 });
+
+
+test('review API base preserves the /review prefix for all v1 calls', async () => {
+  const direct=require('../src/direct-api-client');
+  const calls=[];
+  const api=direct.createDirectApiClient({
+    baseUrl:'https://reviverelay.voidsmithindustries.com/review',
+    getToken:()=> 'review-token',
+    request:async input=>{calls.push(input);return {status:200,body:{}};},
+    clientVersion:'0.6.1',
+    releaseChannel:'review'
+  });
+  await api.getMe();
+  assert.equal(calls.length,1);
+  assert.equal(calls[0].url,'https://reviverelay.voidsmithindustries.com/review/v1/me');
+  assert.equal(calls[0].headers['X-ReviveRelay-Version'],'0.6.1');
+  assert.equal(calls[0].headers['X-ReviveRelay-Channel'],'review');
+});
