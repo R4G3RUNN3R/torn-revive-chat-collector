@@ -41,7 +41,7 @@ test('request preset is the only persisted revive request configuration and cont
 test('requester can create immediately while acceptance and reviver actions remain evidence-gated',()=>{
   const requestFn=source.match(/async function requestReviveFromSidebar\(\)\s*\{([\s\S]*?)\n\s*\}/)?.[1]||'';
   assert.ok(requestFn.length>0);
-  assert.match(requestFn,/if \(!state\.sessionToken \|\| !validation\.ok \|\| state\.submittingRequest \|\| state\.activeRequest\) return/);
+  assert.match(requestFn,/if \(!state\.sessionToken \|\| !runtimeCompatible\(\) \|\| !validation\.ok \|\| state\.submittingRequest \|\| state\.activeRequest\) return/);
   assert.doesNotMatch(requestFn,/if \([^\n]*(?:verificationCredential|hasCredentialCapability)/);
   assert.match(requestFn,/hasCredentialCapability\(['"]requester['"]\)/);
   assert.match(source,/REQUESTER_VERIFICATION_REQUIRED/);

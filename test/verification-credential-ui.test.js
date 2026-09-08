@@ -16,7 +16,7 @@ test('free requester request creation is not blocked by credential state while l
   const requestEnd=source.indexOf('async function cancelActiveRequest()',requestStart);
   const requestFn=requestStart>=0 && requestEnd>requestStart ? source.slice(requestStart,requestEnd) : '';
   assert.ok(requestFn.length>0);
-  assert.match(requestFn,/if \(!state\.sessionToken \|\| !validation\.ok \|\| state\.submittingRequest \|\| state\.activeRequest\) return/);
+  assert.match(requestFn,/if \(!state\.sessionToken \|\| !runtimeCompatible\(\) \|\| !validation\.ok \|\| state\.submittingRequest \|\| state\.activeRequest\) return/);
   assert.doesNotMatch(requestFn,/if \([^\n]*(?:verificationCredential|hasCredentialCapability)/);
   assert.match(requestFn,/hasCredentialCapability\(['"]requester['"]\)/);
   assert.match(source,/hasCredentialCapability\(['"]reviver['"]\)/);
