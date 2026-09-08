@@ -65,3 +65,21 @@ test('Pro queue notifications are bounded, persisted, Pro-only and never auto-ac
   assert.ok(notifyFn.length>0);
   assert.doesNotMatch(notifyFn,/acceptRequest|acceptMarketplaceRequest/);
 });
+
+
+test('server-provided OWNER is lifetime Pro and suppresses trial and purchase controls',()=>{
+  const activeStart=source.indexOf('function isProActive()');
+  const activeEnd=source.indexOf('function runtimeCompatible()',activeStart);
+  const active=source.slice(activeStart,activeEnd);
+  assert.match(active,/state\.proStatus\?\.state === 'OWNER'/);
+
+  const start=source.indexOf('function renderProPanel()');
+  const end=source.indexOf('function renderProStatus()',start);
+  const render=source.slice(start,end);
+  assert.match(render,/proState === 'OWNER'/);
+  assert.match(render,/Reviver Pro: OWNER/);
+  assert.match(render,/Access:\s*Lifetime/);
+  assert.match(render,/Payment recipient account/);
+  assert.match(render,/proState !== 'OWNER'/);
+  assert.doesNotMatch(render,/3877028|state\.identity.*OWNER|state\.identity.*owner/i);
+});

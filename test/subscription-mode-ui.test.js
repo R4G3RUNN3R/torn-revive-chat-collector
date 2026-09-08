@@ -115,3 +115,13 @@ test('review runtime compatibility is required before subscription access can be
   assert.match(access,/runtimeCompatibility/);
   assert.match(access,/compatible/);
 });
+
+
+test('OWNER is treated as active Pro but never offered a trial or invoice purchase UI',()=>{
+  const active=functionSlice('isProActive','runtimeCompatible');
+  assert.match(active,/OWNER/);
+  const render=functionSlice('renderProPanel','renderProStatus');
+  assert.match(render,/proState\s*===\s*'OWNER'/);
+  assert.match(render,/Lifetime/);
+  assert.match(render,/proState\s*!==\s*'OWNER'/);
+});

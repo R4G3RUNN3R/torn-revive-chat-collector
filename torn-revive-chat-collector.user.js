@@ -195,7 +195,7 @@
   }
 
   function isProActive() {
-    return state.proStatus?.state === 'TRIAL' || state.proStatus?.state === 'ACTIVE';
+    return state.proStatus?.state === 'TRIAL' || state.proStatus?.state === 'ACTIVE' || state.proStatus?.state === 'OWNER';
   }
 
   function runtimeCompatible() {
@@ -1138,25 +1138,35 @@
     const proState = state.proStatus?.state || 'NONE';
     const merchantName = state.subscription?.merchant?.name || 'Configured ReviveRelay merchant';
     const merchantTornId = state.subscription?.merchant?.tornId || null;
-    const trialButton = mode !== 'free' && state.sessionToken && state.proStatus?.trialEligible
+    const ownerAccess = proState === 'OWNER'
+      ? `<div class="rr-owner-pro">
+          <div class="rr-kv"><span>Reviver Pro</span><strong>Reviver Pro: OWNER</strong></div>
+          <div class="rr-kv"><span>Access</span><strong>Access: Lifetime</strong></div>
+          <div class="rr-kv"><span>Account</span><strong>Payment recipient account</strong></div>
+        </div>`
+      : '';
+    const trialButton = proState !== 'OWNER' && mode !== 'free' && state.sessionToken && state.proStatus?.trialEligible
       ? `<button id="rr-start-trial"${disabledAttr('trial-start')}>Start 7-day Reviver Pro trial</button>` : '';
-    const subscriptionBody = mode === 'free'
-      ? `<p class="rr-muted">Reviver access is currently free. No Pro payment is required while ReviveRelay is in free mode.</p>`
-      : state.sessionToken && subscriptionPaymentsEnabled()
-        ? `<div class="rr-kv"><span>Payment recipient</span><strong>${escapeHtml(merchantName)}${merchantTornId ? ` [${escapeHtml(merchantTornId)}]` : ''}</strong></div>
-          <p class="rr-muted">Send payment manually in Torn after creating an invoice. ReviveRelay never sends cash or items for you.</p>
-          <div class="rr-form-row">
-            <select id="rr-pro-plan">${selectedPlanOptions()}</select>
-            <select id="rr-pro-currency"><option value="xanax">Xanax</option><option value="cash">Torn cash</option></select>
-            <button id="rr-create-pro-invoice"${disabledAttr('invoice-create')}>Create Pro invoice</button>
-          </div><div id="rr-invoice-status">${renderInvoice()}</div>`
-        : '<div class="rr-muted">Connect ReviveRelay to view Pro plans.</div>';
+    const subscriptionBody = proState === 'OWNER'
+      ? `<p class="rr-muted">Lifetime Reviver Pro access is included for the configured payment recipient. No trial or subscription payment is required.</p>`
+      : mode === 'free'
+        ? `<p class="rr-muted">Reviver access is currently free. No Pro payment is required while ReviveRelay is in free mode.</p>`
+        : state.sessionToken && subscriptionPaymentsEnabled()
+          ? `<div class="rr-kv"><span>Payment recipient</span><strong>${escapeHtml(merchantName)}${merchantTornId ? ` [${escapeHtml(merchantTornId)}]` : ''}</strong></div>
+            <p class="rr-muted">Send payment manually in Torn after creating an invoice. ReviveRelay never sends cash or items for you.</p>
+            <div class="rr-form-row">
+              <select id="rr-pro-plan">${selectedPlanOptions()}</select>
+              <select id="rr-pro-currency"><option value="xanax">Xanax</option><option value="cash">Torn cash</option></select>
+              <button id="rr-create-pro-invoice"${disabledAttr('invoice-create')}>Create Pro invoice</button>
+            </div><div id="rr-invoice-status">${renderInvoice()}</div>`
+          : '<div class="rr-muted">Connect ReviveRelay to view Pro plans.</div>';
     target.innerHTML = `<div class="rr-card" id="rr-pro-settings">
       <div class="rr-card-title">ReviveRelay Pro</div>
       <p>Pro unlocks the certified reviver queue, request notifications and Accept controls when paid access is required.</p>
       <div class="rr-kv"><span>Mode</span><strong>${escapeHtml(mode)}</strong></div>
       <div class="rr-kv"><span>Status</span><strong id="rr-pro-state">${escapeHtml(proState)}</strong></div>
-      <div class="rr-kv"><span>Valid until</span><strong id="rr-pro-valid-until">${escapeHtml(state.proStatus?.validUntil ? formatDate(state.proStatus.validUntil) : '—')}</strong></div>
+      <div class="rr-kv"><span>Valid until</span><strong id="rr-pro-valid-until">${escapeHtml(proState === 'OWNER' ? 'Lifetime' : (state.proStatus?.validUntil ? formatDate(state.proStatus.validUntil) : '—'))}</strong></div>
+      ${ownerAccess}
       ${trialButton}
     </div>
     <div class="rr-card">
@@ -1169,7 +1179,9 @@
     const stateTarget = document.getElementById('rr-pro-state');
     const validTarget = document.getElementById('rr-pro-valid-until');
     if (stateTarget) stateTarget.textContent = state.proStatus?.state || 'NONE';
-    if (validTarget) validTarget.textContent = state.proStatus?.validUntil ? formatDate(state.proStatus.validUntil) : '—';
+    if (validTarget) validTarget.textContent = state.proStatus?.state === 'OWNER'
+      ? 'Lifetime'
+      : state.proStatus?.validUntil ? formatDate(state.proStatus.validUntil) : '—';
   }
 
   function renderSettingsDrawer() {
