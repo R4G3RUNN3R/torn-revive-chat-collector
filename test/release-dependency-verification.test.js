@@ -7,13 +7,16 @@ const { DIRECT_SUPPORT_MODULES } = require('../scripts/client-modules');
 
 function artifactSourceCommit() {
   const manifestPath = 'docs/review/BUILD-MANIFEST.json';
+  const currentVersion = require('../package.json').version;
   if (fs.existsSync(manifestPath)) {
     const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-    const commit = String(manifest.artifactSourceCommit || '');
-    if (!/^[0-9a-f]{40}$/.test(commit)) throw new Error('Review build manifest has invalid artifactSourceCommit');
-    return commit;
+    if (String(manifest.version || '') === currentVersion) {
+      const commit = String(manifest.artifactSourceCommit || '');
+      if (!/^[0-9a-f]{40}$/.test(commit)) throw new Error('Review build manifest has invalid artifactSourceCommit');
+      return commit;
+    }
   }
-  return cp.execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  return cp.execFileSync('git', ['rev-parse', 'HEAD'], { encoding:'utf8', env:{...process.env,GIT_CONFIG_COUNT:'1',GIT_CONFIG_KEY_0:'safe.directory',GIT_CONFIG_VALUE_0:process.cwd()} }).trim();
 }
 
 test('release validation accepts self-contained artifacts, rejects runtime @require, and rejects stale build provenance', () => {
