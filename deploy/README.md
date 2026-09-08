@@ -94,3 +94,37 @@ The later public mapping is deliberately separate from release creation:
 - `/v1/client/version` -> API-validated `releases/client/manifest.json`
 
 No public Caddy/DNS route is created by the publish script.
+
+## Private 0.6.1 review runtime
+
+The private Torn review candidate is deployed separately from stable production. Stable 0.4.4 continues to use the existing `reviverelay-api` on `127.0.0.1:18730` and the existing `reviverelay-worker`.
+
+The review stack is defined in `deploy/docker-compose.review.yml` and contains only:
+
+- `reviverelay-review-api` on `127.0.0.1:18731 -> 3100`;
+- `reviverelay-review-subscription-worker`, which runs `src/review-subscription-worker.js` directly.
+
+The review stack does **not** define another PostgreSQL service and does not clone the stable generic worker. Both review services join the existing `reviverelay_db_internal` and `reviverelay_egress` networks as external networks and mount the immutable review server release directory read-only.
+
+Review-specific non-secret runtime values are:
+
+```text
+SUBSCRIPTION_MODE=review
+REVIVERELAY_SERVER_VERSION=0.6.1
+REVIVERELAY_MINIMUM_CLIENT_VERSION=0.6.1
+REVIVERELAY_RELEASE_CHANNEL=review
+```
+
+The merchant receiver credential remains only in `/srv/voidsmith/shared/secrets/reviverelay/runtime.env`; it is never committed to Compose source.
+
+Validate the review descriptor with the production secret file before starting services:
+
+```bash
+docker compose \
+  -p reviverelay-review \
+  --env-file /srv/voidsmith/shared/secrets/reviverelay/runtime.env \
+  -f /srv/voidsmith/torn-platform/reviverelay/releases/server/review/0.6.1/deploy/docker-compose.review.yml \
+  config -q
+```
+
+The public review route is added separately in Caddy as `/review/* -> 127.0.0.1:18731`; stable `/v1/* -> 127.0.0.1:18730` remains unchanged.

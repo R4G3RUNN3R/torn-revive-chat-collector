@@ -1,0 +1,50 @@
+services:
+  reviverelay-review-api:
+    image: node:20-alpine
+    restart: unless-stopped
+    working_dir: /app/server
+    command: ["node", "src/server.js"]
+    env_file:
+      - ${REVIVERELAY_ENV_FILE:-/srv/voidsmith/shared/secrets/reviverelay/runtime.env}
+    environment:
+      PORT: 3100
+      SUBSCRIPTION_MODE: review
+      REVIVERELAY_SERVER_VERSION: 0.6.1
+      REVIVERELAY_MINIMUM_CLIENT_VERSION: 0.6.1
+      REVIVERELAY_RELEASE_CHANNEL: review
+      REVIVERELAY_REVIEW_MANIFEST_FILE: /releases/client/review/manifest.json
+      REVIVERELAY_STABLE_MANIFEST_FILE: /releases/client/stable/manifest.json
+    volumes:
+      - ${REVIVERELAY_REVIEW_APP_DIR:-/srv/voidsmith/torn-platform/reviverelay/releases/server/review/0.6.1}:/app:ro
+      - ${REVIVERELAY_CLIENT_RELEASE_DIR:-/srv/voidsmith/torn-platform/reviverelay/releases/client}:/releases/client:ro
+    ports:
+      - "127.0.0.1:18731:3100"
+    networks:
+      - reviverelay_db_internal
+      - reviverelay_egress
+
+  reviverelay-review-subscription-worker:
+    image: node:20-alpine
+    restart: unless-stopped
+    working_dir: /app/server
+    command: ["node", "src/review-subscription-worker.js"]
+    env_file:
+      - ${REVIVERELAY_ENV_FILE:-/srv/voidsmith/shared/secrets/reviverelay/runtime.env}
+    environment:
+      SUBSCRIPTION_MODE: review
+      REVIVERELAY_SERVER_VERSION: 0.6.1
+      REVIVERELAY_MINIMUM_CLIENT_VERSION: 0.6.1
+      REVIVERELAY_RELEASE_CHANNEL: review
+    volumes:
+      - ${REVIVERELAY_REVIEW_APP_DIR:-/srv/voidsmith/torn-platform/reviverelay/releases/server/review/0.6.1}:/app:ro
+    networks:
+      - reviverelay_db_internal
+      - reviverelay_egress
+
+networks:
+  reviverelay_db_internal:
+    external: true
+    name: reviverelay_db_internal
+  reviverelay_egress:
+    external: true
+    name: reviverelay_egress
