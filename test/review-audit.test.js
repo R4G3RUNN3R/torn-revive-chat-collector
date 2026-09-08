@@ -11,7 +11,7 @@ function expectFailure(mutator,code){const result=auditArtifactText(mutator(clea
 test('exact generated review artifact passes static audit',()=>{
   const result=auditArtifactText(clean);
   assert.equal(result.ok,true,JSON.stringify(result.findings));
-  assert.equal(result.version,'0.6.0');
+  assert.equal(result.version,'0.6.1');
   assert.equal(result.channel,'review');
 });
 
@@ -43,7 +43,7 @@ test('audit fails legacy chat runtime identifiers or dependencies',()=>{
 });
 
 test('audit fails stale 0.5.0 or automatic/manual release metadata',()=>{
-  expectFailure(text=>text.replace('// @version      0.6.0','// @version      0.5.0'),'STALE_RELEASE_METADATA');
+  expectFailure(text=>text.replace('// @version      0.6.1','// @version      0.5.0'),'STALE_RELEASE_METADATA');
   expectFailure(text=>text.replace("const UPDATE_CHANNEL = 'review'","const UPDATE_CHANNEL = 'automatic'"),'STALE_RELEASE_METADATA');
 });
 

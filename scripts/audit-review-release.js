@@ -1,7 +1,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-const EXPECTED_VERSION = '0.6.0';
+const EXPECTED_VERSION = '0.6.1';
 const EXPECTED_CHANNEL = 'review';
 const ALLOWED_CONNECT = new Set(['reviverelay.voidsmithindustries.com']);
 const ALLOWED_GRANTS = new Set([
