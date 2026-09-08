@@ -1,5 +1,6 @@
 const { publicProPlans } = require('../domain/pro-plans');
 const { publicSubscriptionState } = require('../domain/subscription-mode');
+const { createRuntimeContract } = require('../domain/runtime-contract');
 const { publicProStatus } = require('../security/pro-access');
 
 async function registerMeRoute(app, { entitlementRepository = null, config = {} } = {}) {
@@ -11,6 +12,12 @@ async function registerMeRoute(app, { entitlementRepository = null, config = {} 
     mode:config.SUBSCRIPTION_MODE,
     receiverTornId:config.PRO_RECEIVER_TORN_ID,
     plans:publicProPlans()
+  });
+  const runtime = createRuntimeContract({
+    serverVersion:config.REVIVERELAY_SERVER_VERSION || '0.6.1',
+    minimumClientVersion:config.REVIVERELAY_MINIMUM_CLIENT_VERSION || '0.6.1',
+    releaseChannel:config.REVIVERELAY_RELEASE_CHANNEL || 'stable',
+    subscription
   });
 
   app.get('/v1/me', {
@@ -26,7 +33,8 @@ async function registerMeRoute(app, { entitlementRepository = null, config = {} 
       },
       roles: request.reviveRelayUser.roles,
       pro: publicProStatus(status),
-      subscription
+      subscription,
+      runtime
     });
   });
 }

@@ -188,7 +188,10 @@ function makeBillingApp({ mode='review', invoiceRepository } = {}) {
       API_KEY_ENCRYPTION_KEY:'cc'.repeat(32),
       SESSION_TOKEN_PEPPER:'billing-test-pepper',
       SUBSCRIPTION_MODE:mode,
-      PRO_RECEIVER_TORN_ID:3877028
+      PRO_RECEIVER_TORN_ID:3877028,
+      REVIVERELAY_SERVER_VERSION:'0.6.1',
+      REVIVERELAY_MINIMUM_CLIENT_VERSION:'0.6.1',
+      REVIVERELAY_RELEASE_CHANNEL:mode==='review'?'review':'stable'
     },
     tornClient:{async getKeyInfo(){throw new Error('not used');}},
     identityRepository:{async bindIdentity(){throw new Error('not used');}},
@@ -261,7 +264,7 @@ test('Pro status exposes canonical subscription capability, merchant and server-
   t.after(()=>app.close());
   const response=await app.inject({method:'GET',url:'/v1/pro/status',headers:AUTH});
   assert.equal(response.statusCode,200,response.body);
-  assert.deepEqual(response.json().subscription,{
+  const expectedSubscription={
     mode:'review',
     paymentsEnabled:true,
     merchant:{tornId:3877028,name:'R4G3RUNN3R'},
@@ -270,6 +273,13 @@ test('Pro status exposes canonical subscription capability, merchant and server-
       {id:'six_months',label:'6 Months',months:6,xanax:55,cash:55000000},
       {id:'yearly',label:'Yearly',months:12,xanax:100,cash:100000000}
     ]
+  };
+  assert.deepEqual(response.json().subscription,expectedSubscription);
+  assert.deepEqual(response.json().runtime,{
+    serverVersion:'0.6.1',
+    minimumClientVersion:'0.6.1',
+    releaseChannel:'review',
+    subscription:expectedSubscription
   });
 });
 

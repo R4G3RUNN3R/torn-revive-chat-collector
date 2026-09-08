@@ -8,7 +8,10 @@ function appWithSession(record) {
     config: {
       API_KEY_ENCRYPTION_KEY: '22'.repeat(32),
       SESSION_TOKEN_PEPPER: 'me-test-pepper',
-      SUBSCRIPTION_MODE: 'free'
+      SUBSCRIPTION_MODE: 'free',
+      REVIVERELAY_SERVER_VERSION: '0.6.1',
+      REVIVERELAY_MINIMUM_CLIENT_VERSION: '0.6.1',
+      REVIVERELAY_RELEASE_CHANNEL: 'stable'
     },
     tornClient: { async getKeyInfo() { throw new Error('not used'); } },
     identityRepository: { async bindIdentity() { throw new Error('not used'); } },
@@ -60,6 +63,21 @@ test('GET /v1/me returns authenticated public identity, roles and safe Pro state
         {id:'six_months',label:'6 Months',months:6,xanax:55,cash:55000000},
         {id:'yearly',label:'Yearly',months:12,xanax:100,cash:100000000}
       ]
+    },
+    runtime: {
+      serverVersion:'0.6.1',
+      minimumClientVersion:'0.6.1',
+      releaseChannel:'stable',
+      subscription:{
+        mode:'free',
+        paymentsEnabled:false,
+        merchant:null,
+        plans:[
+          {id:'monthly',label:'Monthly',months:1,xanax:10,cash:10000000},
+          {id:'six_months',label:'6 Months',months:6,xanax:55,cash:55000000},
+          {id:'yearly',label:'Yearly',months:12,xanax:100,cash:100000000}
+        ]
+      }
     }
   });
   assert.doesNotMatch(response.body, /apiKey|ciphertext|authTag|access_scope/i);

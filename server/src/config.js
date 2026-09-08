@@ -27,6 +27,9 @@ const configSchema = z.object({
   REVIVERELAY_ERROR_SHEET_TAB: z.string().default('ReviveRelay Issues'),
   REVIVERELAY_REVIEW_MANIFEST_FILE: z.string().default(''),
   REVIVERELAY_STABLE_MANIFEST_FILE: z.string().default(''),
+  REVIVERELAY_SERVER_VERSION: z.string().regex(/^\d+\.\d+\.\d+$/).default('0.6.1'),
+  REVIVERELAY_MINIMUM_CLIENT_VERSION: z.string().regex(/^\d+\.\d+\.\d+$/).default('0.6.1'),
+  REVIVERELAY_RELEASE_CHANNEL: z.enum(['stable', 'review']).default('stable'),
   SUBSCRIPTION_MODE: z.enum(['free', 'review', 'live']).default('free'),
   PRO_RECEIVER_TORN_ID: optionalPositiveInteger,
   PRO_RECEIVER_API_KEY: optionalSecret

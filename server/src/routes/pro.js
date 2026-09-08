@@ -1,6 +1,7 @@
 const { z } = require('zod');
 const { publicProPlans } = require('../domain/pro-plans');
 const { paymentsEnabled, publicSubscriptionState } = require('../domain/subscription-mode');
+const { createRuntimeContract } = require('../domain/runtime-contract');
 const { publicProStatus } = require('../security/pro-access');
 const { assertCredentialCapability } = require('../security/verification-credential');
 const { createReviveEligibilityService } = require('../torn/revive-eligibility');
@@ -50,6 +51,12 @@ async function registerProRoutes(app, {
     receiverTornId:config.PRO_RECEIVER_TORN_ID,
     plans:publicPlans()
   });
+  const runtime = createRuntimeContract({
+    serverVersion:config.REVIVERELAY_SERVER_VERSION || '0.6.1',
+    minimumClientVersion:config.REVIVERELAY_MINIMUM_CLIENT_VERSION || '0.6.1',
+    releaseChannel:config.REVIVERELAY_RELEASE_CHANNEL || 'stable',
+    subscription
+  });
   const eligibilityService = verificationCredentialRepository &&
     typeof verificationCredentialRepository.getDecryptedActiveForUser === 'function' &&
     tornClient && typeof tornClient.getUserPerks === 'function'
@@ -60,7 +67,8 @@ async function registerProRoutes(app, {
     const status = await entitlementRepository.getStatus(request.reviveRelayUser.userId, new Date());
     return reply.code(200).send({
       pro:publicProStatus(status),
-      subscription
+      subscription,
+      runtime
     });
   });
 
