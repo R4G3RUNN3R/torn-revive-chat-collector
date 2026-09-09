@@ -685,6 +685,9 @@ git commit -m "test: record ReviveRelay 0.6.1 verification"
 
 ### Task 11: Deploy private review runtime and immutable 0.6.1 artifact
 
+
+**Execution status — 2026-09-09:** Step 1 revalidation complete; Step 2 immutable server/client staging complete; Step 5 immutable review-file publication complete and hash-verified; Step 7 Source-of-Truth staging checkpoint recorded. Step 3 is intentionally blocked because the canonical merchant receiver settings are not yet present in the existing server secret boundary. Steps 4 and 6 therefore remain pending; no review API listener or Caddy `/review/*` proxy has been started/added, and stable 0.4.4 remains untouched.
+
 **Files outside repo / operations:**
 - `/srv/voidsmith/torn-platform/reviverelay/releases/server/review/0.6.1/`
 - `/srv/voidsmith/torn-platform/reviverelay/releases/client/review/0.6.1/`
