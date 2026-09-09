@@ -686,7 +686,7 @@ git commit -m "test: record ReviveRelay 0.6.1 verification"
 ### Task 11: Deploy private review runtime and immutable 0.6.1 artifact
 
 
-**Execution status — 2026-09-09:** Step 1 revalidation complete; Step 2 immutable server/client staging complete; Step 5 immutable review-file publication complete and hash-verified; Step 7 Source-of-Truth staging checkpoint recorded. Step 3 is intentionally blocked because the canonical merchant receiver settings are not yet present in the existing server secret boundary. Steps 4 and 6 therefore remain pending; no review API listener or Caddy `/review/*` proxy has been started/added, and stable 0.4.4 remains untouched.
+**Execution status — 2026-09-09:** Task 11 Steps 1-7 are complete. The isolated 0.6.1 review API is healthy on `127.0.0.1:18731`; the dedicated review subscription worker is running with zero restarts; Caddy exposes `/review/*` only to the review runtime; immutable review artifacts are public and hash-verified; stable 0.4.4 remains healthy on `127.0.0.1:18730` with `current -> 0.4.4`. Merchant validation keeps canonical owner and incoming-payment-log requirements while accepting the operator-approved broader Torn key scopes. The live checkpoint is verified in the Voidsmith Source of Truth. Task 12 browser acceptance remains pending; no stable promotion is authorized.
 
 **Files outside repo / operations:**
 - `/srv/voidsmith/torn-platform/reviverelay/releases/server/review/0.6.1/`
@@ -698,19 +698,19 @@ git commit -m "test: record ReviveRelay 0.6.1 verification"
 - Caddy route `/review/*` proxies to localhost `18731` while stripping the `/review` prefix, so backend receives `/v1/...` and `/health`.
 - Existing `/v1/* -> 127.0.0.1:18730` remains byte-for-byte functionally unchanged.
 
-- [ ] **Step 1: Invoke Voidsmith Source-of-Truth skill and revalidate live state**
+- [x] **Step 1: Invoke Voidsmith Source-of-Truth skill and revalidate live state**
 
 Before any mutation, verify current host, Caddy file, stable port `18730`, production `current -> 0.4.4`, existing DB/network names, and secret-file path. Abort if live state differs materially from the plan.
 
-- [ ] **Step 2: Stage immutable server/client release directories**
+- [x] **Step 2: Stage immutable server/client release directories**
 
 Copy only the verified source/runtime and exact 0.6.1 client/meta artifacts into versioned review directories. Verify artifact SHA-256 after copy.
 
-- [ ] **Step 3: Start review API and dedicated review billing loop**
+- [x] **Step 3: Start review API and dedicated review billing loop**
 
 Use `deploy/docker-compose.review.yml`; validate service health and confirm review processes connect only to ReviveRelay DB/network resources.
 
-- [ ] **Step 4: Add and validate Caddy review route**
+- [x] **Step 4: Add and validate Caddy review route**
 
 Add a narrowly scoped handler before the fallback:
 
@@ -722,7 +722,7 @@ handle_path /review/* {
 
 Validate Caddy config before reload. Do not modify the stable `/v1/*` handler.
 
-- [ ] **Step 5: Publish immutable 0.6.1 review files**
+- [x] **Step 5: Publish immutable 0.6.1 review files**
 
 The URLs must become:
 
@@ -733,7 +733,7 @@ https://reviverelay.voidsmithindustries.com/releases/review/0.6.1/ReviveRelay-0.
 
 Do not overwrite 0.6.0.
 
-- [ ] **Step 6: Verify live route isolation**
+- [x] **Step 6: Verify live route isolation**
 
 Check:
 
@@ -746,7 +746,7 @@ Check:
 
 Confirm stable container/worker identities and production symlink are unchanged.
 
-- [ ] **Step 7: Update Source of Truth with observed deployment facts**
+- [x] **Step 7: Update Source of Truth with observed deployment facts**
 
 Record only verified non-secret facts: review ports/paths, source commit, artifact hash, OWNER rule, stable 0.4.4 unchanged, and pending Torn/browser acceptance.
 

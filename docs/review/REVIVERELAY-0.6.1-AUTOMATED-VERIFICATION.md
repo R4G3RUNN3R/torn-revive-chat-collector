@@ -58,6 +58,22 @@ Independent follow-up Codex review reported no remaining Critical or Important f
 - Stable remains `current -> 0.4.4`, the stable userscript hash remains `1e6d84d5dd85cf8e2501ea391243767a37745ca20b197cb5a030a57d0da57fa6`, and stable `/health` remains healthy.
 - Deployment is blocked before review-runtime startup because the server secret boundary does not yet contain the canonical merchant receiver settings required by review/live fail-closed configuration. No merchant API key is recorded in this report.
 
+
+### Task 11 live deployment verification observed on 2026-09-09
+
+This live checkpoint supersedes the earlier staging-only notes above.
+
+- Merchant policy commit: `bf7e6d8ef862f2ffb10e861fabcabb3bf87504fa` accepts the operator-approved broader Torn API scopes while still requiring receiver Torn ID `3877028`, `user basic`, `user log`, `torn logcategories`, restricted custom log access, and exactly the incoming Money/Items categories used for billing evidence. The credential value is never recorded in repository evidence.
+- Review database-wiring fix commit: `36d40e54e5385febfacd9207f57a1c7fb2ae9977` supplies the existing ReviveRelay PostgreSQL URL to both isolated review services without creating or exposing a second database service.
+- Fresh post-commit `verify:review` passed: client **223/223**, server **335/335**, release/provenance **4/4**, static audit **15 files / 0 findings**, with the immutable client SHA-256 still `49f07cff3dbbde473d85c950b9e7986321dbde1be1bccb429b667806c1a024b3` before and after the gate.
+- `reviverelay-review-api` is healthy on loopback `127.0.0.1:18731`; the dedicated review subscription worker is running; both had `restart_count=0` at verification.
+- Public `/review/health` returns healthy and `/review/v1/client/version` reports `0.6.1` / `review` with the exact immutable client hash.
+- Public review userscript and metadata downloads hash to `49f07cff3dbbde473d85c950b9e7986321dbde1be1bccb429b667806c1a024b3` and `1f104420382cf1ac2acec025efba9e93e445a20090cc26b23445f9096d1c0c21` respectively.
+- Public stable `/health` remains healthy; `/v1/client/version` reports `0.4.4`; `/install/reviverelay-auto.user.js` remains `1e6d84d5dd85cf8e2501ea391243767a37745ca20b197cb5a030a57d0da57fa6`; and `current -> 0.4.4` remains unchanged.
+- The Caddy review handler is narrowly scoped as `/review/* -> 127.0.0.1:18731`; the stable `/health /v1/* -> 127.0.0.1:18730` handler remains present and unchanged in purpose.
+- SentinelX on `new-voidsmith` was upgraded to `0.11.18` before privileged Caddy deployment after the operator channel announced a sudo-edit boundary fix.
+
+
 ## Security/regression coverage
 
 The verified suite includes coverage for:
@@ -84,7 +100,6 @@ Public production remains **0.4.4**. Stable 0.4.4 has not been promoted or repla
 
 The following are still pending and are intentionally not represented as completed here:
 
-- live deployment of the dedicated `/review/*` runtime;
 - manual browser acceptance for a normal user, an expired-trial user and OWNER;
 - screenshot evidence for Request, Reviver, Activity, Pro and Settings;
 - Torn staff approval of the paid subscription model and certified-request notification approach.
