@@ -2,18 +2,23 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const cp = require('node:child_process');
+const crypto = require('node:crypto');
 const releaseClient = require('../scripts/release-client');
 const { DIRECT_SUPPORT_MODULES } = require('../scripts/client-modules');
 
 function artifactSourceCommit() {
   const manifestPath = 'docs/review/BUILD-MANIFEST.json';
   const currentVersion = require('../package.json').version;
-  if (fs.existsSync(manifestPath)) {
+  const artifactPath = `dist/review/ReviveRelay-${currentVersion}.user.js`;
+  if (fs.existsSync(manifestPath) && fs.existsSync(artifactPath)) {
     const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
     if (String(manifest.version || '') === currentVersion) {
       const commit = String(manifest.artifactSourceCommit || '');
+      const expectedHash = String(manifest.sha256 || '');
       if (!/^[0-9a-f]{40}$/.test(commit)) throw new Error('Review build manifest has invalid artifactSourceCommit');
-      return commit;
+      if (!/^[0-9a-f]{64}$/.test(expectedHash)) throw new Error('Review build manifest has invalid sha256');
+      const actualHash = crypto.createHash('sha256').update(fs.readFileSync(artifactPath)).digest('hex');
+      if (actualHash === expectedHash) return commit;
     }
   }
   return cp.execFileSync('git', ['rev-parse', 'HEAD'], { encoding:'utf8', env:{...process.env,GIT_CONFIG_COUNT:'1',GIT_CONFIG_KEY_0:'safe.directory',GIT_CONFIG_VALUE_0:process.cwd()} }).trim();
