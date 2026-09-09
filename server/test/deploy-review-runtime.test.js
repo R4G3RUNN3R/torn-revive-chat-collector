@@ -24,5 +24,7 @@ test('review compose isolates API and billing scanner from stable runtime',()=>{
   assert.match(compose,/reviverelay_db_internal:/);
   assert.match(compose,/reviverelay_egress:/);
   assert.match(compose,/external:\s*true/);
+  const databaseUrls=compose.match(/DATABASE_URL:\s*postgres:\/\/\$\{REVIVERELAY_DB_USER:-reviverelay_app\}:\$\{REVIVERELAY_DB_PASSWORD\}@reviverelay-db:5432\/\$\{REVIVERELAY_DB_NAME:-reviverelay\}/g) || [];
+  assert.equal(databaseUrls.length,2,'review API and billing worker must receive the existing ReviveRelay database URL');
   assert.doesNotMatch(compose,/PRO_RECEIVER_API_KEY:\s*[^\s#]+/);
 });

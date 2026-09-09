@@ -8,6 +8,7 @@ services:
       - ${REVIVERELAY_ENV_FILE:-/srv/voidsmith/shared/secrets/reviverelay/runtime.env}
     environment:
       PORT: 3100
+      DATABASE_URL: postgres://${REVIVERELAY_DB_USER:-reviverelay_app}:${REVIVERELAY_DB_PASSWORD}@reviverelay-db:5432/${REVIVERELAY_DB_NAME:-reviverelay}
       SUBSCRIPTION_MODE: review
       REVIVERELAY_SERVER_VERSION: 0.6.1
       REVIVERELAY_MINIMUM_CLIENT_VERSION: 0.6.1
@@ -31,6 +32,7 @@ services:
     env_file:
       - ${REVIVERELAY_ENV_FILE:-/srv/voidsmith/shared/secrets/reviverelay/runtime.env}
     environment:
+      DATABASE_URL: postgres://${REVIVERELAY_DB_USER:-reviverelay_app}:${REVIVERELAY_DB_PASSWORD}@reviverelay-db:5432/${REVIVERELAY_DB_NAME:-reviverelay}
       SUBSCRIPTION_MODE: review
       REVIVERELAY_SERVER_VERSION: 0.6.1
       REVIVERELAY_MINIMUM_CLIENT_VERSION: 0.6.1
