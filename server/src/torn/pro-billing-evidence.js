@@ -1,9 +1,5 @@
 const XANAX_ITEM_ID = 206;
 
-const PRIVATE_NAMESPACES = Object.freeze(['company','faction','market','property','racing','forum']);
-const ALLOWED_USER_SELECTIONS = new Set(['basic','log','lookup','timestamp']);
-const ALLOWED_TORN_SELECTIONS = new Set(['logcategories','lookup','timestamp']);
-const ALLOWED_KEY_SELECTIONS = new Set(['info']);
 const ALLOWED_LOG_TITLES = new Set(['money incoming','items incoming','item incoming']);
 
 function normalizeName(value) {
@@ -15,12 +11,8 @@ function safePositiveInteger(value) {
   return Number.isSafeInteger(number) && number>0 ? number : null;
 }
 
-function assertSelectionSet(selections, namespace, allowed) {
+function selectionSet(selections, namespace) {
   const values=Array.isArray(selections[namespace]) ? selections[namespace] : [];
-  for (const raw of values) {
-    const value=normalizeName(raw);
-    if (!allowed.has(value)) throw new Error(`Receiver credential grants unapproved ${namespace} selection: ${raw}`);
-  }
   return new Set(values.map(normalizeName));
 }
 
@@ -30,16 +22,8 @@ function validateProReceiverCredential({keyInfo,ownerTornId,logMetadata}) {
   const selections=keyInfo && keyInfo.selections;
   if (!selections || typeof selections!=='object') throw new Error('Receiver credential selections are unavailable');
 
-  for (const namespace of PRIVATE_NAMESPACES) {
-    const values=Array.isArray(selections[namespace]) ? selections[namespace] : [];
-    if (values.length) throw new Error(`Receiver credential grants unapproved namespace: ${namespace}`);
-  }
-  if (keyInfo.access && keyInfo.access.faction) throw new Error('Receiver credential grants unapproved namespace: faction');
-  if (keyInfo.access && keyInfo.access.company) throw new Error('Receiver credential grants unapproved namespace: company');
-
-  const user=assertSelectionSet(selections,'user',ALLOWED_USER_SELECTIONS);
-  const torn=assertSelectionSet(selections,'torn',ALLOWED_TORN_SELECTIONS);
-  assertSelectionSet(selections,'key',ALLOWED_KEY_SELECTIONS);
+  const user=selectionSet(selections,'user');
+  const torn=selectionSet(selections,'torn');
   if (!user.has('basic') || !user.has('log')) throw new Error('Receiver credential requires user basic and log selections');
   if (!torn.has('logcategories')) throw new Error('Receiver credential requires torn logcategories selection');
 

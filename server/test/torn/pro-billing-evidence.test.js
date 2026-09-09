@@ -33,14 +33,27 @@ test('receiver credential accepts only designated owner with narrow incoming log
   assert.deepEqual(result,{ownerTornId:700001,moneyIncoming:true,itemIncoming:true});
 });
 
-test('receiver credential rejects owner mismatch, private namespaces and broad selections',()=>{
+test('receiver credential accepts designated owner with additional Torn scopes but keeps payment logs restricted',()=>{
   assert.throws(()=>validateProReceiverCredential({keyInfo:receiverKey(),ownerTornId:1,logMetadata:metadata}),/owner mismatch/i);
 
-  const faction=receiverKey({selections:{...receiverKey().selections,faction:['basic']}});
-  assert.throws(()=>validateProReceiverCredential({keyInfo:faction,ownerTornId:700001,logMetadata:metadata}),/unapproved namespace.*faction/i);
-
-  const profile=receiverKey({selections:{...receiverKey().selections,user:['basic','log','profile']}});
-  assert.throws(()=>validateProReceiverCredential({keyInfo:profile,ownerTornId:700001,logMetadata:metadata}),/unapproved user selection.*profile/i);
+  const broader=receiverKey({
+    selections:{
+      ...receiverKey().selections,
+      company:['companies','profile','timestamp','lookup'],
+      faction:['timestamp','basic','lookup'],
+      market:['timestamp','lookup'],
+      property:['property','timestamp','lookup'],
+      user:['profile','timestamp','lookup','basic','log'],
+      racing:['timestamp','lookup'],
+      forum:['timestamp','lookup'],
+      key:['info','log']
+    },
+    access:{...receiverKey().access,company:true}
+  });
+  assert.deepEqual(
+    validateProReceiverCredential({keyInfo:broader,ownerTornId:700001,logMetadata:metadata}),
+    {ownerTornId:700001,moneyIncoming:true,itemIncoming:true}
+  );
 
   const outgoing=receiverKey({access:{...receiverKey().access,log:{custom_permissions:true,available:[10,12,13].map(category_id=>({category_id,log_ids:[]}))}}});
   assert.throws(()=>validateProReceiverCredential({keyInfo:outgoing,ownerTornId:700001,logMetadata:metadata}),/unapproved log category.*Money outgoing/i);
