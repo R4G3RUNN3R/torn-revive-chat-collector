@@ -15,6 +15,6 @@ test('review verification brackets raw checks with immutable verification and ca
   assert.equal(pkg.scripts['postverify:review'], undefined);
   assert.equal(
     pkg.scripts['verify:review'],
-    'node scripts/verify-review-artifact.js && npm run test:client:raw && npm run test:server && node --check dist/review/ReviveRelay-0.6.2.user.js && node --test test/review-release-smoke.test.js test/release-dependency-verification.test.js && npm run audit:review && node scripts/verify-review-artifact.js'
+    'node scripts/verify-review-artifact.js && npm run test:client:raw && npm run test:server && node --check dist/review/ReviveRelay-0.6.3.user.js && node --test test/review-release-smoke.test.js test/release-dependency-verification.test.js && npm run audit:review && node scripts/verify-review-artifact.js'
   );
 });

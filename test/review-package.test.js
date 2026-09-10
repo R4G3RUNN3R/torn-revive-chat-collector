@@ -16,7 +16,7 @@ const requiredDocs=[
 
 test('Torn review package contains all 19 approved evidence classes',()=>{
   const artifact=`dist/review/ReviveRelay-${pkg.version}.user.js`;
-  assert.equal(pkg.version,'0.6.2');
+  assert.equal(pkg.version,'0.6.3');
   assert.ok(exists(artifact),'1 review artifact');
   for(const module of require('../scripts/client-modules').DIRECT_SUPPORT_MODULES) assert.ok(exists(module),`2 modular source ${module}`);
   for(const doc of requiredDocs) assert.ok(exists(doc),doc);

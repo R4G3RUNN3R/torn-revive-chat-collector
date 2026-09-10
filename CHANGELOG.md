@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.3 - Sidebar activation reconciliation hotfix
+
+### Fixed
+
+- Torn sidebar reconciliation now rebinds ReviveRelay activation when the live sidebar node is replaced or cloned without its JavaScript listener.
+- Rebinding is idempotent: an existing live action keeps exactly one click handler, while a replacement action is repaired before use.
+- Added regression coverage for the browser-observed state where the action still reports `READY` but clicking it produces no `POST /v1/requests`.
+
+### Review status
+
+0.6.3 is a client-only private-review hotfix discovered during live 0.6.2 browser acceptance. The review backend remains compatible with the existing isolated review API contract. Published 0.6.2 review bytes remain immutable and public stable production remains 0.4.4.
+
 ## 0.6.2 - Browser acceptance navigation hotfix
 
 ### Fixed

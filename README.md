@@ -86,11 +86,11 @@ The review package explicitly asks Torn staff to confirm whether ReviveRelay's *
 
 ## Source and release structure
 
-The tracked `torn-revive-chat-collector.user.js` file is the current userscript source template despite its historical filename. The current 0.6.2 review client is direct-only. Historical chat-related modules remain in the repository for regression/history purposes but are excluded from the generated review bundle.
+The tracked `torn-revive-chat-collector.user.js` file is the current userscript source template despite its historical filename. The current 0.6.3 review client is direct-only. Historical chat-related modules remain in the repository for regression/history purposes but are excluded from the generated review bundle.
 
 Installable review artifact:
 
-`dist/review/ReviveRelay-0.6.2.user.js`
+`dist/review/ReviveRelay-0.6.3.user.js`
 
 Review builds update only within the review channel. Stable builds update only within the stable channel. Released artifacts are immutable and carry semantic version, Git commit, build timestamp and channel-specific update/download URLs.
 
