@@ -7,7 +7,9 @@ const source=fs.readFileSync(path.resolve(__dirname,'..','torn-revive-chat-colle
 function functionSlice(name,nextName) {
   const prefixes=[`function ${name}`,`async function ${name}`];
   const start=Math.max(...prefixes.map(prefix=>source.indexOf(prefix)));
-  const end=nextName ? Math.max(source.indexOf(`function ${nextName}`,start+1),source.indexOf(`async function ${nextName}`,start+1)) : -1;
+  const end=nextName
+    ? Math.min(...[`function ${nextName}`,`async function ${nextName}`].map(prefix=>source.indexOf(prefix,start+1)).filter(index=>index>=0))
+    : -1;
   return start>=0 ? source.slice(start,end>start?end:undefined) : '';
 }
 
@@ -61,6 +63,68 @@ test('notification API is optional and absence cannot break queue processing',()
   assert.ok(notify.length>0);
   assert.match(notify,/typeof GM_notification\s*===\s*'function'/);
   assert.match(notify,/if \(!canNotify\) continue;/);
+});
+
+test('disabled desktop notifications still record a bounded seen-ID set without delivery',()=>{
+  const match=source.match(/function notifyNewQueueRequests\(requests\)\s*\{([\s\S]*?)\n  \}/);
+  assert.ok(match);
+  const stored=[];
+  const delivered=[];
+  const notify=new Function(
+    'hasReviverSubscriptionAccess','hasRole','hasCredentialCapability','hasConfirmedReviveAbility',
+    'readSeenRequestIds','writeSeenRequestIds','desktopNotificationsEnabled','formatOffer','GM_notification','GM_setValue','KEYS','MAX_SEEN_REQUEST_IDS','captureClientError','window',
+    `function notifyNewQueueRequests(requests) {${match[1]}\n} return notifyNewQueueRequests;`
+  )(
+    ()=>true,()=>true,()=>true,()=>true,
+    ()=>stored.slice(),ids=>{ stored.splice(0,stored.length,...ids); },()=>false,()=>'$1',()=>delivered.push('delivered'),
+    (_key,value)=>{ stored.splice(0,stored.length,...value); },{seenRequestIds:'seen'},200,()=>{},{}
+  );
+  notify([{id:'one'},{id:'two'}]);
+  assert.deepEqual(delivered,[]);
+  assert.deepEqual(stored,['one','two']);
+  notify([{id:'one'},{id:'two'},{id:'three'}]);
+  assert.deepEqual(delivered,[]);
+  assert.deepEqual(stored,['one','two','three']);
+});
+
+test('runtime lifecycle owns timers and initialization so repeated starts cannot multiply pollers',()=>{
+  assert.match(source,/let initialized\s*=\s*false;/);
+  const init=functionSlice('init');
+  assert.match(init,/if \(initialized\) return;/);
+  assert.match(init,/initialized\s*=\s*true;/);
+  const start=functionSlice('startTimers','init');
+  assert.match(start,/if \(requestTimer !== null\) return;/);
+  const stop=functionSlice('stopTimers','startTimers');
+  assert.ok(stop.length>0);
+  const created=[];
+  const cleared=[];
+  const lifecycle=new Function('setInterval','clearInterval','REQUEST_POLL_MS','PRO_POLL_MS','QUEUE_POLL_MS','INVOICE_POLL_MS','SIDEBAR_RECONCILE_MS','TELEMETRY_DRAIN_MS',`
+    let requestTimer=null,proTimer=null,queueTimer=null,invoiceTimer=null,sidebarTimer=null,telemetryTimer=null,clockTimer=null;
+    const refreshSidebarState=()=>{};
+    ${stop}
+    ${start}
+    return { startTimers, stopTimers };
+  `)(
+    (_fn,_delay)=>{ const handle={id:created.length}; created.push(handle); return handle; },
+    handle=>cleared.push(handle),10,60,10,15,5,30
+  );
+  lifecycle.startTimers();
+  lifecycle.startTimers();
+  assert.equal(created.length,7);
+  lifecycle.stopTimers();
+  lifecycle.stopTimers();
+  assert.equal(cleared.length,7);
+  lifecycle.startTimers();
+  assert.equal(created.length,14);
+});
+
+test('dormant Pro states retain only entitlement reactivation and sidebar bootstrap work',()=>{
+  const queue=functionSlice('refreshReviverQueue','refreshCurrentInvoice');
+  const eligibility=functionSlice('refreshReviverEligibility','readSeenRequestIds');
+  assert.match(queue,/if \(!state\.sessionToken \|\| !hasReviverSubscriptionAccess\(\)\)/);
+  assert.match(eligibility,/if \(!state\.sessionToken \|\| !hasReviverSubscriptionAccess\(\) \|\| !hasCredentialCapability\('reviver'\)\)/);
+  const timers=functionSlice('startTimers','init');
+  assert.match(timers,/runtimeCompatible\(\)\s*\?\s*refreshProState[\s\S]*?:\s*refreshMe\(\)/);
 });
 
 test('escapeHtml neutralizes executable markup used by external Torn or API text',()=>{

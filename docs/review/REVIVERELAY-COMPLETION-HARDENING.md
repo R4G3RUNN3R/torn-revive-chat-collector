@@ -71,3 +71,31 @@ No first-class extension source tree was found at the audited depth: no `manifes
 ## Production boundary
 
 **No production action performed.** Stable symlinks, endpoints, release artifacts, containers, databases, release metadata, and runtime services were not edited or restarted by Task 1. Public stable remains 0.4.4. Production promotion remains behind the hard gate, rollback verification, and explicit owner approval.
+
+## Task 2 — dormant runtime lifecycle
+
+Task 2 started from `e5e086f`. The focused tests were written before the lifecycle implementation. They reproduced that a second initialization could create a second set of intervals and navigation listeners because initialization and timer startup had no ownership guard. The runtime now treats both operations as idempotent. This is a shipping userscript change; the published 0.6.4 review artifact remains immutable and Task 8 must create the next unused patch candidate.
+
+### Lifecycle inventory
+
+| Primitive/path | Classification | Evidence / lifecycle ownership |
+|---|---|---|
+| `init`, panel creation, global error hooks, `popstate`/`hashchange` sidebar handlers | Bootstrap/reactivation required while dormant | A one-time `initialized` guard prevents duplicate DOM, listener, and timer installation while retaining Torn SPA reactivation handlers. |
+| `SidebarAction` mutation observer | Bootstrap/reactivation required while dormant | The controller observes only the current sidebar/navigation ancestor, debounces reconcile, and keeps one action/capture handler; its existing focused test instruments repeated observer activity. |
+| `sidebarTimer` | Bootstrap/reactivation required while dormant | Reconciles Torn SPA sidebar replacement without querying the network. |
+| `requestTimer` / active-request and transaction refresh | Active-feature work | It returns before network work without session or compatible runtime; requests remain available for connected compatible requester state. |
+| `proTimer` / `refreshMe` / Pro status | Bootstrap/reactivation required while dormant | The compatible path refreshes entitlement; the incompatible path performs only `refreshMe` so a recovered review runtime can reactivate. |
+| `queueTimer` / queue poll and notification processing | Active-feature work | It returns unless the account has reviver subscription access; queue refresh additionally requires reviver role, usable credential, and confirmed revive ability. Notifications-off still records bounded seen IDs without delivery. |
+| `invoiceTimer` / invoice poll | Active-feature work | It returns unless compatible, visible, unminimized, and a pending invoice exists. |
+| `telemetryTimer` / telemetry drain | Active-feature work | It returns unless diagnostics opt-in is enabled. |
+| `clockTimer` / countdown rendering | Active-feature work | It returns unless the panel is open and a transaction or queue item needs a live countdown. |
+| Initial restore, manual refresh, mutation follow-up network calls | Active-feature work | Each is event-driven and has session/runtime/role/credential guards at the operation boundary; resource polling uses single-flight ownership. |
+| Additional observer, queue poller, or navigation watchdog | Duplicate/unnecessary work | None added. Existing timer handles are explicit and `stopTimers()` clears every handle before a subsequent start. |
+
+### Automated evidence
+
+- Initial focused run after test additions: failed as expected for missing initialization/timer ownership; the notification harness was corrected because its first extraction omitted the existing `writeSeenRequestIds` dependency.
+- Focused lifecycle/client/sidebar suite: `node --test test/client-hardening.test.js test/bootstrap-controls.test.js test/sidebar-action.test.js` — PASS (29 tests).
+- The lifecycle harness stubs interval creation and clearing: two starts create seven intervals total, two stops clear those seven once, and a later start creates a fresh seven.
+- `npm run test:client` ran the full suite: 230 passed and one immutable-review verifier failure occurred because its mandatory build generated changed 0.6.4 bytes (`e27c53a…3839e`). This is the expected candidate-integrity signal for this shipping-source change, not a product-test regression; Task 8 must mint the next patch candidate before that verifier can pass again.
+- No deployed runtime or published candidate artifact was modified.
