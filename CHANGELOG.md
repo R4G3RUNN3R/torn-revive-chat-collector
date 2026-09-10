@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.2 - Browser acceptance navigation hotfix
+
+### Fixed
+
+- Contextual Settings actions now open the section they advertise. `Set up Reviver Verification`, requester verification prompts and verification-key update prompts open **ReviveRelay Verification** directly; `Configure Revive Me preset` opens **Revive Me preset** directly.
+- Sidebar setup routing now explicitly targets the preset section instead of relying on the drawer default.
+
+### Review status
+
+0.6.2 is a client-only private-review hotfix discovered during live 0.6.1 browser acceptance. The review backend remains on the compatible 0.6.1 API contract and public stable production remains 0.4.4.
+
 ## 0.6.1 - Private Torn review runtime hardening
 
 ### Added

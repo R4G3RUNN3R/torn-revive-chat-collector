@@ -41,7 +41,7 @@ test('main bootstrap consumes the exact core global exported by src/core.js', ()
   assert.doesNotMatch(mainSource, /TornReviveChatCollectorCore/);
 });
 
-test('0.6.1 review bundle contains direct support exactly once and zero legacy chat/candidate modules', () => {
+test('current review bundle contains direct support exactly once and zero legacy chat/candidate modules', () => {
   const version = require('../package.json').version;
   const filename = `review/ReviveRelay-${version}.user.js`;
   const built = fs.readFileSync(path.resolve(__dirname, '..', 'dist', filename), 'utf8');
@@ -59,6 +59,6 @@ test('0.6.1 review bundle contains direct support exactly once and zero legacy c
 });
 
 
-test('current direct-only review implementation is versioned as 0.6.1', () => {
-  assert.equal(require('../package.json').version, '0.6.1');
+test('current direct-only review implementation is versioned as 0.6.2', () => {
+  assert.equal(require('../package.json').version, '0.6.2');
 });
