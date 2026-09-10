@@ -155,3 +155,24 @@ test('ReviveRelay sidebar action is a real red button with a white medical cross
   assert.equal(action.children[0].textContent,'✚');
   assert.equal(action.children[0].style.color,'#fff');
 });
+
+test('reconcile rebinds activation when Torn replaces the action with a listenerless DOM clone', () => {
+  const document=new FakeDocument();
+  const window={MutationObserver:FakeMutationObserver,setTimeout:fn=>{fn();return 1;},clearTimeout(){}};
+  const activations=[];
+  const controller=createSidebarController({document,window,label:'ReviveRelay → Revive Me!',onActivate:s=>activations.push(s),getState:()=> 'READY'});
+  controller.reconcile();
+
+  const original=document.querySelectorAll('[data-reviverelay-sidebar-action]')[0];
+  const replacement=new FakeElement('button');
+  replacement.type=original.type;
+  replacement.className=original.className;
+  for (const [name,value] of original.attributes.entries()) replacement.setAttribute(name,value);
+  original.remove();
+  document.sidebar.appendChild(replacement);
+
+  controller.reconcile();
+  replacement.click();
+
+  assert.deepEqual(activations,['READY']);
+});

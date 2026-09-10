@@ -31,6 +31,7 @@
     let observedTarget = null;
     let debounceTimer = null;
     let explicitState = null;
+    const boundActions = new WeakSet();
 
     function findSidebar() {
       for (const selector of NAV_SELECTORS) {
@@ -55,6 +56,18 @@
         action.style.opacity = state === 'SUBMITTING' ? '0.72' : '1';
         action.style.cursor = state === 'SUBMITTING' ? 'wait' : 'pointer';
       }
+    }
+
+    function bindActivation(button) {
+      if (boundActions.has(button)) return;
+      button.addEventListener('click', event => {
+        if (event && typeof event.preventDefault === 'function') event.preventDefault();
+        if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+        const state = resolvedState();
+        if (state === 'SUBMITTING') return;
+        onActivate(state);
+      });
+      boundActions.add(button);
     }
 
     function createAction() {
@@ -99,13 +112,7 @@
 
       button.appendChild(icon);
       button.appendChild(text);
-      button.addEventListener('click', event => {
-        if (event && typeof event.preventDefault === 'function') event.preventDefault();
-        if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
-        const state = resolvedState();
-        if (state === 'SUBMITTING') return;
-        onActivate(state);
-      });
+      bindActivation(button);
       return button;
     }
 
@@ -143,6 +150,7 @@
         else if (typeof node.remove === 'function') node.remove();
       }
       if (!action) action = createAction();
+      bindActivation(action);
 
       const nativeChildren = Array.from(target.children || []).filter(node => node !== action);
       const nearTopAnchor = nativeChildren[1] || nativeChildren[0] || null;
