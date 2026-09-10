@@ -101,3 +101,30 @@ Focused, executable coverage did prove one dormant Pro-only defect: an eligibili
 - Focused lifecycle/client/sidebar suite: `node --test test/client-hardening.test.js test/bootstrap-controls.test.js test/sidebar-action.test.js` — PASS (28 tests).
 - Full client-suite evidence is recorded in the Task 2 report after its final run.
 - No deployed runtime or published candidate artifact was modified.
+
+## Task 3 — unknown, pending, stale, and denied state semantics
+
+Task 3 started from `a8a76c4`. It records the client boundary contract below. “Authoritative refresh” means a successful response from the validated direct API for the current state revision; cached public identity, a prior response, or a transport failure is never authority for entitlement or queue contents.
+
+| State | UI text | Actions | Notifications | Cache / refresh rule |
+|---|---|---|---|---|
+| Loading/pending verification | “Checking the ReviveRelay review backend…” | Protected controls disabled | Never | Require authoritative runtime refresh |
+| Authoritative empty/no-data queue | Empty queue card | No queue Accept action | None | Successful empty array replaces prior queue |
+| Active/success | Server-provided `TRIAL`, `ACTIVE`, or `OWNER` | Allowed only with role, usable credential, and confirmed ability | Eligible only with all guards | Current authoritative response only |
+| Unlicensed | Server-provided `NONE` / no paid access | Reviver queue and Accept disabled in paid modes | Never | Require authoritative entitlement refresh |
+| Trial | Server-provided `TRIAL` | Normal gated reviver actions | Eligible only with all guards | Current authoritative entitlement response |
+| Expired trial | Server-provided non-active status | Reviver queue and Accept disabled | Never | Require authoritative entitlement refresh |
+| Revoked | Server-provided `REVOKED` | Reviver queue and Accept disabled, including free-mode fallback | Never; no request details disclosed | Cannot be replaced by an older response |
+| Unauthorized/denied | Compatibility/auth error or eligibility `DENIED` | Protected controls disabled; genuine session auth failure reconnects | Never | Do not convert to entitlement state; refresh after reconnect/authority recovery |
+| Transport/server failure | User-facing failure message | Existing known state remains; no new protected access | Never from failed/no-data queue | Do not write an empty queue or unlicensed/revoked state; retry on normal polling |
+| Stale cached state | No entitlement/queue cache is persisted | Existing authoritative action gates remain | Never if guards are incomplete | Cached public identity cannot grant access; require authoritative refresh |
+| Delayed older response | No terminal-state copy is rendered from it | No action change | No notification from discarded queue response | Per-resource revision rejects it when newer authority/mutation exists |
+| Unknown/not-yet-verified | “Checking…” / review-backend unavailable | Protected controls disabled | Never | Require authoritative runtime contract before subscription evaluation |
+| Payment pending | `PENDING` invoice | Payment-status check only | None | Require invoice plus entitlement refresh |
+| Payment observed, entitlement pending | `VERIFYING` invoice | No paid access implied | None | Do not render `PAID` until backend status is `ACTIVE` |
+
+### Automated evidence
+
+- The initial focused red run failed three new assertions before runtime edits: freshness revisions were absent, queue refresh had no revision boundary, and invoice rendering could not distinguish payment observation from confirmed active entitlement. This is retained as test-first evidence in the Task 3 report.
+- The added executable tests exercise stale cached and delayed response rejection, authoritative empty queue versus transport failure, notification suppression for denied/pending/invalid state, unknown compatibility copy, and payment verification display semantics.
+- The implementation adds narrow client-side revision guards for Pro, queue, and invoice responses. It does not alter server routes/domain behavior, deployed runtime directories, or the immutable 0.6.4 artifact. A new patch candidate is required before shipping this userscript change.

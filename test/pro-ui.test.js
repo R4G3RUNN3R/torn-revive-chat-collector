@@ -4,6 +4,12 @@ const fs=require('node:fs');
 const path=require('node:path');
 const source=fs.readFileSync(path.resolve(__dirname,'..','torn-revive-chat-collector.user.js'),'utf8');
 
+function functionSlice(name,nextName) {
+  const start=source.indexOf(`function ${name}`);
+  const end=nextName ? source.indexOf(`function ${nextName}`,start+1) : -1;
+  return start>=0 ? source.slice(start,end>start?end:undefined) : '';
+}
+
 test('Pro UI renders server-owned plans and contains no authoritative launch pricing constants',()=>{
   assert.doesNotMatch(source,/PRO_LAUNCH_REFERENCE/);
   for(const text of [
@@ -82,4 +88,12 @@ test('server-provided OWNER is lifetime Pro and suppresses trial and purchase co
   assert.match(render,/Payment recipient account/);
   assert.match(render,/proState !== 'OWNER'/);
   assert.doesNotMatch(render,/3877028|state\.identity.*OWNER|state\.identity.*owner/i);
+});
+
+test('checkout remains verifying until the backend confirms ACTIVE entitlement',()=>{
+  const invoice=functionSlice('renderInvoice','renderVerificationSettings');
+  assert.match(invoice,/invoice\.state === 'PAID'\s*&&\s*state\.proStatus\?\.state === 'ACTIVE'/);
+  assert.match(invoice,/VERIFYING/);
+  const active=functionSlice('isProActive','runtimeCompatible');
+  assert.match(active,/state\.proStatus\?\.state === 'ACTIVE'/);
 });

@@ -125,3 +125,12 @@ test('OWNER is treated as active Pro but never offered a trial or invoice purcha
   assert.match(render,/Lifetime/);
   assert.match(render,/proState\s*!==\s*'OWNER'/);
 });
+
+test('unknown verification is rendered as checking, never as a terminal entitlement state',()=>{
+  const compatibility=functionSlice('runtimeCompatibilityMessage','runSingleFlightPoll');
+  assert.match(compatibility,/runtimeCompatibility === 'unknown'/);
+  assert.match(compatibility,/Checking the ReviveRelay review backend/);
+  const render=functionSlice('renderProPanel','renderProStatus');
+  assert.match(render,/!runtimeCompatible\(\)/);
+  assert.doesNotMatch(render,/runtimeCompatibility === 'unknown'[\s\S]*REVOKED|runtimeCompatibility === 'unknown'[\s\S]*FAILED/);
+});

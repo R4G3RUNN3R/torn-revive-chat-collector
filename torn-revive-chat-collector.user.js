@@ -110,6 +110,7 @@
   let clockTimer = null;
   const pollFlights = new Map();
   const mutationFlights = new Set();
+  const authoritativeStateRevisions = new Map();
 
   state.api = DirectApiClient.createDirectApiClient({
     baseUrl: API_BASE,
@@ -217,6 +218,7 @@
 
   function hasReviverSubscriptionAccess() {
     if (state.runtimeCompatibility !== 'compatible') return false;
+    if (state.proStatus?.state === 'REVOKED' || state.reviverEligibility?.status === 'DENIED') return false;
     return subscriptionMode() === 'free' || isProActive();
   }
 
@@ -258,6 +260,22 @@
       });
     pollFlights.set(key, promise);
     return promise;
+  }
+
+  function beginAuthoritativeRefresh(key) {
+    const revision = (authoritativeStateRevisions.get(key) || 0) + 1;
+    authoritativeStateRevisions.set(key, revision);
+    return revision;
+  }
+
+  function invalidateAuthoritativeState(key) {
+    return beginAuthoritativeRefresh(key);
+  }
+
+  function applyAuthoritativeState(key, revision, apply) {
+    if (authoritativeStateRevisions.get(key) !== revision) return false;
+    apply();
+    return true;
   }
 
   function mutationBusy(key) {
@@ -347,6 +365,9 @@
   }
 
   function clearSession(message = 'Disconnected from ReviveRelay.') {
+    invalidateAuthoritativeState('pro');
+    invalidateAuthoritativeState('queue');
+    invalidateAuthoritativeState('invoice');
     state.sessionToken = '';
     state.identity = null;
     state.activeRequest = null;
@@ -430,9 +451,12 @@
         state.proPlans = [];
         return;
       }
+      const revision = beginAuthoritativeRefresh('pro');
       const result = await state.api.getProStatus();
-      const runtimeResult = applyRuntimeContract(result?.runtime || null);
-      state.proStatus = runtimeResult.compatible ? (result?.pro || null) : null;
+      applyAuthoritativeState('pro', revision, () => {
+        const runtimeResult = applyRuntimeContract(result?.runtime || null);
+        state.proStatus = runtimeResult.compatible ? (result?.pro || null) : null;
+      });
     });
   }
 
@@ -541,20 +565,27 @@
         state.reviverQueue = [];
         return;
       }
+      const revision = beginAuthoritativeRefresh('queue');
       const result = await state.api.getReviverQueue();
-      state.reviverQueue = Array.isArray(result?.requests) ? result.requests : [];
-      notifyNewQueueRequests(state.reviverQueue);
+      applyAuthoritativeState('queue', revision, () => {
+        state.reviverQueue = Array.isArray(result?.requests) ? result.requests : [];
+        notifyNewQueueRequests(state.reviverQueue);
+      });
     });
   }
 
   async function refreshCurrentInvoice() {
     return runSingleFlightPoll('invoice', async () => {
       if (!state.sessionToken || !runtimeCompatible() || state.currentInvoice?.state !== 'PENDING' || !state.currentInvoice?.id) return;
+      const revision = beginAuthoritativeRefresh('invoice');
       const result = await state.api.getProInvoice(state.currentInvoice.id);
-      state.currentInvoice = {
-        ...(result?.invoice || {}),
-        paymentTarget: result?.paymentTarget || state.currentInvoice.paymentTarget || null
-      };
+      const applied = applyAuthoritativeState('invoice', revision, () => {
+        state.currentInvoice = {
+          ...(result?.invoice || {}),
+          paymentTarget: result?.paymentTarget || state.currentInvoice.paymentTarget || null
+        };
+      });
+      if (!applied) return;
       if (state.currentInvoice.state === 'PAID') {
         await refreshProState({ includePlans: false });
         await refreshVerificationCredential();
@@ -689,6 +720,7 @@
     return runMutation('trial-start', async () => {
       try {
         const result = await state.api.startProTrial();
+        invalidateAuthoritativeState('pro');
         state.proStatus = result?.pro || null;
         setStatus('7-day Reviver Pro trial activated.');
         await refreshVerificationCredential();
@@ -714,6 +746,7 @@
     return runMutation('invoice-create', async () => {
       try {
         const result = await state.api.createProInvoice({ planId, currency });
+        invalidateAuthoritativeState('invoice');
         state.currentInvoice = {
           ...(result?.invoice || {}),
           paymentTarget: result?.paymentTarget || null
@@ -1061,11 +1094,14 @@
     if (!state.currentInvoice) return '<div class="rr-muted">No open Pro invoice.</div>';
     const invoice = state.currentInvoice;
     const target = invoice.paymentTarget?.tornId;
+    const displayState = invoice.state === 'PAID' && state.proStatus?.state === 'ACTIVE'
+      ? 'PAID'
+      : invoice.state === 'PAID' ? 'VERIFYING' : invoice.state;
     const expired = invoice.state === 'EXPIRED'
       ? '<div class="rr-warning">This invoice has expired. Create a new invoice if you still want Pro time.</div>'
       : '';
     return `<div class="rr-invoice">
-      <div class="rr-kv"><span>State</span><strong>${escapeHtml(invoice.state)}</strong></div>
+      <div class="rr-kv"><span>State</span><strong>${escapeHtml(displayState)}</strong></div>
       <div class="rr-kv"><span>Amount</span><strong>${escapeHtml(formatOffer(invoice.currency, invoice.expectedAmount))}</strong></div>
       <div class="rr-kv"><span>Send to Torn ID</span><strong>${escapeHtml(target || '—')}</strong></div>
       <div class="rr-kv"><span>Expires</span><strong>${escapeHtml(formatDate(invoice.expiresAt))}</strong></div>

@@ -154,3 +154,57 @@ test('ReviveRelay Verification binding is available to any connected requester, 
   assert.match(settings,/requesterNeedsVerification/);
   assert.match(settings,/reviverNeedsVerification/);
 });
+
+test('authoritative state revisions reject stale cached and delayed response writes',()=>{
+  assert.match(source,/const authoritativeStateRevisions\s*=\s*new Map\(\)/);
+  const begin=functionSlice('beginAuthoritativeRefresh','invalidateAuthoritativeState');
+  const invalidate=functionSlice('invalidateAuthoritativeState','applyAuthoritativeState');
+  const apply=functionSlice('applyAuthoritativeState','mutationBusy');
+  assert.ok(begin.length>0 && invalidate.length>0 && apply.length>0);
+  const revisions=new Map();
+  const beginRefresh=new Function('authoritativeStateRevisions',`${begin}; return beginAuthoritativeRefresh;`)(revisions);
+  const invalidateState=new Function('authoritativeStateRevisions','beginAuthoritativeRefresh',`${invalidate}; return invalidateAuthoritativeState;`)(revisions,beginRefresh);
+  const applyState=new Function('authoritativeStateRevisions',`${apply}; return applyAuthoritativeState;`)(revisions);
+  const state={proStatus:{state:'ACTIVE'}};
+  const stale=beginRefresh('pro');
+  const current=invalidateState('pro');
+  assert.equal(applyState('pro',stale,()=>{ state.proStatus={state:'REVOKED'}; }),false);
+  assert.deepEqual(state.proStatus,{state:'ACTIVE'},'a stale cache/result must not replace newer authority');
+  assert.equal(applyState('pro',current,()=>{ state.proStatus={state:'NONE'}; }),true);
+  const older=beginRefresh('queue');
+  const newer=beginRefresh('queue');
+  assert.equal(applyState('queue',older,()=>{ state.queue=['old']; }),false,'a delayed older response loses to a newer response');
+  assert.equal(applyState('queue',newer,()=>{ state.queue=[]; }),true);
+  assert.deepEqual(state.queue,[]);
+  const clear=functionSlice('clearSession','refreshMe');
+  for (const key of ['pro','queue','invoice']) assert.match(clear,new RegExp(`invalidateAuthoritativeState\\('${key}'\\)`));
+});
+
+test('queue transport failures and authoritative empty queues have distinct state transitions',()=>{
+  const queue=functionSlice('refreshReviverQueue','refreshCurrentInvoice');
+  assert.match(queue,/const revision\s*=\s*beginAuthoritativeRefresh\('queue'\)/);
+  assert.match(queue,/Array\.isArray\(result\?\.requests\)\s*\?\s*result\.requests\s*:\s*\[\]/);
+  assert.doesNotMatch(queue,/catch\s*\([^)]*\)\s*\{[^}]*state\.reviverQueue\s*=\s*\[\]/);
+  assert.doesNotMatch(source,/GM_setValue\([^\n]*(?:proStatus|reviverQueue|subscription)/);
+});
+
+test('denied, pending, and invalid reviver state cannot disclose request details by notification',()=>{
+  const match=source.match(/function notifyNewQueueRequests\(requests\)\s*\{([\s\S]*?)\n  \}/);
+  assert.ok(match);
+  const delivered=[];
+  for (const [access,confirmed] of [[false,true],[true,false]]) {
+    const notify=new Function(
+      'hasReviverSubscriptionAccess','hasRole','hasCredentialCapability','hasConfirmedReviveAbility',
+      'readSeenRequestIds','writeSeenRequestIds','desktopNotificationsEnabled','formatOffer','GM_notification','captureClientError','window','activatePanelTab',
+      `function notifyNewQueueRequests(requests) {${match[1]}\n} return notifyNewQueueRequests;`
+    )(
+      ()=>access,()=>true,()=>true,()=>confirmed,
+      ()=>[],()=>{},()=>true,()=>'$9,999',()=>delivered.push('request details'),()=>{}, {},()=>{}
+    );
+    notify([{id:'private-request',requesterName:'Private Player',requesterTornId:'123'}]);
+  }
+  assert.deepEqual(delivered,[],'denied, pending, and invalid state must not emit a request notification');
+  const access=functionSlice('hasReviverSubscriptionAccess','applyRuntimeContract');
+  assert.match(access,/state\.proStatus\?\.state === 'REVOKED'/);
+  assert.match(access,/state\.reviverEligibility\?\.status === 'DENIED'/);
+});
