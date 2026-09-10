@@ -47,6 +47,7 @@
     panelPosition: 'reviverelay_panel_position',
     panelTab: 'reviverelay_panel_tab',
     updateState: 'reviverelay_update_state',
+    desktopNotificationsEnabled: 'reviverelay_desktop_notifications_enabled',
     clientDiagnosticsEnabled: 'reviverelay_client_diagnostics_enabled',
     telemetryOutbox: 'reviverelay_telemetry_outbox'
   });
@@ -495,11 +496,15 @@
     GM_setValue(KEYS.seenRequestIds, bounded);
   }
 
+  function desktopNotificationsEnabled() {
+    return Boolean(GM_getValue(KEYS.desktopNotificationsEnabled, true));
+  }
+
   function notifyNewQueueRequests(requests) {
     if (!hasReviverSubscriptionAccess() || !hasRole('reviver') || !hasCredentialCapability('reviver') || !hasConfirmedReviveAbility()) return;
     const seen = new Set(readSeenRequestIds());
     const next = [...seen];
-    const canNotify = typeof GM_notification === 'function';
+    const canNotify = desktopNotificationsEnabled() && typeof GM_notification === 'function';
     for (const request of Array.isArray(requests) ? requests : []) {
       const id = String(request?.id || '');
       if (!id || seen.has(id)) continue;
@@ -1225,7 +1230,8 @@
     <details class="rr-settings-section">
       <summary>Notifications</summary>
       <div class="rr-settings-body">
-        <p>Certified-request desktop notifications are enabled automatically while Reviver Pro is active and your reviver setup is complete.</p>
+        <label><input id="rr-desktop-notifications-enabled" type="checkbox" ${desktopNotificationsEnabled() ? 'checked' : ''}> Desktop notifications for new certified requests</label>
+        <p class="rr-muted">Notifications are on by default while Reviver Pro is active and your reviver setup is complete. Turning them off does not affect the live queue or Accept controls.</p>
         <p class="rr-muted">ReviveRelay never auto-accepts a request.</p>
       </div>
     </details>
@@ -1535,6 +1541,9 @@
     });
 
     panel.addEventListener('change', event => {
+      if (event.target?.id === 'rr-desktop-notifications-enabled') {
+        GM_setValue(KEYS.desktopNotificationsEnabled, Boolean(event.target.checked));
+      }
       if (event.target?.id === 'rr-diagnostics-enabled') {
         GM_setValue(KEYS.clientDiagnosticsEnabled, Boolean(event.target.checked));
       }

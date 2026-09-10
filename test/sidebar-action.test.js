@@ -176,3 +176,37 @@ test('reconcile rebinds activation when Torn replaces the action with a listener
 
   assert.deepEqual(activations,['READY']);
 });
+
+
+test('window capture delegation activates the action even when Torn swallows the normal click path', () => {
+  FakeMutationObserver.instances=[];
+  const document=new FakeDocument();
+  const listeners=new Map();
+  const window={
+    MutationObserver:FakeMutationObserver,
+    setTimeout:fn=>{fn();return 1;},
+    clearTimeout(){},
+    addEventListener(type,fn,capture){ listeners.set(`${type}:${capture===true?'capture':'bubble'}`,fn); },
+    removeEventListener(type,fn,capture){
+      const key=`${type}:${capture===true?'capture':'bubble'}`;
+      if(listeners.get(key)===fn) listeners.delete(key);
+    }
+  };
+  const activations=[];
+  const controller=createSidebarController({document,window,label:'ReviveRelay → Revive Me!',onActivate:s=>activations.push(s),getState:()=> 'READY'});
+  controller.reconcile();
+  const action=document.querySelectorAll('[data-reviverelay-sidebar-action]')[0];
+
+  const capture=listeners.get('click:capture');
+  assert.equal(typeof capture,'function');
+  capture({
+    target:action,
+    composedPath:()=>[action,document.sidebar,document.body,window],
+    preventDefault(){},
+    stopPropagation(){}
+  });
+
+  assert.deepEqual(activations,['READY']);
+  controller.destroy();
+  assert.equal(listeners.has('click:capture'),false);
+});

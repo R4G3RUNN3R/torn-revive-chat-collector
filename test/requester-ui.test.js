@@ -183,3 +183,16 @@ test('contextual settings buttons open the section they advertise', () => {
   assert.match(renderer, /requestedSection === 'preset'/);
   assert.match(renderer, /requestedSection === 'verification'/);
 });
+
+
+test('desktop notifications can be disabled from Settings and default to enabled', () => {
+  assert.match(source, /desktopNotificationsEnabled/);
+  assert.match(source, /id=["']rr-desktop-notifications-enabled["']/);
+  assert.match(source, /GM_getValue\(KEYS\.desktopNotificationsEnabled,\s*true\)/);
+  assert.match(source, /GM_setValue\(KEYS\.desktopNotificationsEnabled,\s*Boolean\(event\.target\.checked\)\)/);
+
+  const notifyStart=source.indexOf('function notifyNewQueueRequests(requests)');
+  const notifyEnd=source.indexOf('async function refreshReviverQueue()',notifyStart);
+  const notifyFn=notifyStart>=0 && notifyEnd>notifyStart ? source.slice(notifyStart,notifyEnd) : '';
+  assert.match(notifyFn, /desktopNotificationsEnabled/);
+});

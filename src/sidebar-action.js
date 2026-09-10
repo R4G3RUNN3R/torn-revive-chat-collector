@@ -31,7 +31,9 @@
     let observedTarget = null;
     let debounceTimer = null;
     let explicitState = null;
+    let captureListener = null;
     const boundActions = new WeakSet();
+    const handledEvents = new WeakSet();
 
     function findSidebar() {
       for (const selector of NAV_SELECTORS) {
@@ -58,16 +60,39 @@
       }
     }
 
+    function activateFromEvent(event) {
+      if (event && typeof event === 'object') {
+        if (handledEvents.has(event)) return;
+        handledEvents.add(event);
+      }
+      if (event && typeof event.preventDefault === 'function') event.preventDefault();
+      if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+      const state = resolvedState();
+      if (state === 'SUBMITTING') return;
+      onActivate(state);
+    }
+
+    function eventTargetsAction(event) {
+      const path = event && typeof event.composedPath === 'function' ? event.composedPath() : [];
+      if (Array.isArray(path) && path.some(node => node && typeof node.getAttribute === 'function' && node.getAttribute('data-reviverelay-sidebar-action') !== null)) {
+        return true;
+      }
+      const target = event?.target;
+      return Boolean(target && typeof target.closest === 'function' && target.closest(ACTION_SELECTOR));
+    }
+
     function bindActivation(button) {
       if (boundActions.has(button)) return;
-      button.addEventListener('click', event => {
-        if (event && typeof event.preventDefault === 'function') event.preventDefault();
-        if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
-        const state = resolvedState();
-        if (state === 'SUBMITTING') return;
-        onActivate(state);
-      });
+      button.addEventListener('click', activateFromEvent);
       boundActions.add(button);
+    }
+
+    if (typeof window.addEventListener === 'function') {
+      captureListener = event => {
+        if (!eventTargetsAction(event)) return;
+        activateFromEvent(event);
+      };
+      window.addEventListener('click', captureListener, true);
     }
 
     function createAction() {
@@ -177,6 +202,10 @@
       if (observer && typeof observer.disconnect === 'function') observer.disconnect();
       observer = null;
       observedTarget = null;
+      if (captureListener && typeof window.removeEventListener === 'function') {
+        window.removeEventListener('click', captureListener, true);
+      }
+      captureListener = null;
       for (const action of Array.from(document.querySelectorAll(ACTION_SELECTOR) || [])) {
         if (typeof action.remove === 'function') action.remove();
       }
