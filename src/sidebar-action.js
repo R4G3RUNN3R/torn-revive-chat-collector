@@ -32,6 +32,11 @@
     let debounceTimer = null;
     let explicitState = null;
     let captureListener = null;
+    let pointerDownCaptureListener = null;
+    let pointerUpCaptureListener = null;
+    let pointerCancelCaptureListener = null;
+    let pendingPointer = null;
+    let suppressClickUntil = 0;
     const boundActions = new WeakSet();
     const handledEvents = new WeakSet();
 
@@ -81,18 +86,59 @@
       return Boolean(target && typeof target.closest === 'function' && target.closest(ACTION_SELECTOR));
     }
 
+    function clickActivation(event) {
+      if (Date.now() <= suppressClickUntil) {
+        if (event && typeof event.preventDefault === 'function') event.preventDefault();
+        if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+        return;
+      }
+      activateFromEvent(event);
+    }
+
     function bindActivation(button) {
       if (boundActions.has(button)) return;
-      button.addEventListener('click', activateFromEvent);
+      button.addEventListener('click', clickActivation);
       boundActions.add(button);
     }
 
     if (typeof window.addEventListener === 'function') {
       captureListener = event => {
         if (!eventTargetsAction(event)) return;
-        activateFromEvent(event);
+        clickActivation(event);
       };
       window.addEventListener('click', captureListener, true);
+
+      pointerDownCaptureListener = event => {
+        if (event?.button != null && event.button !== 0) return;
+        if (!eventTargetsAction(event)) return;
+        pendingPointer = {
+          pointerId: event?.pointerId ?? null,
+          startedAt: Date.now(),
+          clientX: Number.isFinite(event?.clientX) ? event.clientX : null,
+          clientY: Number.isFinite(event?.clientY) ? event.clientY : null
+        };
+      };
+      pointerUpCaptureListener = event => {
+        if (!pendingPointer) return;
+        if (pendingPointer.pointerId != null && event?.pointerId != null && event.pointerId !== pendingPointer.pointerId) return;
+        const pending = pendingPointer;
+        pendingPointer = null;
+        if (Date.now() - pending.startedAt > 2_000) return;
+        if (pending.clientX != null && pending.clientY != null && Number.isFinite(event?.clientX) && Number.isFinite(event?.clientY)) {
+          const dx = event.clientX - pending.clientX;
+          const dy = event.clientY - pending.clientY;
+          if (Math.hypot(dx, dy) > 32) return;
+        }
+        suppressClickUntil = Date.now() + 1_000;
+        activateFromEvent(event);
+      };
+      pointerCancelCaptureListener = event => {
+        if (!pendingPointer) return;
+        if (pendingPointer.pointerId == null || event?.pointerId == null || event.pointerId === pendingPointer.pointerId) pendingPointer = null;
+      };
+      window.addEventListener('pointerdown', pointerDownCaptureListener, true);
+      window.addEventListener('pointerup', pointerUpCaptureListener, true);
+      window.addEventListener('pointercancel', pointerCancelCaptureListener, true);
     }
 
     function createAction() {
@@ -205,7 +251,20 @@
       if (captureListener && typeof window.removeEventListener === 'function') {
         window.removeEventListener('click', captureListener, true);
       }
+      if (pointerDownCaptureListener && typeof window.removeEventListener === 'function') {
+        window.removeEventListener('pointerdown', pointerDownCaptureListener, true);
+      }
+      if (pointerUpCaptureListener && typeof window.removeEventListener === 'function') {
+        window.removeEventListener('pointerup', pointerUpCaptureListener, true);
+      }
+      if (pointerCancelCaptureListener && typeof window.removeEventListener === 'function') {
+        window.removeEventListener('pointercancel', pointerCancelCaptureListener, true);
+      }
       captureListener = null;
+      pointerDownCaptureListener = null;
+      pointerUpCaptureListener = null;
+      pointerCancelCaptureListener = null;
+      pendingPointer = null;
       for (const action of Array.from(document.querySelectorAll(ACTION_SELECTOR) || [])) {
         if (typeof action.remove === 'function') action.remove();
       }

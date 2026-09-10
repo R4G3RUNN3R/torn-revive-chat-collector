@@ -141,7 +141,11 @@ test('repeated sidebar observer callbacks schedule one reconcile and preserve on
   assert.equal(timers.length,1,'observer callbacks leave only one debounce pending');
   window.flush();
   assert.equal(document.querySelectorAll('[data-reviverelay-sidebar-action]').length,1);
-  assert.equal(listeners.size,1);
+  assert.equal(listeners.size,4);
+  assert.equal(listeners.has('click:true'),true);
+  assert.equal(listeners.has('pointerdown:true'),true);
+  assert.equal(listeners.has('pointerup:true'),true);
+  assert.equal(listeners.has('pointercancel:true'),true);
 });
 
 
@@ -232,4 +236,61 @@ test('window capture delegation activates the action even when Torn swallows the
   assert.deepEqual(activations,['READY']);
   controller.destroy();
   assert.equal(listeners.has('click:capture'),false);
+});
+
+
+test('pointer gesture activates once when Torn replaces the button between pointerdown and click', () => {
+  FakeMutationObserver.instances=[];
+  const document=new FakeDocument();
+  const listeners=new Map();
+  const window={
+    MutationObserver:FakeMutationObserver,
+    setTimeout:fn=>{fn();return 1;},
+    clearTimeout(){},
+    addEventListener(type,fn,capture){ listeners.set(`${type}:${capture===true?'capture':'bubble'}`,fn); },
+    removeEventListener(type,fn,capture){
+      const key=`${type}:${capture===true?'capture':'bubble'}`;
+      if(listeners.get(key)===fn) listeners.delete(key);
+    }
+  };
+  const activations=[];
+  const controller=createSidebarController({document,window,label:'ReviveRelay → Revive Me!',onActivate:s=>activations.push(s),getState:()=> 'READY'});
+  controller.reconcile();
+  const action=document.querySelectorAll('[data-reviverelay-sidebar-action]')[0];
+  const pointerdown=listeners.get('pointerdown:capture');
+  const pointerup=listeners.get('pointerup:capture');
+  assert.equal(typeof pointerdown,'function');
+  assert.equal(typeof pointerup,'function');
+
+  pointerdown({
+    button:0,
+    pointerId:7,
+    target:action,
+    composedPath:()=>[action,document.sidebar,document.body,window],
+    preventDefault(){},
+    stopPropagation(){}
+  });
+
+  action.remove();
+
+  pointerup({
+    button:0,
+    pointerId:7,
+    target:document.sidebar,
+    composedPath:()=>[document.sidebar,document.body,window],
+    preventDefault(){},
+    stopPropagation(){}
+  });
+
+  const click=listeners.get('click:capture');
+  if (click) click({
+    button:0,
+    target:action,
+    composedPath:()=>[action,document.sidebar,document.body,window],
+    preventDefault(){},
+    stopPropagation(){}
+  });
+
+  assert.deepEqual(activations,['READY']);
+  controller.destroy();
 });
