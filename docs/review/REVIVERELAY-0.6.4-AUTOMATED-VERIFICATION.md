@@ -69,3 +69,17 @@ Manual browser acceptance must resume on 0.6.4 and prove the live Torn boundary:
 6. The request can then be cancelled or continued through the remaining Task 12 acceptance flow as appropriate.
 
 Stable promotion remains blocked until this browser regression and the remaining required Task 12 checks pass.
+
+## Private-review publication verification
+
+0.6.4 was published only to the immutable private review channel after the complete automated gate.
+
+- Public userscript URL: `/releases/review/0.6.4/ReviveRelay-0.6.4.user.js`
+- Public userscript SHA-256 downloaded through Caddy: `f2ff7166e6912c6a449790412d1a82947087a64efc5eafb647971ff76e3c7a73`.
+- Public metadata SHA-256 downloaded through Caddy: `ad1e0b52991b70d599199c11d4a6dc0dcbf718089a267ff0a94dd967f8fbc23f`.
+- Review API was restarted by exact review-container identity only to reload the review manifest; it now advertises `latestVersion=0.6.4`, `minimumVersion=0.6.1`, and release channel `review`.
+- Review API remained on `127.0.0.1:18731`; stable API remained on `127.0.0.1:18730`.
+- Previously published 0.6.3 remained byte-for-byte unchanged at SHA-256 `602754ee2f2c1f770b90db3fb19d82091896ddaa99fd3d72111d430ffdadd582`.
+- Stable 0.4.4 remained byte-for-byte unchanged at SHA-256 `1e6d84d5dd85cf8e2501ea391243767a37745ca20b197cb5a030a57d0da57fa6` and its API container retained its pre-publication start time.
+
+Publication does not satisfy browser acceptance. The sidebar action still requires one real Torn click on 0.6.4 followed by review-API log confirmation of exactly one `POST /v1/requests`.
