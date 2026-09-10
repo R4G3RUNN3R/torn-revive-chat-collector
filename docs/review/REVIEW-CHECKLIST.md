@@ -67,5 +67,6 @@ Public production must remain **0.4.4** until these gates and explicit owner app
 - [x] One physical click on **ReviveRelay → Revive Me!** produced exactly one `POST /v1/requests` on the isolated review API.
 - [x] The review API returned HTTP `201` for that request (`req-92`, 24.5 ms), proving the sidebar activation reached the certified-request endpoint successfully.
 - [x] Request tab visibly showed the resulting active certified request with State AVAILABLE, offer $750,000, message "Rev please!", and queue count increased to 2.
+- [x] Cancel request browser flow returned the UI to Request None, removed the active request, preserved the saved $750,000 / "Rev please!" preset, reduced queue count from 2 to 1, and the review API recorded POST /v1/requests/<id>/cancel with HTTP 200.
 
 This proves the 0.6.4 capture/delegation sidebar repair in a real Torn browser. It does not by itself complete the remaining Task 12 trial, expired-trial, reviver, subscription, or Torn-review gates.
