@@ -234,6 +234,10 @@
       state.subscription = result.subscription;
       state.proPlans = Array.isArray(result.subscription?.plans) ? result.subscription.plans : [];
     } else {
+      invalidateAuthoritativeState('pro');
+      invalidateAuthoritativeState('queue');
+      invalidateAuthoritativeState('eligibility');
+      invalidateAuthoritativeState('invoice');
       state.subscription = null;
       state.proPlans = [];
       state.proStatus = null;
@@ -394,14 +398,17 @@
 
   async function refreshMe() {
     if (!state.sessionToken) return null;
+    const revision = beginAuthoritativeRefresh('pro');
     const me = await state.api.getMe();
-    state.identity = {
-      ...(me?.user || {}),
-      roles: Array.isArray(me?.roles) ? me.roles : []
-    };
-    const runtimeResult = applyRuntimeContract(me?.runtime || null);
-    state.proStatus = runtimeResult.compatible && me?.pro ? me.pro : null;
-    GM_setValue(KEYS.publicIdentity, publicIdentity());
+    applyAuthoritativeState('pro', revision, () => {
+      state.identity = {
+        ...(me?.user || {}),
+        roles: Array.isArray(me?.roles) ? me.roles : []
+      };
+      const runtimeResult = applyRuntimeContract(me?.runtime || null);
+      state.proStatus = runtimeResult.compatible && me?.pro ? me.pro : null;
+      GM_setValue(KEYS.publicIdentity, publicIdentity());
+    });
     return me;
   }
 
@@ -501,11 +508,16 @@
         state.reviverEligibility = null;
         return;
       }
+      const revision = beginAuthoritativeRefresh('eligibility');
       try {
         const result = await state.api.getReviverEligibility();
-        state.reviverEligibility = result?.eligibility || null;
+        applyAuthoritativeState('eligibility', revision, () => {
+          state.reviverEligibility = result?.eligibility || null;
+        });
       } catch (error) {
-        state.reviverEligibility = { status: 'UNAVAILABLE', canRevive: null };
+        applyAuthoritativeState('eligibility', revision, () => {
+          state.reviverEligibility = { status: 'UNAVAILABLE', canRevive: null };
+        });
         captureClientError(error, 'reviver.eligibility');
       }
     });
@@ -659,6 +671,10 @@
     return runMutation('account-delete', async () => {
       try {
         await state.api.deleteAccount();
+        invalidateAuthoritativeState('pro');
+        invalidateAuthoritativeState('queue');
+        invalidateAuthoritativeState('eligibility');
+        invalidateAuthoritativeState('invoice');
         state.sessionToken = '';
         state.identity = null;
         state.preset = null;
@@ -796,6 +812,8 @@
     return runMutation('verification-revoke', async () => {
       try {
         await state.api.revokeVerificationCredential();
+        invalidateAuthoritativeState('queue');
+        invalidateAuthoritativeState('eligibility');
         state.verificationCredential = null;
         state.verificationEditing = false;
         state.reviverEligibility = null;

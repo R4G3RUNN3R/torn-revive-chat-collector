@@ -5,8 +5,9 @@ const path=require('node:path');
 const source=fs.readFileSync(path.resolve(__dirname,'..','torn-revive-chat-collector.user.js'),'utf8');
 
 function functionSlice(name,nextName) {
-  const prefixes=[`function ${name}`,`async function ${name}`];
-  const start=Math.max(...prefixes.map(prefix=>source.indexOf(prefix)));
+  const prefixes=[`async function ${name}`,`function ${name}`];
+  const starts=prefixes.map(prefix=>source.indexOf(prefix)).filter(index=>index>=0);
+  const start=starts.length?Math.min(...starts):-1;
   const end=nextName
     ? Math.min(...[`function ${nextName}`,`async function ${nextName}`].map(prefix=>source.indexOf(prefix,start+1)).filter(index=>index>=0))
     : -1;
@@ -96,8 +97,8 @@ test('unavailable, unlicensed, and inapplicable Pro eligibility states make no r
     api:{getReviverEligibility:async()=>{ calls++; throw new Error('offline'); }}
   };
   let calls=0;
-  const refresh=new Function('state','runSingleFlightPoll','hasReviverSubscriptionAccess','hasCredentialCapability','captureClientError',`${eligibility}; return refreshReviverEligibility;`)(
-    state,(_key,operation)=>operation(),()=>true,()=>true,()=>{}
+  const refresh=new Function('state','runSingleFlightPoll','hasReviverSubscriptionAccess','hasCredentialCapability','captureClientError','beginAuthoritativeRefresh','applyAuthoritativeState',`${eligibility}; return refreshReviverEligibility;`)(
+    state,(_key,operation)=>operation(),()=>true,()=>true,()=>{},()=>1,(_key,_revision,apply)=>{ apply(); return true; }
   );
 
   await refresh();
@@ -108,12 +109,12 @@ test('unavailable, unlicensed, and inapplicable Pro eligibility states make no r
   assert.equal(state.reviverEligibility.status,'UNAVAILABLE','the suppression marker must survive future timer ticks');
 
   state.reviverEligibility=null;
-  const unlicensed=new Function('state','runSingleFlightPoll','hasReviverSubscriptionAccess','hasCredentialCapability','captureClientError',`${eligibility}; return refreshReviverEligibility;`)(
-    state,(_key,operation)=>operation(),()=>false,()=>true,()=>{}
+  const unlicensed=new Function('state','runSingleFlightPoll','hasReviverSubscriptionAccess','hasCredentialCapability','captureClientError','beginAuthoritativeRefresh','applyAuthoritativeState',`${eligibility}; return refreshReviverEligibility;`)(
+    state,(_key,operation)=>operation(),()=>false,()=>true,()=>{},()=>1,(_key,_revision,apply)=>{ apply(); return true; }
   );
   await unlicensed();
-  const inapplicable=new Function('state','runSingleFlightPoll','hasReviverSubscriptionAccess','hasCredentialCapability','captureClientError',`${eligibility}; return refreshReviverEligibility;`)(
-    state,(_key,operation)=>operation(),()=>true,()=>false,()=>{}
+  const inapplicable=new Function('state','runSingleFlightPoll','hasReviverSubscriptionAccess','hasCredentialCapability','captureClientError','beginAuthoritativeRefresh','applyAuthoritativeState',`${eligibility}; return refreshReviverEligibility;`)(
+    state,(_key,operation)=>operation(),()=>true,()=>false,()=>{},()=>1,(_key,_revision,apply)=>{ apply(); return true; }
   );
   await inapplicable();
   assert.equal(calls,1,'unlicensed and inapplicable states must not call the Pro-only endpoint');
@@ -207,4 +208,101 @@ test('denied, pending, and invalid reviver state cannot disclose request details
   const access=functionSlice('hasReviverSubscriptionAccess','applyRuntimeContract');
   assert.match(access,/state\.proStatus\?\.state === 'REVOKED'/);
   assert.match(access,/state\.reviverEligibility\?\.status === 'DENIED'/);
+});
+
+function deferred() {
+  let resolve;
+  let reject;
+  const promise=new Promise((res,rej)=>{ resolve=res; reject=rej; });
+  return {promise,resolve,reject};
+}
+
+function runtimeHarness(state) {
+  const revisions=new Map();
+  const begin=new Function('authoritativeStateRevisions',`${functionSlice('beginAuthoritativeRefresh','invalidateAuthoritativeState')}; return beginAuthoritativeRefresh;`)(revisions);
+  const invalidate=new Function('beginAuthoritativeRefresh',`${functionSlice('invalidateAuthoritativeState','applyAuthoritativeState')}; return invalidateAuthoritativeState;`)(begin);
+  const apply=new Function('authoritativeStateRevisions',`${functionSlice('applyAuthoritativeState','mutationBusy')}; return applyAuthoritativeState;`)(revisions);
+  const flight=(_key,operation)=>operation();
+  const access=()=>state.runtimeCompatibility==='compatible' && state.proStatus?.state!=='REVOKED' && state.reviverEligibility?.status!=='DENIED';
+  const credential=()=>Boolean(state.verificationCredential?.usable && state.verificationCredential?.capabilities?.reviver);
+  return {begin,invalidate,apply,flight,access,credential};
+}
+
+test('real delayed queue responses lose to verification revocation and account deletion',async()=>{
+  const queue=functionSlice('refreshReviverQueue','refreshCurrentInvoice');
+  const revoke=functionSlice('revokeVerificationKey','registerMarketplaceReviver');
+  const deletion=functionSlice('deleteReviveRelayAccount','saveRequestPreset');
+  const outcomes=[];
+  for (const action of [revoke,deletion]) {
+    const pending=deferred();
+    const state={
+      sessionToken:'session', runtimeCompatibility:'compatible', proStatus:{state:'ACTIVE'},
+      identity:{roles:['reviver']}, verificationCredential:{usable:true,capabilities:{reviver:true}},
+      reviverEligibility:{status:'ELIGIBLE',canRevive:true}, reviverQueue:[], api:{
+        getReviverQueue:()=>pending.promise,
+        revokeVerificationCredential:async()=>{}, deleteAccount:async()=>{}
+      }
+    };
+    const h=runtimeHarness(state);
+    const refresh=new Function('state','runSingleFlightPoll','hasReviverSubscriptionAccess','hasRole','hasCredentialCapability','hasConfirmedReviveAbility','beginAuthoritativeRefresh','applyAuthoritativeState','notifyNewQueueRequests',`${queue}; return refreshReviverQueue;`)(
+      state,h.flight,h.access,role=>state.identity.roles.includes(role),h.credential,()=>state.reviverEligibility?.canRevive===true,h.begin,h.apply,()=>{}
+    );
+    const invoke=new Function('state','runtimeCompatible','runMutation','window','GM_setValue','KEYS','setStatus','refreshSidebarState','renderAll','handleApiFailure','invalidateAuthoritativeState',`${action}; return ${action.includes('revokeVerificationKey')?'revokeVerificationKey':'deleteReviveRelayAccount'};`)(
+      state,()=>true,(_key,operation)=>operation(),{confirm:()=>true},()=>{}, {},()=>{},()=>{},()=>{},()=>{},h.invalidate
+    );
+    const inFlight=refresh();
+    await invoke();
+    pending.resolve({requests:[{id:'private-request',requesterName:'Private Player'}]});
+    await inFlight;
+    outcomes.push(state.reviverQueue);
+  }
+  assert.deepEqual(outcomes,[[],[]], 'revocation/deletion must invalidate an already-running queue response');
+});
+
+test('real delayed me and eligibility responses cannot overwrite newer denial authority',async()=>{
+  const refreshMe=functionSlice('refreshMe','connectIdentity');
+  const eligibility=functionSlice('refreshReviverEligibility','readSeenRequestIds');
+  const applyRuntime=functionSlice('applyRuntimeContract','runtimeCompatibilityMessage');
+  const pendingMe=deferred();
+  const state={sessionToken:'session',runtimeCompatibility:'compatible',proStatus:{state:'REVOKED'},reviverEligibility:{status:'DENIED'},identity:{roles:['reviver']},verificationCredential:{usable:true,capabilities:{reviver:true}},api:{getMe:()=>pendingMe.promise}};
+  const h=runtimeHarness(state);
+  const applyContract=new Function('state','DirectApiClient','VERSION','UPDATE_CHANNEL','invalidateAuthoritativeState',`${applyRuntime}; return applyRuntimeContract;`)(
+    state,{validateReviewRuntime:()=>({compatible:true,subscription:{mode:'review',plans:[]}})},'0.6.4','review',h.invalidate
+  );
+  const refresh=new Function('state','applyRuntimeContract','GM_setValue','KEYS','publicIdentity','beginAuthoritativeRefresh','applyAuthoritativeState',`${refreshMe}; return refreshMe;`)(state,applyContract,()=>{}, {},()=>null,h.begin,h.apply);
+  const meInFlight=refresh();
+  h.invalidate('pro');
+  state.proStatus={state:'REVOKED'};
+  pendingMe.resolve({user:{name:'Older',roles:['reviver']},runtime:{},pro:{state:'ACTIVE'}});
+  await meInFlight;
+  assert.equal(state.proStatus.state,'REVOKED','older /me must not replace a newer revoked entitlement');
+
+  const pendingEligibility=deferred();
+  state.api.getReviverEligibility=()=>pendingEligibility.promise;
+  state.proStatus={state:'ACTIVE'};
+  state.reviverEligibility=null;
+  const eligibilityRefresh=new Function('state','runSingleFlightPoll','hasReviverSubscriptionAccess','hasCredentialCapability','captureClientError','beginAuthoritativeRefresh','applyAuthoritativeState',`${eligibility}; return refreshReviverEligibility;`)(state,h.flight,h.access,h.credential,()=>{},h.begin,h.apply);
+  const eligibilityInFlight=eligibilityRefresh();
+  h.invalidate('eligibility');
+  state.reviverEligibility={status:'DENIED',canRevive:false};
+  pendingEligibility.resolve({eligibility:{status:'ELIGIBLE',canRevive:true}});
+  await eligibilityInFlight;
+  assert.equal(state.reviverEligibility.status,'DENIED','older eligibility must not replace a newer denial');
+});
+
+test('real queue refresh preserves transport failures, accepts authoritative empty, and renderInvoice waits for entitlement',async()=>{
+  const queue=functionSlice('refreshReviverQueue','refreshCurrentInvoice');
+  const render=functionSlice('renderInvoice','renderVerificationSettings');
+  const state={sessionToken:'session',runtimeCompatibility:'compatible',proStatus:{state:'ACTIVE'},identity:{roles:['reviver']},verificationCredential:{usable:true,capabilities:{reviver:true}},reviverEligibility:{status:'ELIGIBLE',canRevive:true},reviverQueue:[{id:'known'}],api:{getReviverQueue:async()=>{ throw new Error('offline'); }}};
+  const h=runtimeHarness(state);
+  const refresh=new Function('state','runSingleFlightPoll','hasReviverSubscriptionAccess','hasRole','hasCredentialCapability','hasConfirmedReviveAbility','beginAuthoritativeRefresh','applyAuthoritativeState','notifyNewQueueRequests',`${queue}; return refreshReviverQueue;`)(state,h.flight,h.access,role=>state.identity.roles.includes(role),h.credential,()=>true,h.begin,h.apply,()=>{});
+  await assert.rejects(refresh(),/offline/);
+  assert.deepEqual(state.reviverQueue,[{id:'known'}],'transport failure is not authoritative empty data');
+  state.api.getReviverQueue=async()=>({requests:[]});
+  await refresh();
+  assert.deepEqual(state.reviverQueue,[],'successful empty response is authoritative empty data');
+  const renderInvoice=new Function('state','escapeHtml','formatOffer','formatDate',`${render}; return renderInvoice;`)(
+    {currentInvoice:{state:'PAID',currency:'cash',expectedAmount:1},proStatus:{state:'NONE'}},String,()=>'$1',()=> 'now'
+  );
+  assert.match(renderInvoice(),/VERIFYING/);
 });
