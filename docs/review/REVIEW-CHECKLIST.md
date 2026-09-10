@@ -1,17 +1,17 @@
-# ReviveRelay 0.6.4 Completion Review Checklist
+# ReviveRelay 0.6.5 Completion Review Checklist
 
-This checklist governs the private immutable 0.6.4 review candidate. It is an evidence ledger, not a claim of Torn approval, production readiness, or completed manual acceptance. Every checked item must identify evidence for the exact candidate bytes under review.
+This checklist governs the private immutable 0.6.5 review candidate. It is an evidence ledger, not a claim of Torn approval, production readiness, or completed manual acceptance. Historical 0.6.4 browser evidence is retained explicitly as historical evidence; any check whose behavior can be affected by 0.6.5 shipping changes requires fresh 0.6.5 acceptance.
 
 ## Candidate and release truth
 
-- [x] Review candidate is 0.6.4, sourced from commit `b6b3d24b0616c9b3f7c9607f72dd5f0a72e55274`.
-- [x] Published review userscript hash is SHA-256 `f2ff7166e6912c6a449790412d1a82947087a64efc5eafb647971ff76e3c7a73`.
-- [x] Public stable remains 0.4.4; stable current path and hash are recorded in `REVIVERELAY-COMPLETION-HARDENING.md`.
-- [x] The review artifact and its manifest agree with `REVIVERELAY-0.6.4-AUTOMATED-VERIFICATION.md`.
+- [x] Review candidate is 0.6.5, executable source commit `dee29b9ce7fa4a65654f053534d0ebe4ce9aa35e`.
+- [x] Frozen review userscript SHA-256 is `9e065d49e6ac20d6cdeebc810a3099cd3ec1e728e455dcee7a84010ed3a26972`; public publication is verified separately after staging.
+- [x] Public stable remains 0.4.4; stable current path and historical hash are recorded in `REVIVERELAY-COMPLETION-HARDENING.md`.
+- [x] The frozen 0.6.5 artifact and manifest agree with `REVIVERELAY-0.6.5-AUTOMATED-VERIFICATION.md`.
 - [ ] Repository/release reconciliation is complete and approved for publication.
 - [ ] Production hard gate is complete, including owner approval and verified rollback.
 
-Published review artifacts are immutable. If shipping bytes change, mint the next unused patch candidate and rerun affected acceptance; do not overwrite 0.6.4 in place.
+Published review artifacts are immutable. Published 0.6.4 remains historical and must not be overwritten. Once 0.6.5 is published, any further shipping change requires the next unused patch candidate and affected acceptance must be rerun.
 
 ## Product / monetization
 
@@ -25,7 +25,7 @@ Published review artifacts are immutable. If shipping bytes change, mint the nex
 
 ## Scripting / API boundary
 
-- [ ] Confirm the 0.6.4 candidate has no public chat collection and does not scrape unfocused Torn pages.
+- [ ] Confirm the 0.6.5 candidate has no public chat collection and does not scrape unfocused Torn pages.
 - [ ] Confirm actual payment, revive, and Accept game actions remain manual user actions where applicable.
 - [ ] Confirm the userscript has no runtime `@require`, `eval`, or remote executable-code loading.
 - [ ] Confirm cross-origin userscript network access is restricted to the ReviveRelay backend.
@@ -78,7 +78,7 @@ Published review artifacts are immutable. If shipping bytes change, mint the nex
 
 ## Exact Chrome review-surface identity
 
-The repository contains no first-class browser-extension source tree (`manifest.json`, `background.js`, `popup.html`, or `options.html`). The audited Chrome surface is the packaged Tampermonkey/userscript artifact `dist/review/ReviveRelay-0.6.4.user.js`, published at the immutable review URL, exercised on Torn in a real browser. Review/CSP verification files and the operational harness support that packaged artifact; they are not a Chrome extension package and must not be described as one.
+The repository contains no first-class browser-extension source tree (`manifest.json`, `background.js`, `popup.html`, or `options.html`). The current audited Chrome surface is the packaged Tampermonkey/userscript artifact `dist/review/ReviveRelay-0.6.5.user.js`. Publication and real-browser acceptance of the exact 0.6.5 bytes are recorded separately. Review/CSP verification files and the operational harness support that packaged artifact; they are not a Chrome extension package and must not be described as one.
 
 ## 0.6.4 desktop browser evidence
 
@@ -88,6 +88,19 @@ The repository contains no first-class browser-extension source tree (`manifest.
 - [x] Cancel returned the UI to Request None, removed the active request, preserved the `$750,000` / `Rev please!` preset, reduced the queue count from 2 to 1, and recorded HTTP 200 for cancellation.
 - [x] Desktop notifications were disabled in Settings and remained disabled after a full Torn refresh.
 - [ ] Complete the remaining desktop matrix: install/update, remount, self-revive protection, grouping/filter/sort, verification/revoked states, trial/expired/unlicensed/paid states, subscription flow, notification matrix, responsive layout, keyboard/focus behavior, and duplicate-work checks.
+
+## 0.6.5 desktop browser re-test
+
+0.6.5 replaces 0.6.4 as the current candidate because 0.6.4 intermittently failed to deliver a sidebar request after full Torn refresh, even after waiting more than ten seconds while the action still reported READY. The review API saw no POST in either failed attempt.
+
+- [ ] Exact published 0.6.5 userscript is installed and header reports v0.6.5.
+- [ ] After a full Torn refresh, OWNER/reviver state and the saved `$750,000` / `Rev please!` preset remain intact.
+- [ ] Desktop notifications remain OFF after update/reload.
+- [ ] Sidebar reports READY after reload.
+- [ ] One physical sidebar activation produces exactly one `POST /v1/requests` on the review API.
+- [ ] Request tab displays the resulting active certified request.
+- [ ] With Desktop notifications OFF, no desktop notification is emitted for the newly observed certified request while queue state still updates normally.
+- [ ] Test request can be cancelled cleanly and preset remains intact.
 
 ## Real TornPDA acceptance
 
