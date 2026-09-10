@@ -38,3 +38,11 @@ Verification ran against a disposable loopback-only PostgreSQL 16 instance, neve
 ## Remaining browser evidence
 
 Manual browser acceptance must resume on 0.6.2 and explicitly prove that **Set up Reviver Verification** opens Settings with **ReviveRelay Verification expanded** and **Revive Me preset collapsed**. Remaining Task 12 browser checks continue only after that regression is observed fixed in Torn.
+
+## Live review publication observed
+
+The immutable 0.6.2 client and metadata are published at `/releases/review/0.6.2/` and were downloaded back through public Caddy with exact SHA-256 matches. The review channel manifest now advertises `latestVersion=0.6.2`, `minimumVersion=0.6.1`, channel `review`, and the exact 0.6.2 userscript hash.
+
+The isolated review API was recreated only to reload the channel manifest; it remains healthy on `127.0.0.1:18731`, and the dedicated review subscription worker remained running. Public stable production remains 0.4.4 on `127.0.0.1:18730`, `current -> 0.4.4` is unchanged, and the stable userscript hash remains `1e6d84d5dd85cf8e2501ea391243767a37745ca20b197cb5a030a57d0da57fa6`. At publication verification all four API/worker containers reported zero restarts.
+
+The previous immutable 0.6.1 userscript remains publicly retrievable at SHA-256 `49f07cff3dbbde473d85c950b9e7986321dbde1be1bccb429b667806c1a024b3`; it was not overwritten.
