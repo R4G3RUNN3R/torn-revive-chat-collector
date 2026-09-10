@@ -66,6 +66,6 @@ Public production must remain **0.4.4** until these gates and explicit owner app
 - [x] OWNER browser was running private review 0.6.4 with the Torn sidebar action in READY state.
 - [x] One physical click on **ReviveRelay → Revive Me!** produced exactly one `POST /v1/requests` on the isolated review API.
 - [x] The review API returned HTTP `201` for that request (`req-92`, 24.5 ms), proving the sidebar activation reached the certified-request endpoint successfully.
-- [ ] Confirm the Request tab visibly shows the resulting active certified request before closing requester browser acceptance.
+- [x] Request tab visibly showed the resulting active certified request with State AVAILABLE, offer $750,000, message "Rev please!", and queue count increased to 2.
 
 This proves the 0.6.4 capture/delegation sidebar repair in a real Torn browser. It does not by itself complete the remaining Task 12 trial, expired-trial, reviver, subscription, or Torn-review gates.
