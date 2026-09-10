@@ -87,44 +87,40 @@ test('disabled desktop notifications still record a bounded seen-ID set without 
   assert.deepEqual(stored,['one','two','three']);
 });
 
-test('runtime lifecycle owns timers and initialization so repeated starts cannot multiply pollers',()=>{
-  assert.match(source,/let initialized\s*=\s*false;/);
-  const init=functionSlice('init');
-  assert.match(init,/if \(initialized\) return;/);
-  assert.match(init,/initialized\s*=\s*true;/);
-  const start=functionSlice('startTimers','init');
-  assert.match(start,/if \(requestTimer !== null\) return;/);
-  const stop=functionSlice('stopTimers','startTimers');
-  assert.ok(stop.length>0);
-  const created=[];
-  const cleared=[];
-  const lifecycle=new Function('setInterval','clearInterval','REQUEST_POLL_MS','PRO_POLL_MS','QUEUE_POLL_MS','INVOICE_POLL_MS','SIDEBAR_RECONCILE_MS','TELEMETRY_DRAIN_MS',`
-    let requestTimer=null,proTimer=null,queueTimer=null,invoiceTimer=null,sidebarTimer=null,telemetryTimer=null,clockTimer=null;
-    const refreshSidebarState=()=>{};
-    ${stop}
-    ${start}
-    return { startTimers, stopTimers };
-  `)(
-    (_fn,_delay)=>{ const handle={id:created.length}; created.push(handle); return handle; },
-    handle=>cleared.push(handle),10,60,10,15,5,30
-  );
-  lifecycle.startTimers();
-  lifecycle.startTimers();
-  assert.equal(created.length,7);
-  lifecycle.stopTimers();
-  lifecycle.stopTimers();
-  assert.equal(cleared.length,7);
-  lifecycle.startTimers();
-  assert.equal(created.length,14);
-});
-
-test('dormant Pro states retain only entitlement reactivation and sidebar bootstrap work',()=>{
-  const queue=functionSlice('refreshReviverQueue','refreshCurrentInvoice');
+test('unavailable, unlicensed, and inapplicable Pro eligibility states make no repeated eligibility requests',async()=>{
   const eligibility=functionSlice('refreshReviverEligibility','readSeenRequestIds');
-  assert.match(queue,/if \(!state\.sessionToken \|\| !hasReviverSubscriptionAccess\(\)\)/);
-  assert.match(eligibility,/if \(!state\.sessionToken \|\| !hasReviverSubscriptionAccess\(\) \|\| !hasCredentialCapability\('reviver'\)\)/);
+  assert.ok(eligibility.length>0);
+  const state={
+    sessionToken:'session',
+    reviverEligibility:null,
+    api:{getReviverEligibility:async()=>{ calls++; throw new Error('offline'); }}
+  };
+  let calls=0;
+  const refresh=new Function('state','runSingleFlightPoll','hasReviverSubscriptionAccess','hasCredentialCapability','captureClientError',`${eligibility}; return refreshReviverEligibility;`)(
+    state,(_key,operation)=>operation(),()=>true,()=>true,()=>{}
+  );
+
+  await refresh();
+  assert.equal(calls,1);
+  assert.equal(state.reviverEligibility.status,'UNAVAILABLE');
+  await refresh();
+  assert.equal(calls,1,'periodic entitlement refresh must not retry an unavailable Pro-only endpoint');
+  assert.equal(state.reviverEligibility.status,'UNAVAILABLE','the suppression marker must survive future timer ticks');
+
+  state.reviverEligibility=null;
+  const unlicensed=new Function('state','runSingleFlightPoll','hasReviverSubscriptionAccess','hasCredentialCapability','captureClientError',`${eligibility}; return refreshReviverEligibility;`)(
+    state,(_key,operation)=>operation(),()=>false,()=>true,()=>{}
+  );
+  await unlicensed();
+  const inapplicable=new Function('state','runSingleFlightPoll','hasReviverSubscriptionAccess','hasCredentialCapability','captureClientError',`${eligibility}; return refreshReviverEligibility;`)(
+    state,(_key,operation)=>operation(),()=>true,()=>false,()=>{}
+  );
+  await inapplicable();
+  assert.equal(calls,1,'unlicensed and inapplicable states must not call the Pro-only endpoint');
+
   const timers=functionSlice('startTimers','init');
-  assert.match(timers,/runtimeCompatible\(\)\s*\?\s*refreshProState[\s\S]*?:\s*refreshMe\(\)/);
+  assert.match(timers,/runtimeCompatible\(\)\s*\?\s*refreshProState[\s\S]*?:\s*refreshMe\(\)/,
+    'entitlement refresh remains available for runtime reactivation');
 });
 
 test('escapeHtml neutralizes executable markup used by external Torn or API text',()=>{

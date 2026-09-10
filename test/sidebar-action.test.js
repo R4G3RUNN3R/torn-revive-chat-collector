@@ -121,7 +121,7 @@ test('observer is bounded to sidebar/navigation ancestor and destroy removes its
   assert.equal(document.querySelectorAll('[data-reviverelay-sidebar-action]').length,0);
 });
 
-test('repeated sidebar observer activity is debounced and never multiplies handlers or actions', () => {
+test('repeated sidebar observer callbacks schedule one reconcile and preserve one action/handler', () => {
   FakeMutationObserver.instances=[];
   const document=new FakeDocument();
   const listeners=new Map();
@@ -137,7 +137,9 @@ test('repeated sidebar observer activity is debounced and never multiplies handl
   const controller=createSidebarController({document,window,label:'ReviveRelay → Revive Me!',onActivate(){},getState:()=> 'READY'});
   controller.reconcile();
   const observer=FakeMutationObserver.instances[0];
-  observer.trigger(); observer.trigger(); observer.trigger(); window.flush();
+  observer.trigger(); observer.trigger(); observer.trigger();
+  assert.equal(timers.length,1,'observer callbacks leave only one debounce pending');
+  window.flush();
   assert.equal(document.querySelectorAll('[data-reviverelay-sidebar-action]').length,1);
   assert.equal(listeners.size,1);
 });

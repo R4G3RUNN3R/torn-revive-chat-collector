@@ -108,7 +108,6 @@
   let sidebarTimer = null;
   let telemetryTimer = null;
   let clockTimer = null;
-  let initialized = false;
   const pollFlights = new Map();
   const mutationFlights = new Set();
 
@@ -473,6 +472,7 @@
 
   async function refreshReviverEligibility() {
     return runSingleFlightPoll('eligibility', async () => {
+      if (state.reviverEligibility?.status === 'UNAVAILABLE') return;
       if (!state.sessionToken || !hasReviverSubscriptionAccess() || !hasCredentialCapability('reviver')) {
         state.reviverEligibility = null;
         return;
@@ -1580,25 +1580,7 @@
     window.addEventListener('hashchange', () => setTimeout(refreshSidebarState, 150));
   }
 
-  function stopTimers() {
-    if (requestTimer !== null) clearInterval(requestTimer);
-    if (proTimer !== null) clearInterval(proTimer);
-    if (queueTimer !== null) clearInterval(queueTimer);
-    if (invoiceTimer !== null) clearInterval(invoiceTimer);
-    if (sidebarTimer !== null) clearInterval(sidebarTimer);
-    if (telemetryTimer !== null) clearInterval(telemetryTimer);
-    if (clockTimer !== null) clearInterval(clockTimer);
-    requestTimer = null;
-    proTimer = null;
-    queueTimer = null;
-    invoiceTimer = null;
-    sidebarTimer = null;
-    telemetryTimer = null;
-    clockTimer = null;
-  }
-
   function startTimers() {
-    if (requestTimer !== null) return;
     requestTimer = setInterval(() => {
       if (!state.sessionToken || !runtimeCompatible()) return;
       refreshActiveRequest().then(renderLiveState).catch(error => handleApiFailure(error, 'poll.request'));
@@ -1629,8 +1611,6 @@
   }
 
   async function init() {
-    if (initialized) return;
-    initialized = true;
     createPanel();
     installSidebar();
     installGlobalErrorHooks();
