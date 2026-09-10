@@ -168,3 +168,18 @@ test('requester workflow remains independent of subscription mode', () => {
   assert.ok(renderFn.length>0);
   assert.doesNotMatch(renderFn,/subscriptionMode|subscriptionPaymentsEnabled|hasReviverSubscriptionAccess|isProActive/);
 });
+
+
+test('contextual settings buttons open the section they advertise', () => {
+  assert.match(source, /data-rr-open-settings=["']preset["'][^>]*>Configure Revive Me preset<\/button>/);
+  assert.match(source, /data-rr-open-settings=["']verification["'][^>]*>Set up Reviver Verification<\/button>/);
+  assert.match(source, /data-rr-open-settings=["']verification["'][^>]*>Set up requester verification<\/button>/);
+  assert.match(source, /data-rr-open-settings=["']verification["'][^>]*>Update Reviver Verification key<\/button>/);
+  assert.match(source, /openSettingsDrawer\(settingsTarget\.dataset\.rrOpenSettings\)/);
+
+  const renderer = source.match(/function renderSettingsDrawer\(\)\s*\{([\s\S]*?)\n\s*\}\n\n\s*function renderSummary/)?.[1] || '';
+  assert.ok(renderer.length > 0);
+  assert.match(renderer, /state\.settingsSection/);
+  assert.match(renderer, /requestedSection === 'preset'/);
+  assert.match(renderer, /requestedSection === 'verification'/);
+});

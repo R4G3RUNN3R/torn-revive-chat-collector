@@ -87,6 +87,7 @@
     submittingRequest: false,
     sidebarController: null,
     settingsOpen: false,
+    settingsSection: null,
     minimized: Boolean(GM_getValue(KEYS.minimized, false)),
     panelPosition: GM_getValue(KEYS.panelPosition, null),
     panelTab: Core.normalizePanelTab(GM_getValue(KEYS.panelTab, 'request'))
@@ -843,7 +844,7 @@
       return;
     }
     if (currentState === 'SETUP_REQUIRED') {
-      if (state.sessionToken) openSettingsDrawer();
+      if (state.sessionToken) openSettingsDrawer('preset');
       else activatePanelTab('request');
     } else activatePanelTab('request');
   }
@@ -917,13 +918,13 @@
       : 'Not configured';
     const request = state.activeRequest;
     const requesterVerification = request && !hasCredentialCapability('requester')
-      ? `<div class="rr-warning"><strong>Requester verification required</strong><p>Requester verification is required before a reviver can accept this request. Connect a narrowly scoped ReviveRelay Verification key so Torn revive evidence can be checked later.</p><button data-rr-open-settings>Set up requester verification</button></div>`
+      ? `<div class="rr-warning"><strong>Requester verification required</strong><p>Requester verification is required before a reviver can accept this request. Connect a narrowly scoped ReviveRelay Verification key so Torn revive evidence can be checked later.</p><button data-rr-open-settings="verification">Set up requester verification</button></div>`
       : '';
     target.innerHTML = `<div class="rr-card">
       <div class="rr-card-title">Revive Me</div>
       <p>Use Torn's left sidebar action <strong>ReviveRelay → Revive Me!</strong> for the one-click certified request.</p>
       <div class="rr-kv"><span>Saved preset</span><strong>${presetText}</strong></div>
-      ${validation.ok ? '' : '<button data-rr-open-settings>Configure Revive Me preset</button>'}
+      ${validation.ok ? '' : '<button data-rr-open-settings="preset">Configure Revive Me preset</button>'}
     </div>
     <div class="rr-card" id="rr-request-card">
       <div class="rr-card-title">Active certified request</div>
@@ -980,7 +981,7 @@
       target.innerHTML = `<div class="rr-card">
         <div class="rr-card-title">Finish Reviver Verification</div>
         <p>Connect the limited Torn API access needed to confirm revives and payments.</p>
-        <button data-rr-open-settings>Set up Reviver Verification</button>
+        <button data-rr-open-settings="verification">Set up Reviver Verification</button>
       </div>`;
       return;
     }
@@ -996,7 +997,7 @@
       target.innerHTML = `<div class="rr-card">
         <div class="rr-card-title">Revive ability could not be verified</div>
         <p>Your connected custom Torn key predates the revive-ability check and does not include <strong>Perks</strong>.</p>
-        <button data-rr-open-settings>Update Reviver Verification key</button>
+        <button data-rr-open-settings="verification">Update Reviver Verification key</button>
       </div>`;
       return;
     }
@@ -1191,12 +1192,16 @@
     const preset = validation.ok ? validation.preset : { paymentMethod: 'cash', offerAmount: 500000, comment: '' };
     const requesterNeedsVerification = Boolean(state.activeRequest && !hasCredentialCapability('requester'));
     const reviverNeedsVerification = Boolean(hasRole('reviver') && hasReviverSubscriptionAccess() && !hasCredentialCapability('reviver'));
-    const verificationOpen = state.sessionToken && (requesterNeedsVerification || reviverNeedsVerification) ? ' open' : '';
+    const requestedSection = state.settingsSection;
+    const presetOpen = !requestedSection || requestedSection === 'preset' ? ' open' : '';
+    const verificationOpen = requestedSection === 'verification'
+      || (!requestedSection && state.sessionToken && (requesterNeedsVerification || reviverNeedsVerification))
+      ? ' open' : '';
     target.innerHTML = `<div class="rr-settings-heading">
       <div><strong>Settings</strong><span>Keep the everyday stuff simple. Advanced controls stay out of the way.</span></div>
       <button id="rr-settings-close" type="button" aria-label="Close ReviveRelay settings">Close</button>
     </div>
-    <details class="rr-settings-section" open>
+    <details class="rr-settings-section"${presetOpen}>
       <summary>Revive Me preset</summary>
       <div class="rr-settings-body">
         <p>This powers the red <strong>ReviveRelay → Revive Me!</strong> sidebar button.</p>
@@ -1327,7 +1332,8 @@
     if (gear) gear.setAttribute('aria-expanded', state.settingsOpen ? 'true' : 'false');
   }
 
-  function openSettingsDrawer() {
+  function openSettingsDrawer(section = null) {
+    state.settingsSection = ['preset', 'verification'].includes(section) ? section : null;
     if (state.minimized) {
       state.minimized = false;
       GM_setValue(KEYS.minimized, state.minimized);
@@ -1340,6 +1346,7 @@
 
   function toggleSettingsDrawer() {
     const opening = !state.settingsOpen;
+    if (opening) state.settingsSection = null;
     if (opening && state.minimized) {
       state.minimized = false;
       GM_setValue(KEYS.minimized, state.minimized);
@@ -1498,10 +1505,11 @@
       if (accept) return acceptMarketplaceRequest(accept.dataset.rrAccept);
       const tx = target.closest?.('[data-rr-tx-action]');
       if (tx) return runTransactionAction(tx.dataset.rrTxAction);
-      if (target.closest?.('[data-rr-open-settings]')) return openSettingsDrawer();
+      const settingsTarget = target.closest?.('[data-rr-open-settings]');
+      if (settingsTarget) return openSettingsDrawer(settingsTarget.dataset.rrOpenSettings);
       if (target.closest?.('[data-rr-open-pro]')) return activatePanelTab('settings');
       if (target.id === 'rr-settings-toggle') return toggleSettingsDrawer();
-      if (target.id === 'rr-settings-close') { state.settingsOpen = false; updateTabVisibility(); return; }
+      if (target.id === 'rr-settings-close') { state.settingsOpen = false; state.settingsSection = null; updateTabVisibility(); return; }
       if (target.id === 'rr-connect') return connectIdentity();
       if (target.id === 'rr-cancel-request') return cancelActiveRequest();
       if (target.id === 'rr-save-preset') return saveRequestPreset();
