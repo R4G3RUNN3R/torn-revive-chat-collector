@@ -1,6 +1,17 @@
-# ReviveRelay 0.6.1 Torn Review Checklist
+# ReviveRelay 0.6.4 Completion Review Checklist
 
-This checklist is for the private review candidate. It does not represent Torn approval or completed manual browser acceptance.
+This checklist governs the private immutable 0.6.4 review candidate. It is an evidence ledger, not a claim of Torn approval, production readiness, or completed manual acceptance. Every checked item must identify evidence for the exact candidate bytes under review.
+
+## Candidate and release truth
+
+- [x] Review candidate is 0.6.4, sourced from commit `b6b3d24b0616c9b3f7c9607f72dd5f0a72e55274`.
+- [x] Published review userscript hash is SHA-256 `f2ff7166e6912c6a449790412d1a82947087a64efc5eafb647971ff76e3c7a73`.
+- [x] Public stable remains 0.4.4; stable current path and hash are recorded in `REVIVERELAY-COMPLETION-HARDENING.md`.
+- [x] The review artifact and its manifest agree with `REVIVERELAY-0.6.4-AUTOMATED-VERIFICATION.md`.
+- [ ] Repository/release reconciliation is complete and approved for publication.
+- [ ] Production hard gate is complete, including owner approval and verified rollback.
+
+Published review artifacts are immutable. If shipping bytes change, mint the next unused patch candidate and rerun affected acceptance; do not overwrite 0.6.4 in place.
 
 ## Product / monetization
 
@@ -14,9 +25,9 @@ This checklist is for the private review candidate. It does not represent Torn a
 
 ## Scripting / API boundary
 
-- [ ] Confirm 0.6.1 has no public chat collection and does not scrape unfocused Torn pages.
-- [ ] Confirm actual payment/revive/Accept game actions remain manual user actions where applicable.
-- [ ] Confirm the userscript has no runtime `@require`, `eval` or remote executable-code loading.
+- [ ] Confirm the 0.6.4 candidate has no public chat collection and does not scrape unfocused Torn pages.
+- [ ] Confirm actual payment, revive, and Accept game actions remain manual user actions where applicable.
+- [ ] Confirm the userscript has no runtime `@require`, `eval`, or remote executable-code loading.
 - [ ] Confirm cross-origin userscript network access is restricted to the ReviveRelay backend.
 - [ ] Review `TORN-API-DISCLOSURE.md` and `TORN-API-INVENTORY.md` for exact official Torn API operations.
 
@@ -34,40 +45,74 @@ This checklist is for the private review candidate. It does not represent Torn a
 
 - [ ] Confirm a requester can create a request before persistent verification.
 - [ ] Confirm unverified requests are hidden from the reviver queue.
-- [ ] Confirm `Accept` rechecks requester evidence capability inside the same database transaction before starting the payment window.
+- [ ] Confirm Accept rechecks requester evidence capability inside the same database transaction before starting the payment window.
 - [ ] Confirm reviver queue/Accept continue to require current Torn revive ability and reviver evidence capability.
 - [ ] Confirm one request cannot be accepted by two revivers.
 - [ ] Confirm payment/refund evidence is idempotent and one Torn evidence reference cannot satisfy multiple obligations.
 
+## Dormant-runtime acceptance
+
+- [ ] Exercise disabled, unlicensed, revoked, and context-inapplicable states in the real review candidate.
+- [ ] Verify active-feature polling, queue refresh, notification delivery, high-frequency DOM scans, observers, timers, and recurring network work stop when dormant.
+- [ ] Verify only the documented bootstrap/reactivation surface remains while dormant.
+- [ ] Verify stop/start is idempotent after Torn SPA navigation and remount: no duplicate timers, observers, listeners, requests, or notifications.
+
+## Unknown, pending, and stale-state acceptance
+
+- [ ] Verify loading/pending is distinct from authoritative empty/no-data.
+- [ ] Verify authoritative eligible/active, denied/revoked/unauthorized, and transport/server failure are distinct states.
+- [ ] Verify unknown, pending, transport failure, and stale cache never render or alert as authoritative success or failure.
+- [ ] Verify stale cached data is visibly stale and cannot overwrite newer authoritative data.
+- [ ] Verify actions and notifications wait for the state required by their business rule.
+
+## Notification matrix
+
+- [ ] Permission unavailable/denied: no notification and no leakage.
+- [ ] Notifications disabled in Settings: no notification; queue and Accept controls remain usable.
+- [ ] Pending/loading: no notification.
+- [ ] Authoritative no-data/empty: no notification.
+- [ ] Authoritative new certified request: the permitted one-shot/timed notification occurs once.
+- [ ] Duplicate refresh/remount/reload: no duplicate notification.
+- [ ] Invalid, stale, revoked, unauthorized, or transport-failure state: no authoritative-success notification.
+- [ ] Re-enable after disable and persisted preference behavior are verified on the exact candidate.
+
+## Exact Chrome review-surface identity
+
+The repository contains no first-class browser-extension source tree (`manifest.json`, `background.js`, `popup.html`, or `options.html`). The audited Chrome surface is the packaged Tampermonkey/userscript artifact `dist/review/ReviveRelay-0.6.4.user.js`, published at the immutable review URL, exercised on Torn in a real browser. Review/CSP verification files and the operational harness support that packaged artifact; they are not a Chrome extension package and must not be described as one.
+
+## 0.6.4 desktop browser evidence
+
+- [x] OWNER browser ran private review 0.6.4 with the Torn sidebar action in READY state.
+- [x] One physical **ReviveRelay → Revive Me!** click produced exactly one `POST /v1/requests` on the isolated review API.
+- [x] The review API returned HTTP `201` for request `req-92`; the active certified request was visible with State AVAILABLE, offer `$750,000`, message `Rev please!`, and queue count increased to 2.
+- [x] Cancel returned the UI to Request None, removed the active request, preserved the `$750,000` / `Rev please!` preset, reduced the queue count from 2 to 1, and recorded HTTP 200 for cancellation.
+- [x] Desktop notifications were disabled in Settings and remained disabled after a full Torn refresh.
+- [ ] Complete the remaining desktop matrix: install/update, remount, self-revive protection, grouping/filter/sort, verification/revoked states, trial/expired/unlicensed/paid states, subscription flow, notification matrix, responsive layout, keyboard/focus behavior, and duplicate-work checks.
+
+## Real TornPDA acceptance
+
+TornPDA acceptance requires a genuine TornPDA app/in-app browser on a physical device or equivalent genuine runtime; a narrow desktop viewport is not sufficient.
+
+- [ ] Install/update and boot on real TornPDA.
+- [ ] Verify sidebar/control availability, requester flow, queue presentation, filtering/sorting, and navigation/remount behavior.
+- [ ] Verify verification, dormant/disabled, error, trial, and safely exercisable subscription states.
+- [ ] Record any TornPDA capability difference as an explicit compatibility rule, including notification support.
+
 ## Subscription safety
 
-- [ ] Confirm client cannot set price, duration or merchant identity.
-- [ ] Confirm invoice matching checks sender, exact currency/asset, exact amount and invoice time window.
+- [ ] Confirm client cannot set price, duration, or merchant identity.
+- [ ] Confirm invoice matching checks sender, exact currency/asset, exact amount, and invoice time window.
 - [ ] Confirm one merchant evidence/log ID cannot activate two invoices.
 - [ ] Confirm subscription is prepaid and does not auto-renew.
 
-## Explicit Torn question
-
-- [ ] **Please confirm whether ReviveRelay certified-request network notifications are acceptable.** These notifications are created from direct requests submitted to the ReviveRelay server, not from public-chat scraping or background/unfocused Torn-page extraction.
-
-## Human/manual evidence still required
+## Torn review and human evidence
 
 - [ ] Capture the five required UI surfaces listed in `SCREENSHOT-CHECKLIST.md`.
 - [ ] Perform requester browser acceptance.
 - [ ] Perform non-reviver rejection browser acceptance.
 - [ ] Perform eligible reviver queue/Accept browser acceptance.
 - [ ] Perform review-mode subscription invoice/payment browser acceptance with controlled test conditions.
+- [ ] Confirm whether ReviveRelay certified-request network notifications are acceptable to Torn; they originate from direct server requests, not public-chat scraping or background/unfocused extraction.
 - [ ] Record Torn staff review outcome before any public paid promotion.
 
-Public production must remain **0.4.4** until these gates and explicit owner approval are complete.
-
-## 0.6.4 browser acceptance evidence — 2026-09-10
-
-- [x] OWNER browser was running private review 0.6.4 with the Torn sidebar action in READY state.
-- [x] One physical click on **ReviveRelay → Revive Me!** produced exactly one `POST /v1/requests` on the isolated review API.
-- [x] The review API returned HTTP `201` for that request (`req-92`, 24.5 ms), proving the sidebar activation reached the certified-request endpoint successfully.
-- [x] Request tab visibly showed the resulting active certified request with State AVAILABLE, offer $750,000, message "Rev please!", and queue count increased to 2.
-- [x] Cancel request browser flow returned the UI to Request None, removed the active request, preserved the saved $750,000 / "Rev please!" preset, reduced queue count from 2 to 1, and the review API recorded POST /v1/requests/<id>/cancel with HTTP 200.
-- [x] Desktop notifications were turned OFF in Settings and remained OFF after a full Torn page refresh, proving the new 0.6.4 preference persists across reloads.
-
-This proves the 0.6.4 capture/delegation sidebar repair in a real Torn browser. It does not by itself complete the remaining Task 12 trial, expired-trial, reviver, subscription, or Torn-review gates.
+Public production must remain **0.4.4** until every required gate and explicit owner approval are complete.
