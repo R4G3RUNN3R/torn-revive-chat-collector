@@ -89,3 +89,18 @@ After immutable review publication, manual desktop acceptance must at minimum:
 8. confirm no desktop notification appears for the newly observed request while notifications are disabled.
 
 Only that real-browser evidence can close the intermittent sidebar regression and notification-suppression acceptance cases.
+
+## Private-review publication verification
+
+0.6.5 was published to the immutable private review channel only after the post-documentation full gate passed.
+
+- Public userscript SHA-256 downloaded through Caddy: `9e065d49e6ac20d6cdeebc810a3099cd3ec1e728e455dcee7a84010ed3a26972`.
+- Public metadata SHA-256 downloaded through Caddy: `5a51723ef9a5ce780011148e9b274917f25631ee5e64d7271d6a50d61275921f`.
+- Review registry now advertises `latestVersion=0.6.5`, `minimumVersion=0.6.1`, channel `review`, and the exact immutable install/meta URLs.
+- Review API remains isolated on `127.0.0.1:18731`; only that API container was recreated to reload the release registry and it reports restart count 0.
+- Review subscription worker remained running and reports restart count 0.
+- Previously published 0.6.4 remains byte-for-byte unchanged at SHA-256 `f2ff7166e6912c6a449790412d1a82947087a64efc5eafb647971ff76e3c7a73`.
+- Stable API remains healthy on `127.0.0.1:18730`, advertises 0.4.4, and stable current userscript remains byte-for-byte unchanged at SHA-256 `1e6d84d5dd85cf8e2501ea391243767a37745ca20b197cb5a030a57d0da57fa6`.
+- Stable API and worker report restart count 0.
+
+Publication does not close browser acceptance. The exact published 0.6.5 bytes must still prove one post-refresh sidebar activation produces exactly one request and that Desktop notifications OFF suppresses delivery while queue/request state continues normally.

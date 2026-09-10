@@ -5,7 +5,7 @@ This checklist governs the private immutable 0.6.5 review candidate. It is an ev
 ## Candidate and release truth
 
 - [x] Review candidate is 0.6.5, executable source commit `dee29b9ce7fa4a65654f053534d0ebe4ce9aa35e`.
-- [x] Frozen review userscript SHA-256 is `9e065d49e6ac20d6cdeebc810a3099cd3ec1e728e455dcee7a84010ed3a26972`; public publication is verified separately after staging.
+- [x] Published review userscript SHA-256 is `9e065d49e6ac20d6cdeebc810a3099cd3ec1e728e455dcee7a84010ed3a26972`; the public download was hashed after publication and matches the frozen candidate exactly.
 - [x] Public stable remains 0.4.4; stable current path and historical hash are recorded in `REVIVERELAY-COMPLETION-HARDENING.md`.
 - [x] The frozen 0.6.5 artifact and manifest agree with `REVIVERELAY-0.6.5-AUTOMATED-VERIFICATION.md`.
 - [ ] Repository/release reconciliation is complete and approved for publication.
