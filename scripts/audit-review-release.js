@@ -3,6 +3,7 @@ const path = require('node:path');
 
 const EXPECTED_VERSION = require('../package.json').version;
 const EXPECTED_CHANNEL = 'review';
+const EXPECTED_API_BASE = 'https://reviverelay.voidsmithindustries.com/review';
 const ALLOWED_CONNECT = new Set(['reviverelay.voidsmithindustries.com']);
 const ALLOWED_GRANTS = new Set([
   'GM_getValue',
@@ -52,6 +53,11 @@ function auditArtifactText(text) {
   const connectHosts = Array.from(source.matchAll(/^\/\/\s*@connect\s+([^\s]+)\s*$/gm), match => match[1]);
   if (connectHosts.some(host => !ALLOWED_CONNECT.has(host))) {
     findings.push(finding('UNEXPECTED_NETWORK_HOST', 'Review artifact contains an unapproved @connect host'));
+  }
+
+  const apiBase = source.match(/\bconst\s+API_BASE\s*=\s*['"]([^'"]+)['"]/)?.[1] || null;
+  if (apiBase !== EXPECTED_API_BASE) {
+    findings.push(finding('UNEXPECTED_NETWORK_HOST', 'Review artifact contains an unapproved ReviveRelay API origin'));
   }
 
   const grants = Array.from(source.matchAll(/^\/\/\s*@grant\s+([^\s]+)\s*$/gm), match => match[1]);

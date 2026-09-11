@@ -102,3 +102,17 @@ test('release validation rejects an executable artifact whose embedded support-m
     expectedCommit: head
   }), /bundled|embedded|mismatch|bytes/i);
 });
+
+test('review artifact audit rejects a noncanonical ReviveRelay API origin even with canonical @connect', () => {
+  const { auditArtifactText } = require('../scripts/audit-review-release');
+  const pkg = require('../package.json');
+  const auto = fs.readFileSync(`dist/review/ReviveRelay-${pkg.version}.user.js`, 'utf8');
+  const mutated = auto.replace(
+    "const API_BASE = 'https://reviverelay.voidsmithindustries.com/review';",
+    "const API_BASE = 'https://evil.example/review';"
+  );
+  assert.notEqual(mutated, auto, 'fixture must mutate the embedded API origin');
+  const result = auditArtifactText(mutated);
+  assert.equal(result.ok, false, JSON.stringify(result.findings));
+  assert.ok(result.findings.some(item => item.code === 'UNEXPECTED_NETWORK_HOST'), JSON.stringify(result.findings));
+});

@@ -29,3 +29,13 @@ test('credential UI uses clear Reviver Verification actions without redisplaying
   assert.match(source, /Revoke verification key/i);
   assert.match(source, /revokeVerificationCredential\(/);
 });
+
+test('connected verification credential is represented only by masked status metadata', () => {
+  assert.match(source, /MASKED_VERIFICATION_KEY\s*=\s*'[^']+'/);
+  const start = source.indexOf('function renderVerificationSettings()');
+  const end = source.indexOf('function renderProPanel()', start);
+  const render = start >= 0 && end > start ? source.slice(start, end) : '';
+  assert.ok(render.length > 0);
+  assert.match(render, /value="\$\{MASKED_VERIFICATION_KEY\}" readonly/);
+  assert.doesNotMatch(render, /credential\.(?:apiKey|api_key|plaintextKey|plaintext_key|ciphertext|encryptedKey|encrypted_key)/i);
+});

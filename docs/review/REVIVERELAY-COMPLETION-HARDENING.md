@@ -149,3 +149,42 @@ Real TornPDA execution, cross-account real-browser evidence that is explicitly r
 A fresh remote fetch of `origin/main` on 2026-09-11 confirmed `origin/main=b9c8017cc95d612ebe03a578040d00f56f7580eb` and completion worktree `HEAD=22f26fda22e4b8d2401afe9ebbd7d0e956c3862a`; `origin/main...HEAD` is `0 91`, and `origin/main` is an ancestor of `HEAD`. No remote history rewrite is required. If this exact accepted history later reaches the production gate without new divergence, the non-force source publication shape is a normal fast-forward push of the accepted branch tip to `origin/main`; no such push was performed during this sweep.
 
 The 0.6.5 provenance commit `dee29b9ce7fa4a65654f053534d0ebe4ce9aa35e` exists locally. The published review manifest reports version `0.6.5`, that exact provenance commit, channel `review`, and SHA-256 `9e065d49e6ac20d6cdeebc810a3099cd3ec1e728e455dcee7a84010ed3a26972`; a fresh hash of the published userscript matches the manifest exactly. Repository reconciliation is prepared but not marked complete because the candidate still has open genuine-platform/specification gates and remote publication remains behind the production hard gate.
+
+## Task 4 — network, credential, and artifact trust boundaries
+
+Task 4 was executed after recovery found that the branch had already advanced through the 0.6.5 private-review publication and acceptance evidence while the Task 4 trust-boundary gate itself had never been formally closed. Published 0.6.5 remains immutable. The Task 4 shipping fix therefore requires the next unused patch candidate before any final acceptance or production claim.
+
+### Network and credential inventory
+
+| Surface | Owner / authority | Storage | Transport / destination | Retention | Logging / exposure rule |
+|---|---|---|---|---|---|
+| One-time identity Torn API key | User / Torn | Password input only on the client; not written to GM storage; server identity binding persists no Torn credential | HTTPS to ReviveRelay `/review/v1/auth/bind`; server uses it only to verify identity with Torn | Discarded after identity binding | Never returned by ReviveRelay; telemetry sanitizer excludes credential material |
+| ReviveRelay session token | ReviveRelay server | Client GM storage by design; server persists only a peppered hash | HTTPS Bearer token to `reviverelay.voidsmithindustries.com` only | Until disconnect, deletion, expiry or revocation | Sanitized from client/server telemetry and error details |
+| ReviveRelay Verification Torn API key | User / Torn | Client input only during bind; AES-GCM encrypted in server `api_credentials`; client retains only public status metadata | HTTPS to ReviveRelay; server uses `Authorization: ApiKey` only toward `https://api.torn.com/v2` | Until replacement, revocation, account deletion or server retention rule | Plaintext is never returned to the client; audit events store purpose/capability metadata, not plaintext |
+| Pro payment receiver Torn API key | Operator | Server environment only (`PRO_RECEIVER_API_KEY`) | Server-side Torn API requests only | Operational secret lifecycle | Forbidden from userscript/generated review bytes; telemetry redaction applies |
+| Admin API token | Operator | Server environment only (`ADMIN_API_TOKEN`) | Server-side admin authentication only | Operational secret lifecycle | Not embedded in client bytes; not accepted as client state |
+| Google service-account credential | Operator / Google | Server-side credential file referenced by `REVIVERELAY_GOOGLE_SERVICE_ACCOUNT_FILE` | Google APIs only | Operational secret lifecycle | File path may be documented; credential contents must never be logged or published |
+| Optional Sheets mirror token/URL | Operator | Server environment (`SHEETS_MIRROR_TOKEN`, `SHEETS_MIRROR_URL`) | Configured server-side mirror destination only | Operational configuration | Never embedded in client bytes; sanitizer strips token-like material |
+| Review update/install URLs | ReviveRelay release service | Public non-secret manifest/update state | Browser navigation only to canonical `https://reviverelay.voidsmithindustries.com/releases/<channel>/<version>/...` | Cached update metadata only | No credentials attached; off-origin URLs are rejected before `window.open` |
+| Release dependency verification | Build/release process | No runtime credential | GitHub/raw source verification during release preparation only | Build-time evidence | Not a userscript runtime dependency; `@require`, `eval`, and `new Function` remain forbidden |
+
+Client runtime network authority remains narrow: the userscript has one approved `@connect` host, `reviverelay.voidsmithindustries.com`, and its `API_BASE` is exactly `https://reviverelay.voidsmithindustries.com/review`. Torn URLs in the client are page matches or explicit user navigation to Torn API settings, not credential-bearing client API calls. Torn API credentials are used server-side toward `api.torn.com` only.
+
+### Test-first defects and corrections
+
+The strengthened Task 4 tests first ran **17 passed / 2 failed**. The two red cases were real trust-boundary gaps:
+
+1. `validateManifest()` accepted `https://evil.example/releases/review/...` because it checked only HTTPS plus a matching path fragment. A malformed manifest could therefore make the update action open an off-origin release URL.
+2. `auditArtifactText()` accepted an artifact whose `API_BASE` had been changed from the canonical ReviveRelay review origin to `https://evil.example/review` while leaving the approved `@connect` declaration intact.
+
+Corrections are deliberately narrow:
+
+- update manifests now require the exact ReviveRelay release origin, channel, version, and candidate filenames before an install URL can be stored/opened;
+- the release audit now requires the exact review API base in addition to the existing `@connect` allowlist;
+- focused coverage now explicitly verifies one-time identity-key non-persistence, absence of server-only merchant/admin secrets from client bytes, masked verification-credential rendering, and client telemetry redaction.
+
+Security-focused server coverage also passed **74/74**, including identity binding with zero persisted Torn API credentials, AES-GCM credential storage, public-status-only verification responses, telemetry sanitization, session hashing/authentication, restricted payment receiver credentials, and Torn API key transport via headers rather than URLs.
+
+The targeted client/update/audit checks are green. The plan-prescribed combined artifact command currently reports three expected candidate-integrity failures because `src/update-manager.js` changed after published 0.6.5 was frozen: two bundled-support byte mismatches and one immutable artifact SHA mismatch. These are release-version alarms, not security-test regressions. They must become green only by minting a new immutable candidate; 0.6.5 metadata and published bytes must not be rewritten.
+
+`npm run audit:review` against the frozen 0.6.5 package still passes with **15 files audited / 0 findings**. No deployed stable or review runtime, container, database, manifest, or published artifact was changed by Task 4.
