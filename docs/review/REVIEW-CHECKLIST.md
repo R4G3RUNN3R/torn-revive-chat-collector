@@ -15,40 +15,40 @@ Published review artifacts are immutable. Published 0.6.4 remains historical and
 
 ## Product / monetization
 
-- [ ] Confirm requester access remains free.
-- [ ] Confirm Reviver Pro trial is 7-day and one-time for eligible revivers.
-- [ ] Confirm approved review prices: Monthly 10 Xanax / $10,000,000; 6 Months 55 Xanax / $55,000,000; Yearly 100 Xanax / $100,000,000.
-- [ ] Confirm `$` means Torn in-game cash.
-- [ ] Confirm payment destination is **R4G3RUNN3R [3877028]**.
-- [ ] Confirm payment is manual in Torn and ReviveRelay never sends Cash/Xanax automatically.
-- [ ] Confirm paid public launch remains awaiting Torn approval.
+- [x] Confirm requester access remains free.
+- [x] Confirm Reviver Pro trial is 7-day and one-time for eligible revivers.
+- [x] Confirm approved review prices: Monthly 10 Xanax / $10,000,000; 6 Months 55 Xanax / $55,000,000; Yearly 100 Xanax / $100,000,000.
+- [x] Confirm `$` means Torn in-game cash.
+- [x] Confirm payment destination is **R4G3RUNN3R [3877028]**.
+- [x] Confirm payment is manual in Torn and ReviveRelay never sends Cash/Xanax automatically.
+- [x] Confirm paid public launch remains awaiting Torn approval.
 
 ## Scripting / API boundary
 
-- [ ] Confirm the 0.6.5 candidate has no public chat collection and does not scrape unfocused Torn pages.
-- [ ] Confirm actual payment, revive, and Accept game actions remain manual user actions where applicable.
-- [ ] Confirm the userscript has no runtime `@require`, `eval`, or remote executable-code loading.
-- [ ] Confirm cross-origin userscript network access is restricted to the ReviveRelay backend.
-- [ ] Review `TORN-API-DISCLOSURE.md` and `TORN-API-INVENTORY.md` for exact official Torn API operations.
+- [x] Confirm the 0.6.5 candidate has no public chat collection and does not scrape unfocused Torn pages.
+- [x] Confirm actual payment, revive, and Accept game actions remain manual user actions where applicable.
+- [x] Confirm the userscript has no runtime `@require`, `eval`, or remote executable-code loading.
+- [x] Confirm cross-origin userscript network access is restricted to the ReviveRelay backend.
+- [x] Review `TORN-API-DISCLOSURE.md` and `TORN-API-INVENTORY.md` for exact official Torn API operations.
 
 ## Credentials / privacy
 
-- [ ] Confirm one-time identity key is not stored.
-- [ ] Confirm persistent ReviveRelay Verification credentials are encrypted at rest.
-- [ ] Confirm requester recommended access is Basic + Profile + Revives.
-- [ ] Confirm reviver/combined recommended access adds Perks and restricted Money/Items logs.
-- [ ] Confirm the subscription worker uses a separate restricted merchant incoming-payment credential that is never exposed to the userscript.
-- [ ] Confirm users can revoke ReviveRelay Verification and delete account data.
-- [ ] Confirm diagnostics are off by default and sanitized.
+- [x] Confirm one-time identity key is not stored.
+- [x] Confirm persistent ReviveRelay Verification credentials are encrypted at rest.
+- [x] Confirm requester recommended access is Basic + Profile + Revives.
+- [x] Confirm reviver/combined recommended access adds Perks and restricted Money/Items logs.
+- [x] Confirm the subscription worker uses a separate restricted merchant incoming-payment credential that is never exposed to the userscript.
+- [x] Confirm users can revoke ReviveRelay Verification and delete account data.
+- [x] Confirm diagnostics are off by default and sanitized.
 
 ## Request / transaction safety
 
-- [ ] Confirm a requester can create a request before persistent verification.
-- [ ] Confirm unverified requests are hidden from the reviver queue.
-- [ ] Confirm Accept rechecks requester evidence capability inside the same database transaction before starting the payment window.
-- [ ] Confirm reviver queue/Accept continue to require current Torn revive ability and reviver evidence capability.
-- [ ] Confirm one request cannot be accepted by two revivers.
-- [ ] Confirm payment/refund evidence is idempotent and one Torn evidence reference cannot satisfy multiple obligations.
+- [x] Confirm a requester can create a request before persistent verification.
+- [x] Confirm unverified requests are hidden from the reviver queue.
+- [x] Confirm Accept rechecks requester evidence capability inside the same database transaction before starting the payment window.
+- [x] Confirm reviver queue/Accept continue to require current Torn revive ability and reviver evidence capability.
+- [x] Confirm one request cannot be accepted by two revivers.
+- [x] Confirm payment/refund evidence is idempotent and one Torn evidence reference cannot satisfy multiple obligations.
 
 ## Dormant-runtime acceptance
 
@@ -59,22 +59,22 @@ Published review artifacts are immutable. Published 0.6.4 remains historical and
 
 ## Unknown, pending, and stale-state acceptance
 
-- [ ] Verify loading/pending is distinct from authoritative empty/no-data.
-- [ ] Verify authoritative eligible/active, denied/revoked/unauthorized, and transport/server failure are distinct states.
-- [ ] Verify unknown, pending, transport failure, and stale cache never render or alert as authoritative success or failure.
-- [ ] Verify stale cached data is visibly stale and cannot overwrite newer authoritative data.
-- [ ] Verify actions and notifications wait for the state required by their business rule.
+- [x] Verify loading/pending is distinct from authoritative empty/no-data.
+- [x] Verify authoritative eligible/active, denied/revoked/unauthorized, and transport/server failure are distinct states.
+- [x] Verify unknown, pending, transport failure, and stale cache never render or alert as authoritative success or failure.
+- [x] Verify stale cached data is visibly stale and cannot overwrite newer authoritative data. Current 0.6.5 does not persist entitlement/queue state as an authoritative cache; delayed older responses are revision-rejected, so no stale persisted success state is available to render as current.
+- [x] Verify actions and notifications wait for the state required by their business rule.
 
 ## Notification matrix
 
-- [ ] Permission unavailable/denied: no notification and no leakage.
-- [ ] Notifications disabled in Settings: no notification; queue and Accept controls remain usable.
-- [ ] Pending/loading: no notification.
-- [ ] Authoritative no-data/empty: no notification.
-- [ ] Authoritative new certified request: the permitted one-shot/timed notification occurs once.
-- [ ] Duplicate refresh/remount/reload: no duplicate notification.
-- [ ] Invalid, stale, revoked, unauthorized, or transport-failure state: no authoritative-success notification.
-- [ ] Re-enable after disable and persisted preference behavior are verified on the exact candidate.
+- [x] Permission unavailable/denied: no notification and no leakage.
+- [x] Notifications disabled in Settings: no notification; queue and Accept controls remain usable.
+- [x] Pending/loading: no notification.
+- [x] Authoritative no-data/empty: no notification.
+- [x] Authoritative new certified request: the permitted one-shot/timed notification occurs once.
+- [x] Duplicate refresh/remount/reload: no duplicate notification.
+- [x] Invalid, stale, revoked, unauthorized, or transport-failure state: no authoritative-success notification.
+- [x] Re-enable after disable and persisted preference behavior are verified on the exact candidate.
 
 ## Exact Chrome review-surface identity
 
@@ -113,15 +113,15 @@ TornPDA acceptance requires a genuine TornPDA app/in-app browser on a physical d
 
 ## Subscription safety
 
-- [ ] Confirm client cannot set price, duration, or merchant identity.
-- [ ] Confirm invoice matching checks sender, exact currency/asset, exact amount, and invoice time window.
-- [ ] Confirm one merchant evidence/log ID cannot activate two invoices.
-- [ ] Confirm subscription is prepaid and does not auto-renew.
+- [x] Confirm client cannot set price, duration, or merchant identity.
+- [x] Confirm invoice matching checks sender, exact currency/asset, exact amount, and invoice time window.
+- [x] Confirm one merchant evidence/log ID cannot activate two invoices.
+- [x] Confirm subscription is prepaid and does not auto-renew.
 
 ## Torn review and human evidence
 
 - [ ] Capture the five required UI surfaces listed in `SCREENSHOT-CHECKLIST.md`.
-- [ ] Perform requester browser acceptance.
+- [x] Perform requester browser acceptance.
 - [ ] Perform non-reviver rejection browser acceptance.
 - [ ] Perform eligible reviver queue/Accept browser acceptance.
 - [ ] Perform review-mode subscription invoice/payment browser acceptance with controlled test conditions.

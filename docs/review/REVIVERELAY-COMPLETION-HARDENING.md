@@ -128,3 +128,18 @@ Task 3 started from `a8a76c4`. It records the client boundary contract below. â€
 - The corrective focused red run, retained in the Task 3 report, executed real delayed promises through `refreshReviverQueue()`, `revokeVerificationKey()`, `deleteReviveRelayAccount()`, and `refreshMe()`. It failed because a queue response repopulated request details after revocation and a delayed `/me` response replaced `REVOKED` with `ACTIVE`.
 - The executable regression tests now also execute delayed eligibility, a rejected queue transport, an authoritative empty queue, and `renderInvoice()`â€™s paid-versus-verified transition. Transport failure retains the known queue; only a successful empty response clears it.
 - The implementation applies per-resource revisions to `/me` and eligibility writes, invalidates queue/eligibility/invoice revisions on incompatible runtime, revocation, and account deletion, and keeps all corrections client-side. No server routes/domain behavior, deployed runtime directories, or immutable 0.6.4 artifact was altered. A new patch candidate is required before shipping this userscript change.
+
+## 2026-09-11 self-run acceptance consolidation
+
+The owner delegated the remaining executable test work to the controller. The current immutable candidate is now 0.6.5, source `dee29b9ce7fa4a65654f053534d0ebe4ce9aa35e`, SHA-256 `9e065d49e6ac20d6cdeebc810a3099cd3ec1e728e455dcee7a84010ed3a26972`. Public stable remains 0.4.4 at SHA-256 `1e6d84d5dd85cf8e2501ea391243767a37745ca20b197cb5a030a57d0da57fa6`.
+
+Fresh controller-run evidence on disposable PostgreSQL 16 infrastructure passed the complete `verify:review` gate: client 239/239, server 335/335, release/provenance 4/4, syntax pass, audit 15 files/0 findings, and immutable verification before/after. Focused follow-up matrices passed 70/70 client/UI/security, 68/68 server entitlement/reviver/subscription, and 13/13 trust-boundary/release tests. Both disposable database containers used for these runs were stopped and auto-removed.
+
+The machine matrix therefore supports the subscription/trial, non-reviver rejection, eligible-reviver authorization, self-accept rejection, concurrent-Accept exclusion, verification gating, payment evidence matching, notification suppression/deduplication, stale-state, privacy, credential, network and release-boundary assertions. These are not relabelled as real-browser/TornPDA evidence where the approved design explicitly requires a genuine platform.
+
+Two acceptance boundaries remain technically important:
+
+1. The current direct 0.6.5 queue has no Cash/Xanax filter, offer-value filter/sort, or grouping control although the completion-hardening design still names grouping/filter/sort. That criterion is a specification/product discrepancy and remains OPEN rather than being fabricated as a pass.
+2. Current dormant lifecycle ownership intentionally preserves bootstrap/reactivation timers/handlers while active-feature callbacks fail closed and avoid unnecessary protected network work. The stricter literal reading that every timer/observer must be torn down is not what the implemented Task 2 lifecycle model does; changing that would be an architectural change and requires an explicit new candidate rather than checklist editing.
+
+Real TornPDA execution, cross-account real-browser evidence that is explicitly required as browser evidence, controlled manual Torn payment UI evidence, Torn notification-policy review, Torn staff approval and the production hard gate remain external. No production action was performed.

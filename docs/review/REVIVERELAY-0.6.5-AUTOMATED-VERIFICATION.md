@@ -118,3 +118,38 @@ Following the successful 0.6.5 sidebar activation, the owner confirmed in the re
 ## Live 0.6.5 cancellation evidence
 
 Owner completed the instructed 0.6.5 cancellation check. The isolated review API logged `POST /v1/requests/2d02db3d-b4d6-4d54-a22e-d49b98be285d/cancel` as request `req-163`, returning HTTP `200` in 15.6 ms. This closes the server-observed cancellation check; preset preservation is recorded from the owner completing the instructed browser check.
+
+## Self-run completion sweep — 2026-09-11
+
+After the owner asked the controller to run the remaining tests directly, every acceptance item that can be proven from the repository, disposable infrastructure, release artifact, or isolated review API was re-run without using either live ReviveRelay database for destructive tests.
+
+### Fresh complete gate
+
+A disposable PostgreSQL 16 container named `reviverelay-selftest-065` was bound only to `127.0.0.1:55441`. The exact frozen 0.6.5 worktree then ran `npm run verify:review` with `TEST_DATABASE_URL` pointing only at that disposable instance. The result was:
+
+- client: **239/239 passed**;
+- server: **335/335 passed**;
+- release/provenance smoke: **4/4 passed**;
+- userscript syntax: passed;
+- static review audit: **15 files, 0 findings**; and
+- immutable artifact verification: passed before and after, still pinned to source `dee29b9ce7fa4a65654f053534d0ebe4ce9aa35e`, SHA-256 `9e065d49e6ac20d6cdeebc810a3099cd3ec1e728e455dcee7a84010ed3a26972`, size `128173` bytes, build `2026-09-10T23:15:19.840Z`.
+
+The disposable container was stopped and auto-removed after the run. A second focused matrix used another disposable PostgreSQL 16 instance on `127.0.0.1:55442`; **68/68** targeted server entitlement, trial, invoice, payment, reviver, verification, self-accept and acceptance-race tests passed, after which that container was also stopped and auto-removed. A focused client/UI/security matrix passed **70/70**, and the dedicated trust-boundary/release subset passed **13/13** with the review audit again reporting zero findings.
+
+### Machine-closed acceptance classes
+
+Fresh executable evidence covers requester-free behavior; the one-time seven-day trial and reinstall/session/key/account/restart persistence; server-owned plan pricing; canonical OWNER lifetime behavior; NONE/EXPIRED/REVOKED/TRIAL/ACTIVE authorization; non-reviver denial; current revive-ability and verification gates; self-accept rejection; exactly-one-winner concurrent acceptance; requester-verification-before-Accept; exact invoice sender/currency/amount/window matching; one-evidence-ID replay protection; prepaid/no-auto-renew semantics; account deletion/revocation; AES-GCM credential storage; diagnostic sanitization; direct-only/no-chat runtime; off-origin network allowlisting; immutable release provenance; narrow-view responsive CSS; and sidebar remount/deduplication logic.
+
+A direct harness against the actual 0.6.5 `notifyNewQueueRequests()` implementation also exercised empty queue, Notifications OFF, re-enable without stale burst, first new notification, duplicate refresh, and a second new request. It produced exactly two notifications for the two genuinely new enabled requests and retained the disabled request only in the bounded seen-ID set. A separate permission-denied simulation forced `GM_notification` to throw; queue processing remained intact, the request was marked seen, and the failure was captured only through the sanitized `notification.certified_request` error path.
+
+The review API still advertises `latestVersion=0.6.5`, `minimumVersion=0.6.1`, channel `review`. Fresh filesystem hashes after the sweep show the published review userscript remains `9e065d49e6ac20d6cdeebc810a3099cd3ec1e728e455dcee7a84010ed3a26972` and stable current 0.4.4 remains `1e6d84d5dd85cf8e2501ea391243767a37745ca20b197cb5a030a57d0da57fa6`. Stable was not restarted or modified.
+
+### Acceptance that cannot honestly be replaced by server automation
+
+The authoritative completion design explicitly requires genuine-platform evidence for some checks. Repository/API simulation is recorded as supporting evidence but does not masquerade as a real Torn browser or TornPDA result. Remaining external gates therefore include: genuine TornPDA runtime acceptance; cross-account real-browser non-reviver and eligible-reviver/Accept behavior if those exact browser claims are retained; controlled real Torn manual subscription-payment UI flow if required as human evidence; the five screenshot surfaces; Torn staff ruling on certified-request network notifications; and final Torn staff approval. Production promotion remains separately owner-gated.
+
+### Product/acceptance discrepancy found by the sweep
+
+The current 0.6.5 direct certified queue renders server results in server order (`created_at ASC, id ASC`) and contains no Cash/Xanax filter, offer-value filter/sort, or grouping control. The older Phase 2 design listed Cash/Xanax and offer-value filtering/sorting, and the newer completion-hardening design still names grouping/filter/sort as an acceptance requirement. That criterion therefore cannot pass on the current immutable 0.6.5 client as written. This is recorded as a real specification/product discrepancy, not silently checked off. Resolving it would require either an explicit acceptance-spec correction or a new shipping candidate; immutable 0.6.5 must not be edited in place.
+
+The lifecycle checklist also deliberately remains distinct from a literal “all timers cease to exist” claim. Current lifecycle ownership keeps bootstrap/reactivation timers/handlers alive while guarded active-feature work produces no unnecessary Pro-only requests in unavailable/unlicensed/inapplicable states. Existing Task 2 evidence classifies those primitives explicitly. Any stronger requirement to tear down the reactivation surface would be an architecture change, not something to infer from a checkbox.
