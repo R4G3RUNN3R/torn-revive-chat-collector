@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.6.6 - Completion trust and queue hardening
+
+### Fixed
+
+- Review update manifests now fail closed unless install and metadata URLs match the exact ReviveRelay release origin, channel, version and filenames.
+- Static release audit now rejects a userscript whose embedded review API origin is not the canonical ReviveRelay review endpoint.
+- Certified reviver queue now supports Cash/Xanax filtering, independent per-currency minimum offers, newest/oldest and offer-value sorting, optional payment grouping and explicit queue refresh.
+- Queue controls are no longer rebuilt by the one-second transaction countdown clock, preserving keyboard/input focus while filters are edited.
+
+### Security
+
+- Added explicit client tests proving one-time identity keys are not persisted, persistent Verification credentials are never rendered plaintext, server-only payment/admin credentials do not enter review client bytes, and telemetry redacts credential material.
+- Preserved exact server-side credential boundaries: ReviveRelay session hashes, AES-GCM Verification-key storage, header-only Torn API key transport, and server-only merchant/payment credentials.
+
+### Review status
+
+0.6.6 is a private-review completion candidate. Published 0.6.5 bytes remain immutable. Public stable production remains 0.4.4 and no production promotion is part of this candidate preparation.
+
 ## 0.6.3 - Sidebar activation reconciliation hotfix
 
 ### Fixed
