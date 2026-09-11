@@ -6,7 +6,7 @@ ReviveRelay is a Torn userscript and isolated Voidsmith backend for direct, cert
 
 ReviveRelay 0.6.1 is direct-only. It does **not scrape public chat**, does not collect Faction/Company/private chat, and does not make automated non-API Torn game requests. Requesters create certified requests through the ReviveRelay API; eligible revivers receive the server-certified queue and may manually accept a request.
 
-Requester access is free. A requester can create a request immediately, but the request cannot enter the reviver queue or be accepted until **ReviveRelay Verification** has a usable requester-evidence capability. The recommended requester key is narrowly scoped to **Basic, Profile and Revives** so later revive outcome and hospital-state evidence can be checked.
+Requester access is free. A requester can create a request immediately, but the request cannot enter the reviver queue or be accepted until the connected Torn API key has a usable requester-evidence capability. ReviveRelay uses one Torn API key for the whole account: the same key that binds Torn identity also supplies verification evidence, so there is no separate requester key to create or maintain.
 
 Reviver access additionally requires:
 
@@ -15,7 +15,7 @@ Reviver access additionally requires:
 - a usable reviver-capable ReviveRelay Verification credential;
 - Reviver Pro entitlement when subscription mode is `review` or `live`.
 
-The recommended reviver/combined key adds **Perks** and restricted Money/Items transaction-log categories used by the revive payment/refund workflow. Broad/Full keys may be accepted when they contain the required evidence access, but the UI warns that they grant more access than ReviveRelay needs.
+Reviver access uses the same connected Torn API key; no second key is required. The recommended Custom Torn API key covers **Basic, Profile, Revives, Perks and restricted Money/Items transaction-log categories** so it satisfies both requester and reviver evidence at once. A Broad/Full Access Torn API key may be accepted when it contains the required evidence access, but the UI warns that it grants more access than ReviveRelay needs and offers to replace it with the recommended Custom Torn API key.
 
 ### Review runtime isolation
 
@@ -39,7 +39,7 @@ Approved launch pricing is server-owned:
 
 Payment recipient: **R4G3RUNN3R [3877028]**.
 
-The Reviver Pro trial is **7 days and one-time per canonical Torn identity**. Reinstalling the userscript, replacing sessions/verification keys, or deleting/reactivating the ReviveRelay account does not reset the original server-side trial timestamps.
+The Reviver Pro trial is **7 days and one-time per canonical Torn identity**. Reinstalling the userscript, replacing the session or the connected Torn API key, or deleting/reactivating the ReviveRelay account does not reset the original server-side trial timestamps.
 
 The canonical payment-recipient identity receives server-derived `OWNER` Pro with **Lifetime** access. OWNER requires no trial or subscription invoice, but it still must satisfy reviver verification, permanent Torn revive ability, registration and transaction-safety checks.
 
@@ -55,13 +55,13 @@ The server is authoritative for request state, acceptance, payment deadlines, re
 - atomic request acceptance so two revivers cannot both win;
 - exact payment/refund evidence matching and idempotent Torn log references;
 - encrypted-at-rest user verification credentials;
-- no plaintext verification key returned after binding;
+- no plaintext Torn API key returned after binding;
 - server-side eligibility and entitlement checks on protected reviver actions;
 - immutable review/stable release channels and exact build provenance.
 
 ## Privacy and diagnostics
 
-The one-time identity key is used to bind Torn identity and is not stored. ReviveRelay Verification is a separate persistent credential, encrypted server-side, used only for the evidence required by the user's ReviveRelay role.
+The same pasted Torn API key is used once to bind Torn identity and to establish the persistent ReviveRelay Verification credential, encrypted server-side, used only for the evidence required by the user's ReviveRelay role. The raw key itself is never stored in Tampermonkey, local storage or logs.
 
 Sanitized diagnostics are **off by default**. If enabled, diagnostics exclude Torn API keys, bearer/session tokens, payment receiver credentials, raw Torn API responses, request bodies and public chat content. Raw telemetry occurrences are subject to the implemented retention job; aggregate error fingerprints may be kept for regression analysis.
 

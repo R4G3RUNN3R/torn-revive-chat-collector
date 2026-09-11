@@ -6,7 +6,7 @@ This document describes the implemented ReviveRelay 0.6.1 review candidate. Publ
 
 ReviveRelay stores only service data needed to operate direct certified revive requests, reviver eligibility, transaction evidence, subscriptions, security controls and supportable audit history. This can include Torn user ID and current display name, ReviveRelay sessions, request/transaction state, reviver registration, subscription/invoice records, payment/refund evidence references and audit events.
 
-The one-time Torn identity key submitted to `/v1/auth/bind` is used to resolve identity and is not persisted by ReviveRelay. A separate **ReviveRelay Verification** key may be stored for later evidence checks. That credential is encrypted at rest with AES-GCM using server-side key material held outside PostgreSQL. Plaintext verification credentials are not returned to the userscript after binding.
+ReviveRelay uses one Torn API key per account. The same Torn API key submitted to `/v1/auth/bind` to resolve identity is also submitted to `/v1/verification-credential` to establish the persistent ReviveRelay Verification credential used for later evidence checks; no second key is requested. That credential is encrypted at rest with AES-GCM using server-side key material held outside PostgreSQL. Plaintext Torn API keys are not returned to the userscript after binding.
 
 ## Data Sharing
 

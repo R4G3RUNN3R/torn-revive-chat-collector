@@ -33,6 +33,7 @@
   const INVOICE_POLL_MS = 15_000;
   const SIDEBAR_RECONCILE_MS = 5_000;
   const TELEMETRY_DRAIN_MS = 30_000;
+  const REVIVER_ELIGIBILITY_TIMEOUT_MS = 12_000;
   const MAX_SEEN_REQUEST_IDS = 200;
   const REVIVERELAY_API_KEY_URL = 'https://www.torn.com/preferences.php#tab=api?step=addNewKey&title=ReviveRelay&user=basic,profile,revives,log,perks&logIds=14,15,16,17';
   const MASKED_VERIFICATION_KEY = '••••••••••••••••';
@@ -256,6 +257,14 @@
     if (state.runtimeCompatibilityReason === 'RUNTIME_CHANNEL_MISMATCH') return 'This review client reached the wrong ReviveRelay backend. Protected actions are disabled.';
     if (state.runtimeCompatibilityReason === 'CLIENT_TOO_OLD') return 'This ReviveRelay review build is too old for the review backend. Update ReviveRelay before continuing.';
     return 'ReviveRelay review backend is incompatible or unavailable. Protected actions are disabled.';
+  }
+
+  function withTimeout(promise, ms, code) {
+    let timer;
+    const timedOut = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(Object.assign(new Error(code), { code })), ms);
+    });
+    return Promise.race([promise, timedOut]).finally(() => clearTimeout(timer));
   }
 
   function runSingleFlightPoll(key, operation) {
@@ -522,13 +531,14 @@
       }
       const revision = beginAuthoritativeRefresh('eligibility');
       try {
-        const result = await state.api.getReviverEligibility();
+        const result = await withTimeout(state.api.getReviverEligibility(), REVIVER_ELIGIBILITY_TIMEOUT_MS, 'REVIVER_ELIGIBILITY_TIMEOUT');
         applyAuthoritativeState('eligibility', revision, () => {
           state.reviverEligibility = result?.eligibility || null;
         });
       } catch (error) {
+        const timedOut = error && error.code === 'REVIVER_ELIGIBILITY_TIMEOUT';
         applyAuthoritativeState('eligibility', revision, () => {
-          state.reviverEligibility = { status: 'UNAVAILABLE', canRevive: null };
+          state.reviverEligibility = { status: timedOut ? 'TIMEOUT' : 'UNAVAILABLE', canRevive: null };
         });
         captureClientError(error, 'reviver.eligibility');
       }
@@ -1230,7 +1240,11 @@
         ? 'Not unlocked'
         : state.reviverEligibility?.status === 'PERMISSION_REQUIRED'
           ? 'Update key required'
-          : reviver ? 'Checking…' : 'Not checked';
+          : state.reviverEligibility?.status === 'TIMEOUT'
+            ? 'Check timed out - retry'
+            : state.reviverEligibility?.status === 'UNAVAILABLE'
+              ? 'Unavailable - retry'
+              : reviver ? 'Checking…' : 'Not checked';
     const editing = !credential || state.verificationEditing;
     const keyInput = editing
       ? '<input id="rr-verification-key" type="password" autocomplete="off" placeholder="Paste Torn API key">'

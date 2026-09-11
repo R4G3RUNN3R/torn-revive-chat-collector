@@ -89,6 +89,7 @@ test('disabled desktop notifications still record a bounded seen-ID set without 
 });
 
 test('unavailable, unlicensed, and inapplicable Pro eligibility states make no repeated eligibility requests',async()=>{
+  const withTimeoutSrc=functionSlice('withTimeout','runSingleFlightPoll');
   const eligibility=functionSlice('refreshReviverEligibility','readSeenRequestIds');
   assert.ok(eligibility.length>0);
   const state={
@@ -97,8 +98,8 @@ test('unavailable, unlicensed, and inapplicable Pro eligibility states make no r
     api:{getReviverEligibility:async()=>{ calls++; throw new Error('offline'); }}
   };
   let calls=0;
-  const refresh=new Function('state','runSingleFlightPoll','hasReviverSubscriptionAccess','hasCredentialCapability','captureClientError','beginAuthoritativeRefresh','applyAuthoritativeState',`${eligibility}; return refreshReviverEligibility;`)(
-    state,(_key,operation)=>operation(),()=>true,()=>true,()=>{},()=>1,(_key,_revision,apply)=>{ apply(); return true; }
+  const refresh=new Function('state','runSingleFlightPoll','hasReviverSubscriptionAccess','hasCredentialCapability','captureClientError','beginAuthoritativeRefresh','applyAuthoritativeState','REVIVER_ELIGIBILITY_TIMEOUT_MS',`${withTimeoutSrc}\n${eligibility}; return refreshReviverEligibility;`)(
+    state,(_key,operation)=>operation(),()=>true,()=>true,()=>{},()=>1,(_key,_revision,apply)=>{ apply(); return true; },12000
   );
 
   await refresh();
@@ -109,12 +110,12 @@ test('unavailable, unlicensed, and inapplicable Pro eligibility states make no r
   assert.equal(state.reviverEligibility.status,'UNAVAILABLE','the suppression marker must survive future timer ticks');
 
   state.reviverEligibility=null;
-  const unlicensed=new Function('state','runSingleFlightPoll','hasReviverSubscriptionAccess','hasCredentialCapability','captureClientError','beginAuthoritativeRefresh','applyAuthoritativeState',`${eligibility}; return refreshReviverEligibility;`)(
-    state,(_key,operation)=>operation(),()=>false,()=>true,()=>{},()=>1,(_key,_revision,apply)=>{ apply(); return true; }
+  const unlicensed=new Function('state','runSingleFlightPoll','hasReviverSubscriptionAccess','hasCredentialCapability','captureClientError','beginAuthoritativeRefresh','applyAuthoritativeState','REVIVER_ELIGIBILITY_TIMEOUT_MS',`${withTimeoutSrc}\n${eligibility}; return refreshReviverEligibility;`)(
+    state,(_key,operation)=>operation(),()=>false,()=>true,()=>{},()=>1,(_key,_revision,apply)=>{ apply(); return true; },12000
   );
   await unlicensed();
-  const inapplicable=new Function('state','runSingleFlightPoll','hasReviverSubscriptionAccess','hasCredentialCapability','captureClientError','beginAuthoritativeRefresh','applyAuthoritativeState',`${eligibility}; return refreshReviverEligibility;`)(
-    state,(_key,operation)=>operation(),()=>true,()=>false,()=>{},()=>1,(_key,_revision,apply)=>{ apply(); return true; }
+  const inapplicable=new Function('state','runSingleFlightPoll','hasReviverSubscriptionAccess','hasCredentialCapability','captureClientError','beginAuthoritativeRefresh','applyAuthoritativeState','REVIVER_ELIGIBILITY_TIMEOUT_MS',`${withTimeoutSrc}\n${eligibility}; return refreshReviverEligibility;`)(
+    state,(_key,operation)=>operation(),()=>true,()=>false,()=>{},()=>1,(_key,_revision,apply)=>{ apply(); return true; },12000
   );
   await inapplicable();
   assert.equal(calls,1,'unlicensed and inapplicable states must not call the Pro-only endpoint');
@@ -240,7 +241,7 @@ test('real delayed queue responses lose to verification revocation and account d
       identity:{roles:['reviver']}, verificationCredential:{usable:true,capabilities:{reviver:true}},
       reviverEligibility:{status:'ELIGIBLE',canRevive:true}, reviverQueue:[], api:{
         getReviverQueue:()=>pending.promise,
-        revokeVerificationCredential:async()=>{}, deleteAccount:async()=>{}
+        revokeVerificationCredential:async()=>{}, deleteAccount:async()=>{}, clearBoundToken:()=>{}
       }
     };
     const h=runtimeHarness(state);
@@ -261,6 +262,7 @@ test('real delayed queue responses lose to verification revocation and account d
 
 test('real delayed me and eligibility responses cannot overwrite newer denial authority',async()=>{
   const refreshMe=functionSlice('refreshMe','connectIdentity');
+  const withTimeoutSrc=functionSlice('withTimeout','runSingleFlightPoll');
   const eligibility=functionSlice('refreshReviverEligibility','readSeenRequestIds');
   const applyRuntime=functionSlice('applyRuntimeContract','runtimeCompatibilityMessage');
   const pendingMe=deferred();
@@ -281,7 +283,7 @@ test('real delayed me and eligibility responses cannot overwrite newer denial au
   state.api.getReviverEligibility=()=>pendingEligibility.promise;
   state.proStatus={state:'ACTIVE'};
   state.reviverEligibility=null;
-  const eligibilityRefresh=new Function('state','runSingleFlightPoll','hasReviverSubscriptionAccess','hasCredentialCapability','captureClientError','beginAuthoritativeRefresh','applyAuthoritativeState',`${eligibility}; return refreshReviverEligibility;`)(state,h.flight,h.access,h.credential,()=>{},h.begin,h.apply);
+  const eligibilityRefresh=new Function('state','runSingleFlightPoll','hasReviverSubscriptionAccess','hasCredentialCapability','captureClientError','beginAuthoritativeRefresh','applyAuthoritativeState','REVIVER_ELIGIBILITY_TIMEOUT_MS',`${withTimeoutSrc}\n${eligibility}; return refreshReviverEligibility;`)(state,h.flight,h.access,h.credential,()=>{},h.begin,h.apply,12000);
   const eligibilityInFlight=eligibilityRefresh();
   h.invalidate('eligibility');
   state.reviverEligibility={status:'DENIED',canRevive:false};
@@ -305,4 +307,44 @@ test('real queue refresh preserves transport failures, accepts authoritative emp
     {currentInvoice:{state:'PAID',currency:'cash',expectedAmount:1},proStatus:{state:'NONE'}},String,()=>'$1',()=> 'now'
   );
   assert.match(renderInvoice(),/VERIFYING/);
+});
+
+test('revive-ability status text has explicit terminal states for timeout and unavailable instead of an indefinite Checking state',()=>{
+  const settings=functionSlice('renderVerificationSettings','renderProPanel');
+  assert.ok(settings.length>0);
+  assert.match(settings,/state\.reviverEligibility\?\.status === 'TIMEOUT'/);
+  assert.match(settings,/Check timed out.{0,10}retry/i);
+  assert.match(settings,/state\.reviverEligibility\?\.status === 'UNAVAILABLE'/);
+  assert.match(settings,/Unavailable.{0,10}retry/i);
+});
+
+test('a stuck revive-ability eligibility check times out to a retryable terminal state instead of hanging forever',{timeout:2000},async()=>{
+  const withTimeoutSrc=functionSlice('withTimeout','runSingleFlightPoll');
+  const eligibility=functionSlice('refreshReviverEligibility','readSeenRequestIds');
+  assert.ok(withTimeoutSrc.length>0,'withTimeout helper must exist');
+  const state={sessionToken:'session',runtimeCompatibility:'compatible',proStatus:{state:'ACTIVE'},reviverEligibility:null,verificationCredential:{usable:true,capabilities:{reviver:true}},api:{getReviverEligibility:()=>new Promise(()=>{})}};
+  const h=runtimeHarness(state);
+  const eligibilityRefresh=new Function(
+    'state','runSingleFlightPoll','hasReviverSubscriptionAccess','hasCredentialCapability','captureClientError','beginAuthoritativeRefresh','applyAuthoritativeState','REVIVER_ELIGIBILITY_TIMEOUT_MS',
+    `${withTimeoutSrc}\n${eligibility}; return refreshReviverEligibility;`
+  )(state,h.flight,h.access,h.credential,()=>{},h.begin,h.apply,15);
+  await eligibilityRefresh();
+  assert.deepEqual(state.reviverEligibility,{status:'TIMEOUT',canRevive:null},'a hung eligibility request must resolve to a retryable timeout state, not stay null/Checking forever');
+});
+
+test('an eligibility response that arrives late after a timeout cannot overwrite the timed-out state',{timeout:2000},async()=>{
+  const withTimeoutSrc=functionSlice('withTimeout','runSingleFlightPoll');
+  const eligibility=functionSlice('refreshReviverEligibility','readSeenRequestIds');
+  const pending=deferred();
+  const state={sessionToken:'session',runtimeCompatibility:'compatible',proStatus:{state:'ACTIVE'},reviverEligibility:null,verificationCredential:{usable:true,capabilities:{reviver:true}},api:{getReviverEligibility:()=>pending.promise}};
+  const h=runtimeHarness(state);
+  const eligibilityRefresh=new Function(
+    'state','runSingleFlightPoll','hasReviverSubscriptionAccess','hasCredentialCapability','captureClientError','beginAuthoritativeRefresh','applyAuthoritativeState','REVIVER_ELIGIBILITY_TIMEOUT_MS',
+    `${withTimeoutSrc}\n${eligibility}; return refreshReviverEligibility;`
+  )(state,h.flight,h.access,h.credential,()=>{},h.begin,h.apply,15);
+  await eligibilityRefresh();
+  assert.equal(state.reviverEligibility.status,'TIMEOUT');
+  pending.resolve({eligibility:{status:'ELIGIBLE',canRevive:true}});
+  await Promise.resolve().then(()=>{}).then(()=>{});
+  assert.deepEqual(state.reviverEligibility,{status:'TIMEOUT',canRevive:null},'a late response after the timeout must not overwrite the timed-out state');
 });

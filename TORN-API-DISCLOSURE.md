@@ -4,7 +4,7 @@ ReviveRelay 0.6.1 uses the official Torn API for identity, evidence and eligibil
 
 ## Data Storage
 
-The one-time identity key is not stored. A separate ReviveRelay Verification key may be stored encrypted at rest on the ReviveRelay server so later transaction/revive evidence can be checked without asking the user to paste the key every time. Plaintext stored credentials are not returned to the client.
+ReviveRelay uses one Torn API key per account: the same Torn API key resolves identity and is used, once, to establish the persistent ReviveRelay Verification credential stored encrypted at rest on the ReviveRelay server, so later transaction/revive evidence can be checked without asking the user to paste the key every time. Plaintext stored credentials are not returned to the client.
 
 ## Data Sharing
 
@@ -34,19 +34,9 @@ Users can revoke the stored ReviveRelay Verification credential from ReviveRelay
 
 ## Recommended Key Access Level
 
-### Requester verification
+### One canonical Torn API key
 
-Recommended restricted custom key:
-
-- Basic
-- Profile
-- Revives
-
-This is sufficient for the requester evidence ReviveRelay needs before the request may be accepted and for later revive/hospital outcome checks.
-
-### Reviver / combined verification
-
-Recommended restricted custom key:
+ReviveRelay recommends a single Custom Torn API key, scoped to:
 
 - Basic
 - Profile
@@ -54,15 +44,15 @@ Recommended restricted custom key:
 - Perks
 - Log access restricted to categories 14, 15, 16 and 17 used for Money/Items incoming/outgoing evidence
 
-The reviver key also satisfies requester evidence so a reviver can use `Revive Me` without replacing keys.
+This one key is sufficient for the requester evidence ReviveRelay needs before a request may be accepted, for later revive/hospital outcome checks, and for reviver eligibility and payment/refund evidence. There is no separate requester key or reviver key: the same connected key satisfies both roles, so a reviver can use `Revive Me` without creating or pasting a second key.
 
 ### Subscription merchant verification
 
 The server uses a separate **restricted merchant** credential for the canonical receiving Torn account **R4G3RUNN3R [3877028]**. It is validated to the merchant identity and restricted incoming Money/Items evidence needed to verify prepaid Pro receipts. The merchant credential is never sent to the userscript.
 
-## Broad keys
+## Broad/Full Access keys
 
-A user-supplied Broad/Full key may be accepted when it belongs to the authenticated Torn user and contains the evidence permissions ReviveRelay needs. ReviveRelay warns that this grants more access than necessary and recommends replacing it with the restricted key.
+A user-supplied Broad/Full Access Torn API key may be accepted when it belongs to the authenticated Torn user and contains the evidence permissions ReviveRelay needs; no separate restricted key is required to keep using it. ReviveRelay warns that it grants more access than necessary and offers to replace it with the recommended Custom Torn API key above, using the same connected-key slot.
 
 ## Manual Torn-action boundary
 

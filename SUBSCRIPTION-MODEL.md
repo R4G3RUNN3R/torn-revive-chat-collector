@@ -12,7 +12,7 @@ Paid public launch is **awaiting Torn approval**. Public production remains 0.4.
 
 ## 7-day trial
 
-An eligible reviver may activate the implemented **7-day** Reviver Pro trial once. The trial is **one-time per canonical Torn identity**, with server-authoritative start/end timestamps. Reinstalling the userscript, clearing local storage, creating a new session, replacing the verification key, deleting/reactivating the ReviveRelay account, or restarting the application does not reset trial usage. Trial activation requires the reviver verification capability and current Torn permanent revive ability. Paid time stacks after any remaining trial/paid entitlement rather than destroying unused time.
+An eligible reviver may activate the implemented **7-day** Reviver Pro trial once. The trial is **one-time per canonical Torn identity**, with server-authoritative start/end timestamps. Reinstalling the userscript, clearing local storage, creating a new session, replacing the connected Torn API key, deleting/reactivating the ReviveRelay account, or restarting the application does not reset trial usage. Trial activation requires the reviver verification capability and current Torn permanent revive ability. Paid time stacks after any remaining trial/paid entitlement rather than destroying unused time.
 
 ## OWNER lifetime access
 
