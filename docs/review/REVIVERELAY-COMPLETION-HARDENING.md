@@ -208,3 +208,30 @@ The client now provides:
 Offer-value sorting is performed within payment currency. When mixed currencies are displayed without grouping, the currency name is a deterministic primary sort key; ReviveRelay does not pretend one Xanax and one Torn dollar are comparable numeric units.
 
 Green verification after implementation: syntax pass and **91/91** relevant client/UI/state/sidebar tests. Server behavior, entitlement gates, notification gates, and request acceptance authority were not changed. Immutable 0.6.5 remains untouched; the feature requires the next unused review candidate and genuine desktop/TornPDA acceptance on those exact bytes.
+
+## Task 5 / 0.6.6 candidate-wide automated gate
+
+After Task 4 trust hardening and the known grouping/filter/sort acceptance defect changed shipping bytes, the next unused review version was confirmed as 0.6.6. Release-boundary assertions were updated before the version bump and produced the intended **10/12** pre-bump result: the only failures were explicit 0.6.5-versus-0.6.6 version assertions. After the versioned surfaces changed, the release/direct-command set passed **18/18**.
+
+A self-invalidating release-mechanics weakness was also fixed test-first: normal builds previously generated a fresh timestamp on every invocation, while `npm test`/`npm run check` include build lifecycles and immutable artifact verification. The new reproducible-build identity helper uses the current-version pinned BUILD-MANIFEST source commit and timestamp. Its red test first failed because no such resolver existed; after implementation, repeated 0.6.6 builds reproduced the same SHA-256 exactly.
+
+Frozen local candidate identity:
+
+- Version/channel: 0.6.6 / review
+- Source commit: `f499265a1b1d07df01c19e120c1eebf37e395e6d`
+- Build timestamp: `2026-09-11T18:31:40.269Z`
+- Artifact SHA-256: `1f4885c25f9340e6730e0e844ff1172784d8edb12a6c2e32bc11bffc45d160cb`
+- Artifact size: 134548 bytes
+- Metadata SHA-256: `eb1553648099de90b75ed32110048df351f98a7453b3a3c8df850a9893f5b684`
+
+Fresh complete gate on disposable PostgreSQL 16:
+
+- `npm test`: client 250/250; server 335/335.
+- `npm run build`: PASS, byte-for-byte reproduction of the pinned candidate.
+- `npm run check`: PASS, client 250/250 and server 335/335 plus reproducible build and syntax.
+- `npm run audit:review`: 15 files / 0 findings.
+- `npm run verify:review`: verifier PASS before/after; client 250/250; server 335/335; release/provenance 5/5; syntax PASS; audit 15/0.
+
+The disposable database `reviverelay-completion-066-pg-1789151544` was loopback-only on ephemeral port 32809 and was removed after testing; removal was explicitly verified. Stable/review production databases were never used. Public stable remains 0.4.4.
+
+Automated completion is therefore green for the frozen local 0.6.6 candidate. Genuine desktop/TornPDA acceptance, review publication, Torn policy/staff review and the production hard gate remain separate gates and are not claimed by this automated evidence.

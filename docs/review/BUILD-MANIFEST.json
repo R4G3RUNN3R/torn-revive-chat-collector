@@ -1,14 +1,14 @@
 {
   "product": "ReviveRelay",
-  "version": "0.6.5",
+  "version": "0.6.6",
   "channel": "review",
-  "artifact": "dist/review/ReviveRelay-0.6.5.user.js",
-  "artifactSourceCommit": "dee29b9ce7fa4a65654f053534d0ebe4ce9aa35e",
-  "buildTimestamp": "2026-09-10T23:15:19.840Z",
-  "sha256": "9e065d49e6ac20d6cdeebc810a3099cd3ec1e728e455dcee7a84010ed3a26972",
-  "sizeBytes": 128173,
-  "updateUrl": "https://reviverelay.voidsmithindustries.com/releases/review/0.6.5/ReviveRelay-0.6.5.meta.js",
-  "downloadUrl": "https://reviverelay.voidsmithindustries.com/releases/review/0.6.5/ReviveRelay-0.6.5.user.js",
+  "artifact": "dist/review/ReviveRelay-0.6.6.user.js",
+  "artifactSourceCommit": "f499265a1b1d07df01c19e120c1eebf37e395e6d",
+  "buildTimestamp": "2026-09-11T18:31:40.269Z",
+  "sha256": "1f4885c25f9340e6730e0e844ff1172784d8edb12a6c2e32bc11bffc45d160cb",
+  "sizeBytes": 134548,
+  "updateUrl": "https://reviverelay.voidsmithindustries.com/releases/review/0.6.6/ReviveRelay-0.6.6.meta.js",
+  "downloadUrl": "https://reviverelay.voidsmithindustries.com/releases/review/0.6.6/ReviveRelay-0.6.6.user.js",
   "publicProductionVersion": "0.4.4",
   "publicPromoted": false
 }
