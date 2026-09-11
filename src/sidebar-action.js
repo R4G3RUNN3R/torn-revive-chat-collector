@@ -70,6 +70,19 @@
       }
     }
 
+    function applyActionLayout(action, minimizedWithGear) {
+      if (!action || !action.style) return;
+      if (minimizedWithGear) {
+        action.style.display = 'inline-flex';
+        action.style.width = 'calc(100% - 50px)';
+        action.style.margin = '4px 2px 4px 6px';
+      } else {
+        action.style.display = 'flex';
+        action.style.width = 'calc(100% - 12px)';
+        action.style.margin = '4px 6px';
+      }
+    }
+
     function activateFromEvent(event, controlType) {
       if (event && typeof event === 'object') {
         if (handledEvents.has(event)) return;
@@ -215,20 +228,21 @@
       button.setAttribute('data-reviverelay-sidebar-gear', '1');
       button.setAttribute('aria-label', visibleGearLabel);
       if (button.style) {
-        button.style.display = 'flex';
+        button.style.display = 'inline-flex';
         button.style.alignItems = 'center';
         button.style.justifyContent = 'center';
-        button.style.width = 'calc(100% - 12px)';
+        button.style.width = '34px';
         button.style.boxSizing = 'border-box';
         button.style.border = '1px solid #46515b';
         button.style.background = '#20272e';
         button.style.color = '#d9e0e6';
         button.style.font = 'inherit';
         button.style.fontWeight = '700';
-        button.style.padding = '6px 8px';
-        button.style.margin = '4px 6px';
+        button.style.padding = '6px 0';
+        button.style.margin = '4px 6px 4px 2px';
         button.style.borderRadius = '5px';
         button.style.cursor = 'pointer';
+        button.style.verticalAlign = 'top';
       }
 
       const icon = document.createElement('span');
@@ -283,13 +297,15 @@
       else if (action.parentNode !== target) target.appendChild(action);
 
       applyState(action, resolvedState());
+      const showGear = gearEnabled();
+      applyActionLayout(action, showGear);
 
       const allGears = Array.from(document.querySelectorAll(GEAR_SELECTOR) || []);
       let gear = allGears.find(node => node.parentNode === target) || allGears[0] || null;
       for (const node of allGears) {
         if (node !== gear && typeof node.remove === 'function') node.remove();
       }
-      if (gearEnabled()) {
+      if (showGear) {
         if (!gear) gear = createGearButton();
         bindActivation(gear, 'gear');
         const siblings = Array.from(target.children || []).filter(node => node !== gear);

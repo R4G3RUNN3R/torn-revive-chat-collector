@@ -14,7 +14,7 @@ function functionSlice(name, nextName) {
   return start >= 0 ? source.slice(start, end > start ? end : undefined) : '';
 }
 
-function buildAcceptHarness({ acceptRequest, queue, requestId = 'req-1', gate = {} }) {
+function buildAcceptHarness({ acceptRequest, queue, requestId = 'req-1', gate = {}, refreshReviverQueue = null }) {
   const body = functionSlice('isValidTornProfileId', 'runTransactionAction');
   assert.ok(body.length > 0, 'isValidTornProfileId/tornProfileNavigationUrl/acceptMarketplaceRequest must be defined together');
 
@@ -47,10 +47,10 @@ function buildAcceptHarness({ acceptRequest, queue, requestId = 'req-1', gate = 
     (message, isError) => statuses.push({ message, isError: Boolean(isError) }),
     () => {},
     (error, operation, fallback) => failures.push({ error, operation, fallback }),
-    async () => {
+    refreshReviverQueue || (async () => {
       const removedId = String(requestId);
       state.reviverQueue = state.reviverQueue.filter(request => String(request.id) !== removedId);
-    }
+    })
   );
 
   state.api = { acceptRequest };
@@ -70,16 +70,36 @@ test('accepting a request with a valid requester Torn ID navigates the same tab 
   assert.ok(statuses.some(entry => !entry.isError), 'a success status should be shown');
 });
 
-test('the target requester Torn ID is captured before the queue refresh can remove the accepted item', async () => {
+test('the target requester Torn ID is captured before acceptance can mutate the queue item', async () => {
   const queue = [{ id: 'req-1', requesterTornId: 998877, requesterName: 'Player' }];
   const { acceptMarketplaceRequest, navigations, state } = buildAcceptHarness({
-    acceptRequest: async () => ({ transaction: { id: 'tx-1' } }),
+    acceptRequest: async () => {
+      queue.splice(0, queue.length);
+      return { transaction: { id: 'tx-1' } };
+    },
     queue
   });
 
   await acceptMarketplaceRequest('req-1');
-  assert.deepEqual(state.reviverQueue, [], 'queue refresh should have removed the accepted item');
+  assert.deepEqual(state.reviverQueue, [], 'the queue may change as acceptance completes');
   assert.deepEqual(navigations, ['https://www.torn.com/profiles.php?XID=998877'], 'navigation must still use the captured id');
+});
+
+test('a successful accept redirects immediately without waiting for a queue refresh', async () => {
+  const queue = [{ id: 'req-1', requesterTornId: 4821001, requesterName: 'Player' }];
+  let refreshCalls = 0;
+  const { acceptMarketplaceRequest, navigations } = buildAcceptHarness({
+    acceptRequest: async () => ({ transaction: { id: 'tx-1' } }),
+    queue,
+    refreshReviverQueue: async () => {
+      refreshCalls += 1;
+      throw new Error('queue refresh should not block profile navigation');
+    }
+  });
+
+  await acceptMarketplaceRequest('req-1');
+  assert.deepEqual(navigations, ['https://www.torn.com/profiles.php?XID=4821001']);
+  assert.equal(refreshCalls, 0, 'valid accepted requests should navigate immediately instead of refreshing a queue the browser is leaving');
 });
 
 test('a failed accept never navigates the tab', async () => {

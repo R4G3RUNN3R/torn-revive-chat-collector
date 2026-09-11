@@ -880,15 +880,14 @@
       try {
         const result = await state.api.acceptRequest(requestId);
         state.activeTransaction = result?.transaction || null;
-        await refreshReviverQueue();
         if (isValidTornProfileId(targetTornId)) {
           setStatus('Certified revive request accepted. Opening the requester’s Torn profile…');
-          renderAll();
           window.location.href = tornProfileNavigationUrl(targetTornId);
-        } else {
-          setStatus('Certified revive request accepted, but the requester profile could not be opened automatically.', true);
-          renderAll();
+          return;
         }
+        await refreshReviverQueue();
+        setStatus('Certified revive request accepted, but the requester profile could not be opened automatically.', true);
+        renderAll();
       } catch (error) {
         handleApiFailure(error, 'reviver.accept', 'Request could not be accepted.');
       }

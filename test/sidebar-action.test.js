@@ -318,10 +318,19 @@ test('gear button is absent while the panel is open and appears immediately besi
   const gear=document.querySelectorAll(GEAR_SELECTOR)[0];
   assert.ok(gear,'gear button must exist while minimized');
   assert.equal(document.sidebar.children.indexOf(gear),document.sidebar.children.indexOf(action)+1);
+  assert.equal(action.style.display,'inline-flex','red action should become inline while minimized so the gear sits beside it');
+  assert.equal(action.style.width,'calc(100% - 50px)');
+  assert.equal(action.style.margin,'4px 2px 4px 6px');
+  assert.equal(gear.style.display,'inline-flex');
+  assert.equal(gear.style.width,'34px','gear should be a compact square-ish secondary control');
+  assert.equal(gear.style.margin,'4px 6px 4px 2px');
 
   minimized=false;
   controller.reconcile();
   assert.equal(document.querySelectorAll(GEAR_SELECTOR).length,0,'gear must be removed once restored');
+  assert.equal(action.style.display,'flex');
+  assert.equal(action.style.width,'calc(100% - 12px)');
+  assert.equal(action.style.margin,'4px 6px');
 });
 
 test('clicking the gear restores the panel and never creates duplicate gear or action buttons across repeated reconciles', () => {
