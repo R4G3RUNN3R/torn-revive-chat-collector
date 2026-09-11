@@ -114,3 +114,7 @@ This closes the server-observed post-refresh sidebar activation/deduplication ch
 ## Browser UI and notification evidence
 
 Following the successful 0.6.5 sidebar activation, the owner confirmed in the real Torn browser that the Request tab displayed the resulting active certified request. With Desktop notifications configured OFF, no desktop notification appeared while the request was successfully created and normal API polling continued. This is human-observed browser evidence; it is recorded separately from the server-side POST evidence.
+
+## Live 0.6.5 cancellation evidence
+
+Owner completed the instructed 0.6.5 cancellation check. The isolated review API logged `POST /v1/requests/2d02db3d-b4d6-4d54-a22e-d49b98be285d/cancel` as request `req-163`, returning HTTP `200` in 15.6 ms. This closes the server-observed cancellation check; preset preservation is recorded from the owner completing the instructed browser check.

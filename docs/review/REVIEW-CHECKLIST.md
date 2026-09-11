@@ -100,7 +100,7 @@ The repository contains no first-class browser-extension source tree (`manifest.
 - [x] One physical sidebar activation produced exactly one `POST /v1/requests` on the review API; request `req-ze` completed HTTP 201 and a fresh three-minute log count contained exactly one matching POST.
 - [x] Request tab displays the resulting active certified request; owner confirmed the active request was visible immediately after the successful 0.6.5 sidebar activation.
 - [x] With Desktop notifications OFF, no desktop notification was emitted for the newly observed certified request while the request remained visible and normal polling continued.
-- [ ] Test request can be cancelled cleanly and preset remains intact.
+- [x] Test request cancelled cleanly on 0.6.5; review API request `req-163` returned HTTP 200. Owner reported completion of the instructed cancel/preset-preservation check.
 
 ## Real TornPDA acceptance
 
