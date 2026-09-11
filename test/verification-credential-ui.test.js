@@ -24,9 +24,9 @@ test('free requester request creation is not blocked by credential state while l
   assert.match(source,/acceptMarketplaceRequest/);
 });
 
-test('credential UI uses clear Reviver Verification actions without redisplaying plaintext', () => {
-  assert.match(source, /Connect Torn API key|Replace verification key/i);
-  assert.match(source, /Revoke verification key/i);
+test('credential UI uses clear Torn API key actions without redisplaying plaintext', () => {
+  assert.match(source, /Connect Torn API key|Replace Torn API key/i);
+  assert.match(source, /Disconnect Torn API key/i);
   assert.match(source, /revokeVerificationCredential\(/);
 });
 

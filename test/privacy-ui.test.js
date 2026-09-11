@@ -30,7 +30,7 @@ test('Settings includes About & Privacy with required disclosures and document l
     'Subscription terms',
     'Payment recipient',
     'Diagnostics',
-    'Revoke ReviveRelay Verification',
+    'Revoke the Torn API key',
     'Delete ReviveRelay account/data'
   ]) assert.match(settings,new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'i'),text);
   assert.match(settings,/About &(?:amp;)? Privacy/i);
@@ -62,11 +62,11 @@ test('account delete control is disabled while deletion is in flight',()=>{
   assert.match(source,/disabledAttr\('account-delete'\)/);
 });
 
-test('Reviver Verification revoke guidance also tells users to delete the key in Torn API settings',()=>{
+test('Torn API key revoke guidance also tells users to delete the key in Torn API settings',()=>{
   const verification=functionSlice('renderVerificationSettings','renderProPanel');
   assert.ok(verification.length>0);
-  assert.match(verification,/Revoke verification key/i);
-  assert.match(verification,/delete.*key.*Torn API settings|Torn API settings.*delete.*key/i);
+  assert.match(verification,/Disconnect Torn API key/i);
+  assert.match(verification,/delete.*Torn API settings|Torn API settings.*delete/i);
   assert.match(verification,/preferences\.php#tab=api/i);
 });
 
@@ -76,4 +76,11 @@ test('About & Privacy repeats diagnostics opt-in state and no Torn password disc
   assert.match(settings,/diagnostics.*off by default|off by default.*diagnostics/i);
   assert.match(settings,/not sold|unrelated third parties/i);
   assert.match(settings,/plaintext credentials.*never returned|never returned.*plaintext credentials/i);
+});
+
+
+test('account deletion clears the direct client in-memory bound token',()=>{
+  const deletion=functionSlice('deleteReviveRelayAccount','saveRequestPreset');
+  assert.ok(deletion.length>0);
+  assert.match(deletion,/state\.api\.clearBoundToken\(\)/);
 });

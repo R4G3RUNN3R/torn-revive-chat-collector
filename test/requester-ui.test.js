@@ -72,7 +72,7 @@ test('main navigation presents ReviveRelay Pro separately and opens Settings fro
 test('Settings is a collapsible drawer and Pro billing stays out of it', () => {
   assert.match(source, /function renderSettingsDrawer\(\)/);
   assert.match(source, /<details[^>]*class=["'][^"']*rr-settings-section/);
-  for (const label of ['Revive Me preset', 'Reviver Verification', 'Notifications', 'Updates', 'Diagnostics / Advanced']) {
+  for (const label of ['Revive Me preset', 'Torn API Key', 'Notifications', 'Updates', 'Diagnostics / Advanced']) {
     assert.match(source, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   }
   const settingsRenderer = source.match(/function renderSettingsDrawer\(\)\s*\{([\s\S]*?)\n\s*\}\n\n\s*function/)?.[1] || '';
@@ -81,9 +81,9 @@ test('Settings is a collapsible drawer and Pro billing stays out of it', () => {
   assert.doesNotMatch(settingsRenderer, /rr-pro-plan/);
 });
 
-test('reviver verification copy explains limited Torn API access and Tampermonkey handling', () => {
-  assert.match(source, /Reviver Verification/);
-  assert.match(source, /limited Torn API access/i);
+test('Torn API key copy explains unified limited access and Tampermonkey handling', () => {
+  assert.match(source, /Torn API Key/);
+  assert.match(source, /one Torn API key/i);
   assert.match(source, /never stored in Tampermonkey/i);
   assert.match(source, /Money incoming/i);
   assert.match(source, /Items outgoing/i);
@@ -100,17 +100,14 @@ test('opening Settings from the header gear restores a minimized panel before sh
 });
 
 
-test('ReviveRelay Verification offers separate requester and reviver restricted-key helpers', () => {
-  assert.match(source, /Create requester verification key/i);
-  assert.match(source, /Create reviver verification key/i);
-  assert.match(source, /https:\/\/www\.torn\.com\/preferences\.php#tab=api\?step=addNewKey/);
-  assert.match(source, /title=ReviveRelay%20Requester%20Verification/);
-  assert.match(source, /user=basic,profile,revives/);
-  assert.match(source, /title=ReviveRelay%20Reviver%20Verification/);
-  assert.match(source, /user=basic,profile,revives,log,perks/);
-  assert.match(source, /logIds=14,15,16,17/);
-  assert.match(source, /window\.open\(REQUESTER_VERIFICATION_KEY_URL/);
-  assert.match(source, /window\.open\(REVIVER_VERIFICATION_KEY_URL/);
+test('ReviveRelay offers one canonical Torn API key helper for requester and reviver use', () => {
+  assert.match(source, /const REVIVERELAY_API_KEY_URL = 'https:\/\/www\.torn\.com\/preferences\.php#tab=api\?step=addNewKey&title=ReviveRelay&user=basic,profile,revives,log,perks&logIds=14,15,16,17'/);
+  assert.doesNotMatch(source, /REQUESTER_VERIFICATION_KEY_URL/);
+  assert.doesNotMatch(source, /REVIVER_VERIFICATION_KEY_URL/);
+  assert.doesNotMatch(source, /Create requester verification key/i);
+  assert.doesNotMatch(source, /Create reviver verification key/i);
+  assert.match(source, /Create ReviveRelay API Key/i);
+  assert.match(source, /window\.open\(REVIVERELAY_API_KEY_URL/);
 });
 
 test('Reviver Verification accepts broad keys but warns that they grant more access than required', () => {
@@ -172,9 +169,7 @@ test('requester workflow remains independent of subscription mode', () => {
 
 test('contextual settings buttons open the section they advertise', () => {
   assert.match(source, /data-rr-open-settings=["']preset["'][^>]*>Configure Revive Me preset<\/button>/);
-  assert.match(source, /data-rr-open-settings=["']verification["'][^>]*>Set up Reviver Verification<\/button>/);
-  assert.match(source, /data-rr-open-settings=["']verification["'][^>]*>Set up requester verification<\/button>/);
-  assert.match(source, /data-rr-open-settings=["']verification["'][^>]*>Update Reviver Verification key<\/button>/);
+  assert.match(source, /data-rr-open-settings=["']verification["'][^>]*>Update Torn API key<\/button>/);
   assert.match(source, /openSettingsDrawer\(settingsTarget\.dataset\.rrOpenSettings\)/);
 
   const renderer = source.match(/function renderSettingsDrawer\(\)\s*\{([\s\S]*?)\n\s*\}\n\n\s*function renderSummary/)?.[1] || '';
@@ -195,4 +190,38 @@ test('desktop notifications can be disabled from Settings and default to enabled
   const notifyEnd=source.indexOf('async function refreshReviverQueue()',notifyStart);
   const notifyFn=notifyStart>=0 && notifyEnd>notifyStart ? source.slice(notifyStart,notifyEnd) : '';
   assert.match(notifyFn, /desktopNotificationsEnabled/);
+});
+
+
+test('initial ReviveRelay connect reuses the same Torn API key for identity and verification before persisting the session', () => {
+  const start = source.indexOf('async function connectIdentity()');
+  const end = source.indexOf('async function', start + 1);
+  const fn = start >= 0 && end > start ? source.slice(start, end) : '';
+  assert.ok(fn.length > 0);
+  const bindIdentity = fn.indexOf('state.api.bind(apiKey, VERSION)');
+  const bindVerification = fn.indexOf('state.api.bindVerificationCredential(apiKey)');
+  const persistSession = fn.indexOf('GM_setValue(KEYS.sessionToken');
+  const clearInput = fn.indexOf("apiKeyInput.value = ''");
+  assert.ok(bindIdentity >= 0, 'identity bind missing');
+  assert.ok(bindVerification > bindIdentity, 'same key must bind verification after identity');
+  assert.ok(persistSession > bindVerification, 'session must persist only after verification succeeds');
+  assert.ok(clearInput > bindVerification, 'plaintext input must clear only after both binds succeed');
+  assert.match(fn, /clearBoundToken\(\)/);
+});
+
+test('player-facing credential copy calls the credential a Torn API key', () => {
+  assert.doesNotMatch(source, /One-time identity API key/i);
+  assert.doesNotMatch(source, /identity key is used only for binding/i);
+  assert.match(source, /Torn API key/i);
+  assert.match(source, /REVIVE_ABILITY_PERMISSION_REQUIRED:\s*'[^']*Torn API key/i);
+  assert.match(source, /VERIFICATION_CREDENTIAL_INSUFFICIENT:\s*'[^']*Torn API key/i);
+});
+
+
+test('disconnect clears the direct client in-memory bound token as well as persisted session state', () => {
+  const start = source.indexOf('function clearSession(');
+  const end = source.indexOf('async function refreshMe()', start);
+  const fn = start >= 0 && end > start ? source.slice(start, end) : '';
+  assert.ok(fn.length > 0);
+  assert.match(fn, /state\.api\.clearBoundToken\(\)/);
 });

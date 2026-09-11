@@ -4,6 +4,7 @@ const fs = require('node:fs');
 
 const REQUIRED_METHODS = [
   'bind',
+  'clearBoundToken',
   'createRequest',
   'getActiveRequest',
   'cancelRequest',
@@ -227,4 +228,22 @@ test('review API base preserves the /review prefix for all v1 calls', async () =
   assert.equal(calls[0].url,'https://reviverelay.voidsmithindustries.com/review/v1/me');
   assert.equal(calls[0].headers['X-ReviveRelay-Version'],'0.6.1');
   assert.equal(calls[0].headers['X-ReviveRelay-Channel'],'review');
+});
+
+
+test('direct client can clear the transient bound token after failed unified onboarding', async () => {
+  const direct=require('../src/direct-api-client');
+  const calls=[];
+  const api=direct.createDirectApiClient({
+    baseUrl:'https://reviverelay.example',getToken:()=>'',
+    request:async input=>{
+      calls.push(input);
+      if (input.url.endsWith('/v1/auth/bind')) return {status:200,body:{token:'temporary-session'}};
+      return {status:200,body:{}};
+    }
+  });
+  await api.bind('same-torn-api-key','0.6.7');
+  api.clearBoundToken();
+  await api.getMe();
+  assert.equal(calls[1].headers.Authorization,undefined);
 });

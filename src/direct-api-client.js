@@ -208,6 +208,7 @@
         if (result && result.token) boundToken = String(result.token);
         return result;
       },
+      clearBoundToken() { boundToken = ''; },
       getMe() { return call('GET', '/v1/me'); },
       getClientVersionManifest() { return call('GET', '/v1/client/version', undefined, { auth: false }); },
       submitTelemetry(errors) { return call('POST', '/v1/telemetry/errors', { errors: Array.isArray(errors) ? errors : [] }); },

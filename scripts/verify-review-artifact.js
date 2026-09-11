@@ -1,7 +1,8 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { validatePinnedArtifacts, channelUrls } = require('./release-client');
+const { validatePinnedArtifacts } = require('./release-client');
+const { distributionUrls } = require('./build');
 
 function sha256Buffer(buffer) {
   return crypto.createHash('sha256').update(buffer).digest('hex');
@@ -40,8 +41,8 @@ function validateReviewManifest(manifest, version) {
     throw new Error('Review build manifest has invalid artifact size');
   }
 
-  const urls = channelUrls('review', version);
-  if (manifest.updateUrl !== urls.metaUrl || manifest.downloadUrl !== urls.installUrl) {
+  const urls = distributionUrls('review');
+  if (manifest.updateUrl !== urls.updateUrl || manifest.downloadUrl !== urls.downloadUrl) {
     throw new Error('Review build manifest URL mismatch');
   }
 
