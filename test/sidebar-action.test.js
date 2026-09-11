@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createSidebarController } = require('../src/sidebar-action');
+const { createSidebarController, GEAR_SELECTOR } = require('../src/sidebar-action');
 
 class FakeElement {
   constructor(tag='div') {
@@ -25,7 +25,10 @@ class FakeElement {
   click(){ const fn=this.listeners.get('click'); if(fn) fn({preventDefault(){},stopPropagation(){}}); }
   querySelectorAll(selector){
     const out=[];
-    const match=(node)=> selector==='[data-reviverelay-sidebar-action]' && node.getAttribute('data-reviverelay-sidebar-action')!==null;
+    const attribute = selector==='[data-reviverelay-sidebar-action]'
+      ? 'data-reviverelay-sidebar-action'
+      : selector==='[data-reviverelay-sidebar-gear]' ? 'data-reviverelay-sidebar-gear' : null;
+    const match=(node)=> attribute!==null && node.getAttribute(attribute)!==null;
     const walk=(node)=>{ for(const child of node.children){ if(match(child))out.push(child); walk(child); } };
     walk(this); return out;
   }
@@ -293,4 +296,94 @@ test('pointer gesture activates once when Torn replaces the button between point
 
   assert.deepEqual(activations,['READY']);
   controller.destroy();
+});
+
+
+test('gear button is absent while the panel is open and appears immediately beside the red action once minimized', () => {
+  FakeMutationObserver.instances=[];
+  const document=new FakeDocument();
+  const window=makeWindow();
+  let minimized=false;
+  const restores=[];
+  const controller=createSidebarController({
+    document,window,label:'ReviveRelay → Revive Me!',onActivate(){},getState:()=> 'READY',
+    getMinimized:()=>minimized, onRestore:()=>restores.push('restored')
+  });
+  controller.reconcile();
+  assert.equal(document.querySelectorAll(GEAR_SELECTOR).length,0);
+
+  minimized=true;
+  controller.reconcile();
+  const action=document.querySelectorAll('[data-reviverelay-sidebar-action]')[0];
+  const gear=document.querySelectorAll(GEAR_SELECTOR)[0];
+  assert.ok(gear,'gear button must exist while minimized');
+  assert.equal(document.sidebar.children.indexOf(gear),document.sidebar.children.indexOf(action)+1);
+
+  minimized=false;
+  controller.reconcile();
+  assert.equal(document.querySelectorAll(GEAR_SELECTOR).length,0,'gear must be removed once restored');
+});
+
+test('clicking the gear restores the panel and never creates duplicate gear or action buttons across repeated reconciles', () => {
+  FakeMutationObserver.instances=[];
+  const document=new FakeDocument();
+  const window=makeWindow();
+  let minimized=true;
+  const restores=[];
+  const controller=createSidebarController({
+    document,window,label:'ReviveRelay → Revive Me!',onActivate(){},getState:()=> 'READY',
+    getMinimized:()=>minimized, onRestore:()=>{ restores.push('restored'); minimized=false; }
+  });
+  controller.reconcile();
+  controller.reconcile();
+  controller.reconcile();
+  assert.equal(document.querySelectorAll(GEAR_SELECTOR).length,1);
+  assert.equal(document.querySelectorAll('[data-reviverelay-sidebar-action]').length,1);
+
+  const gear=document.querySelectorAll(GEAR_SELECTOR)[0];
+  gear.click();
+  assert.deepEqual(restores,['restored']);
+
+  controller.reconcile();
+  assert.equal(document.querySelectorAll(GEAR_SELECTOR).length,0,'gear must disappear once restored');
+});
+
+test('gear survives sidebar rebuild while minimized without duplicating', () => {
+  FakeMutationObserver.instances=[];
+  const document=new FakeDocument();
+  const window=makeWindow();
+  const controller=createSidebarController({
+    document,window,label:'ReviveRelay → Revive Me!',onActivate(){},getState:()=> 'READY',
+    getMinimized:()=>true, onRestore(){}
+  });
+  controller.reconcile();
+  document.rebuildSidebar();
+  controller.reconcile();
+  assert.equal(document.querySelectorAll(GEAR_SELECTOR).length,1);
+  assert.equal(document.sidebar.querySelectorAll(GEAR_SELECTOR).length,1);
+  assert.equal(document.querySelectorAll('[data-reviverelay-sidebar-action]').length,1);
+});
+
+test('destroy removes the gear along with the action button', () => {
+  FakeMutationObserver.instances=[];
+  const document=new FakeDocument();
+  const window=makeWindow();
+  const controller=createSidebarController({
+    document,window,label:'ReviveRelay → Revive Me!',onActivate(){},getState:()=> 'READY',
+    getMinimized:()=>true, onRestore(){}
+  });
+  controller.reconcile();
+  assert.equal(document.querySelectorAll(GEAR_SELECTOR).length,1);
+  controller.destroy();
+  assert.equal(document.querySelectorAll(GEAR_SELECTOR).length,0);
+  assert.equal(document.querySelectorAll('[data-reviverelay-sidebar-action]').length,0);
+});
+
+test('sidebar controllers created without gear wiring never render a gear even if asked to minimize', () => {
+  FakeMutationObserver.instances=[];
+  const document=new FakeDocument();
+  const window=makeWindow();
+  const controller=createSidebarController({document,window,label:'ReviveRelay → Revive Me!',onActivate(){},getState:()=> 'READY'});
+  controller.reconcile();
+  assert.equal(document.querySelectorAll(GEAR_SELECTOR).length,0);
 });

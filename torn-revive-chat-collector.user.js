@@ -864,15 +864,31 @@
     });
   }
 
+  function isValidTornProfileId(value) {
+    return /^[1-9][0-9]*$/.test(String(value ?? '').trim());
+  }
+
+  function tornProfileNavigationUrl(tornId) {
+    return `https://www.torn.com/profiles.php?XID=${encodeURIComponent(String(tornId).trim())}`;
+  }
+
   async function acceptMarketplaceRequest(requestId) {
     if (!hasReviverSubscriptionAccess() || !hasRole('reviver') || !hasCredentialCapability('reviver') || !hasConfirmedReviveAbility()) return;
+    const targetRequest = state.reviverQueue.find(request => String(request?.id) === String(requestId));
+    const targetTornId = targetRequest?.requesterTornId;
     return runMutation('request-accept', async () => {
       try {
         const result = await state.api.acceptRequest(requestId);
         state.activeTransaction = result?.transaction || null;
         await refreshReviverQueue();
-        setStatus('Certified revive request accepted.');
-        renderAll();
+        if (isValidTornProfileId(targetTornId)) {
+          setStatus('Certified revive request accepted. Opening the requester’s Torn profile…');
+          renderAll();
+          window.location.href = tornProfileNavigationUrl(targetTornId);
+        } else {
+          setStatus('Certified revive request accepted, but the requester profile could not be opened automatically.', true);
+          renderAll();
+        }
       } catch (error) {
         handleApiFailure(error, 'reviver.accept', 'Request could not be accepted.');
       }
@@ -1496,6 +1512,7 @@
       state.minimized = false;
       GM_setValue(KEYS.minimized, state.minimized);
       if (body) body.style.display = '';
+      refreshSidebarState();
     }
     state.settingsOpen = true;
     renderSettingsDrawer();
@@ -1509,6 +1526,7 @@
       state.minimized = false;
       GM_setValue(KEYS.minimized, state.minimized);
       if (body) body.style.display = '';
+      refreshSidebarState();
     }
     state.settingsOpen = opening;
     if (state.settingsOpen) renderSettingsDrawer();
@@ -1523,6 +1541,7 @@
       state.minimized = false;
       GM_setValue(KEYS.minimized, state.minimized);
       if (body) body.style.display = state.minimized ? 'none' : '';
+      refreshSidebarState();
     }
     updateTabVisibility();
     renderAll();
@@ -1690,6 +1709,7 @@
         GM_setValue(KEYS.minimized, state.minimized);
         body.style.display = state.minimized ? 'none' : '';
         applyPanelPosition(state.panelPosition);
+        refreshSidebarState();
       }
     });
 
@@ -1739,13 +1759,25 @@
     });
   }
 
+  function restorePanelFromMinimized() {
+    if (!state.minimized) return;
+    state.minimized = false;
+    GM_setValue(KEYS.minimized, state.minimized);
+    if (body) body.style.display = '';
+    applyPanelPosition(state.panelPosition);
+    refreshSidebarState();
+  }
+
   function installSidebar() {
     state.sidebarController = SidebarAction.createSidebarController({
       document,
       window,
       label: 'ReviveRelay → Revive Me!',
+      gearLabel: 'Restore ReviveRelay',
       getState: sidebarState,
-      onActivate: handleSidebarActivate
+      onActivate: handleSidebarActivate,
+      getMinimized: () => state.minimized,
+      onRestore: restorePanelFromMinimized
     });
     state.sidebarController.reconcile();
     window.addEventListener('popstate', () => setTimeout(refreshSidebarState, 150));

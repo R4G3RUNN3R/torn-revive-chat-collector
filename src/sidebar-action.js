@@ -6,6 +6,7 @@
   'use strict';
 
   const ACTION_SELECTOR = '[data-reviverelay-sidebar-action]';
+  const GEAR_SELECTOR = '[data-reviverelay-sidebar-gear]';
   const NAV_SELECTORS = Object.freeze([
     '#sidebar',
     '#sidebarroot',
@@ -16,7 +17,7 @@
   ]);
   const VALID_STATES = new Set(['READY', 'SETUP_REQUIRED', 'SUBMITTING', 'ACTIVE', 'ERROR']);
 
-  function createSidebarController({ document, window, label, onActivate, getState }) {
+  function createSidebarController({ document, window, label, onActivate, getState, gearLabel, getMinimized, onRestore }) {
     if (!document || typeof document.createElement !== 'function' || typeof document.querySelector !== 'function') {
       throw new Error('document is required');
     }
@@ -25,6 +26,10 @@
     if (!visibleLabel) throw new Error('label is required');
     if (typeof onActivate !== 'function') throw new Error('onActivate is required');
     if (typeof getState !== 'function') throw new Error('getState is required');
+    const visibleGearLabel = String(gearLabel || 'Restore ReviveRelay').trim();
+    const restoreHandler = typeof onRestore === 'function' ? onRestore : null;
+    const minimizedGetter = typeof getMinimized === 'function' ? getMinimized : () => false;
+    const gearEnabled = () => Boolean(restoreHandler) && Boolean(minimizedGetter());
 
     let destroyed = false;
     let observer = null;
@@ -65,53 +70,69 @@
       }
     }
 
-    function activateFromEvent(event) {
+    function activateFromEvent(event, controlType) {
       if (event && typeof event === 'object') {
         if (handledEvents.has(event)) return;
         handledEvents.add(event);
       }
       if (event && typeof event.preventDefault === 'function') event.preventDefault();
       if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+      if (controlType === 'gear') {
+        if (restoreHandler) restoreHandler();
+        return;
+      }
       const state = resolvedState();
       if (state === 'SUBMITTING') return;
       onActivate(state);
     }
 
-    function eventTargetsAction(event) {
+    function eventTargetsSelector(event, attribute, selector) {
       const path = event && typeof event.composedPath === 'function' ? event.composedPath() : [];
-      if (Array.isArray(path) && path.some(node => node && typeof node.getAttribute === 'function' && node.getAttribute('data-reviverelay-sidebar-action') !== null)) {
+      if (Array.isArray(path) && path.some(node => node && typeof node.getAttribute === 'function' && node.getAttribute(attribute) !== null)) {
         return true;
       }
       const target = event?.target;
-      return Boolean(target && typeof target.closest === 'function' && target.closest(ACTION_SELECTOR));
+      return Boolean(target && typeof target.closest === 'function' && target.closest(selector));
     }
 
-    function clickActivation(event) {
+    function eventTargetsAction(event) {
+      return eventTargetsSelector(event, 'data-reviverelay-sidebar-action', ACTION_SELECTOR);
+    }
+
+    function eventTargetsGear(event) {
+      return eventTargetsSelector(event, 'data-reviverelay-sidebar-gear', GEAR_SELECTOR);
+    }
+
+    function clickActivation(event, controlType) {
       if (Date.now() <= suppressClickUntil) {
         if (event && typeof event.preventDefault === 'function') event.preventDefault();
         if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
         return;
       }
-      activateFromEvent(event);
+      activateFromEvent(event, controlType);
     }
 
-    function bindActivation(button) {
+    function bindActivation(button, controlType) {
       if (boundActions.has(button)) return;
-      button.addEventListener('click', clickActivation);
+      button.addEventListener('click', event => clickActivation(event, controlType));
       boundActions.add(button);
     }
 
     if (typeof window.addEventListener === 'function') {
       captureListener = event => {
-        if (!eventTargetsAction(event)) return;
-        clickActivation(event);
+        if (eventTargetsAction(event)) { clickActivation(event, 'action'); return; }
+        if (eventTargetsGear(event)) clickActivation(event, 'gear');
       };
       window.addEventListener('click', captureListener, true);
 
       pointerDownCaptureListener = event => {
         if (event?.button != null && event.button !== 0) return;
-        if (!eventTargetsAction(event)) return;
+        let controlType = null;
+        if (eventTargetsAction(event)) controlType = 'action';
+        else if (eventTargetsGear(event)) controlType = 'gear';
+        if (!controlType) return;
         pendingPointer = {
+          controlType,
           pointerId: event?.pointerId ?? null,
           startedAt: Date.now(),
           clientX: Number.isFinite(event?.clientX) ? event.clientX : null,
@@ -130,7 +151,7 @@
           if (Math.hypot(dx, dy) > 32) return;
         }
         suppressClickUntil = Date.now() + 1_000;
-        activateFromEvent(event);
+        activateFromEvent(event, pending.controlType);
       };
       pointerCancelCaptureListener = event => {
         if (!pendingPointer) return;
@@ -183,7 +204,40 @@
 
       button.appendChild(icon);
       button.appendChild(text);
-      bindActivation(button);
+      bindActivation(button, 'action');
+      return button;
+    }
+
+    function createGearButton() {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'rr-sidebar-gear';
+      button.setAttribute('data-reviverelay-sidebar-gear', '1');
+      button.setAttribute('aria-label', visibleGearLabel);
+      if (button.style) {
+        button.style.display = 'flex';
+        button.style.alignItems = 'center';
+        button.style.justifyContent = 'center';
+        button.style.width = 'calc(100% - 12px)';
+        button.style.boxSizing = 'border-box';
+        button.style.border = '1px solid #46515b';
+        button.style.background = '#20272e';
+        button.style.color = '#d9e0e6';
+        button.style.font = 'inherit';
+        button.style.fontWeight = '700';
+        button.style.padding = '6px 8px';
+        button.style.margin = '4px 6px';
+        button.style.borderRadius = '5px';
+        button.style.cursor = 'pointer';
+      }
+
+      const icon = document.createElement('span');
+      icon.setAttribute('data-rr-sidebar-gear-icon', '1');
+      icon.setAttribute('aria-hidden', 'true');
+      icon.textContent = '⚙';
+
+      button.appendChild(icon);
+      bindActivation(button, 'gear');
       return button;
     }
 
@@ -221,7 +275,7 @@
         else if (typeof node.remove === 'function') node.remove();
       }
       if (!action) action = createAction();
-      bindActivation(action);
+      bindActivation(action, 'action');
 
       const nativeChildren = Array.from(target.children || []).filter(node => node !== action);
       const nearTopAnchor = nativeChildren[1] || nativeChildren[0] || null;
@@ -229,6 +283,24 @@
       else if (action.parentNode !== target) target.appendChild(action);
 
       applyState(action, resolvedState());
+
+      const allGears = Array.from(document.querySelectorAll(GEAR_SELECTOR) || []);
+      let gear = allGears.find(node => node.parentNode === target) || allGears[0] || null;
+      for (const node of allGears) {
+        if (node !== gear && typeof node.remove === 'function') node.remove();
+      }
+      if (gearEnabled()) {
+        if (!gear) gear = createGearButton();
+        bindActivation(gear, 'gear');
+        const siblings = Array.from(target.children || []).filter(node => node !== gear);
+        const actionIndex = siblings.indexOf(action);
+        const anchor = siblings[actionIndex + 1] || null;
+        if (anchor && typeof target.insertBefore === 'function') target.insertBefore(gear, anchor);
+        else target.appendChild(gear);
+      } else if (gear && typeof gear.remove === 'function') {
+        gear.remove();
+      }
+
       attachObserver(target);
       return action;
     }
@@ -268,6 +340,9 @@
       for (const action of Array.from(document.querySelectorAll(ACTION_SELECTOR) || [])) {
         if (typeof action.remove === 'function') action.remove();
       }
+      for (const gear of Array.from(document.querySelectorAll(GEAR_SELECTOR) || [])) {
+        if (typeof gear.remove === 'function') gear.remove();
+      }
     }
 
     return Object.freeze({ reconcile, destroy, setState });
@@ -275,6 +350,7 @@
 
   return Object.freeze({
     ACTION_SELECTOR,
+    GEAR_SELECTOR,
     NAV_SELECTORS,
     createSidebarController
   });
