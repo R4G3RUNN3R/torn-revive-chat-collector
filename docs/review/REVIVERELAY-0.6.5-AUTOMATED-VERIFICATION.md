@@ -104,3 +104,9 @@ Only that real-browser evidence can close the intermittent sidebar regression an
 - Stable API and worker report restart count 0.
 
 Publication does not close browser acceptance. The exact published 0.6.5 bytes must still prove one post-refresh sidebar activation produces exactly one request and that Desktop notifications OFF suppresses delivery while queue/request state continues normally.
+
+## First live 0.6.5 sidebar acceptance evidence
+
+After the exact published 0.6.5 userscript was installed and the owner performed the requested single sidebar activation, a fresh read of the isolated review API logs showed exactly one matching `POST /v1/requests` in the three-minute evidence window. Fastify request `req-ze` completed HTTP `201` in 21.8 ms. No second matching request POST appeared in that window, while normal `GET /v1/requests/active` and `GET /v1/reviver/queue` polling continued afterward.
+
+This closes the server-observed post-refresh sidebar activation/deduplication check for this browser attempt. UI confirmation that the active certified request is visible and that Desktop notifications remained suppressed is still human-observed acceptance and is not inferred from server logs.

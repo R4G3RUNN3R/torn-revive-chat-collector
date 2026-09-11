@@ -97,7 +97,7 @@ The repository contains no first-class browser-extension source tree (`manifest.
 - [ ] After a full Torn refresh, OWNER/reviver state and the saved `$750,000` / `Rev please!` preset remain intact.
 - [ ] Desktop notifications remain OFF after update/reload.
 - [ ] Sidebar reports READY after reload.
-- [ ] One physical sidebar activation produces exactly one `POST /v1/requests` on the review API.
+- [x] One physical sidebar activation produced exactly one `POST /v1/requests` on the review API; request `req-ze` completed HTTP 201 and a fresh three-minute log count contained exactly one matching POST.
 - [ ] Request tab displays the resulting active certified request.
 - [ ] With Desktop notifications OFF, no desktop notification is emitted for the newly observed certified request while queue state still updates normally.
 - [ ] Test request can be cancelled cleanly and preset remains intact.
