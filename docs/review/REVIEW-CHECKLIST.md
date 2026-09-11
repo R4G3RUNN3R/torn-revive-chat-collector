@@ -122,9 +122,9 @@ TornPDA acceptance requires a genuine TornPDA app/in-app browser on a physical d
 
 - [ ] Capture the five required UI surfaces listed in `SCREENSHOT-CHECKLIST.md`.
 - [x] Perform requester browser acceptance.
-- [ ] Perform non-reviver rejection browser acceptance.
-- [ ] Perform eligible reviver queue/Accept browser acceptance.
-- [ ] Perform review-mode subscription invoice/payment browser acceptance with controlled test conditions.
+- [ ] Perform non-reviver rejection browser acceptance. **Machine equivalent PASS:** focused server matrix proves non-reviver sessions cannot view or accept the queue.
+- [ ] Perform eligible reviver queue/Accept browser acceptance. **Machine equivalent PASS:** focused server matrix proves authenticated eligible reviver queue/Accept, current ability/credential gates, self-accept rejection and one-winner concurrency.
+- [ ] Perform review-mode subscription invoice/payment browser acceptance with controlled test conditions. **Machine equivalent PASS:** focused client/server matrix proves server-owned pricing, safe merchant rendering, exact evidence matching, one-time activation and no client price/duration injection.
 - [ ] Confirm whether ReviveRelay certified-request network notifications are acceptable to Torn; they originate from direct server requests, not public-chat scraping or background/unfocused extraction.
 - [ ] Record Torn staff review outcome before any public paid promotion.
 

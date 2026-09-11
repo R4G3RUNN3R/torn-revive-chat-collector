@@ -143,3 +143,9 @@ Two acceptance boundaries remain technically important:
 2. Current dormant lifecycle ownership intentionally preserves bootstrap/reactivation timers/handlers while active-feature callbacks fail closed and avoid unnecessary protected network work. The stricter literal reading that every timer/observer must be torn down is not what the implemented Task 2 lifecycle model does; changing that would be an architectural change and requires an explicit new candidate rather than checklist editing.
 
 Real TornPDA execution, cross-account real-browser evidence that is explicitly required as browser evidence, controlled manual Torn payment UI evidence, Torn notification-policy review, Torn staff approval and the production hard gate remain external. No production action was performed.
+
+### Repository/source reconciliation preparation
+
+A fresh remote fetch of `origin/main` on 2026-09-11 confirmed `origin/main=b9c8017cc95d612ebe03a578040d00f56f7580eb` and completion worktree `HEAD=22f26fda22e4b8d2401afe9ebbd7d0e956c3862a`; `origin/main...HEAD` is `0 91`, and `origin/main` is an ancestor of `HEAD`. No remote history rewrite is required. If this exact accepted history later reaches the production gate without new divergence, the non-force source publication shape is a normal fast-forward push of the accepted branch tip to `origin/main`; no such push was performed during this sweep.
+
+The 0.6.5 provenance commit `dee29b9ce7fa4a65654f053534d0ebe4ce9aa35e` exists locally. The published review manifest reports version `0.6.5`, that exact provenance commit, channel `review`, and SHA-256 `9e065d49e6ac20d6cdeebc810a3099cd3ec1e728e455dcee7a84010ed3a26972`; a fresh hash of the published userscript matches the manifest exactly. Repository reconciliation is prepared but not marked complete because the candidate still has open genuine-platform/specification gates and remote publication remains behind the production hard gate.
