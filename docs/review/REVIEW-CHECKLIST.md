@@ -98,8 +98,8 @@ The repository contains no first-class browser-extension source tree (`manifest.
 - [ ] Desktop notifications remain OFF after update/reload.
 - [ ] Sidebar reports READY after reload.
 - [x] One physical sidebar activation produced exactly one `POST /v1/requests` on the review API; request `req-ze` completed HTTP 201 and a fresh three-minute log count contained exactly one matching POST.
-- [ ] Request tab displays the resulting active certified request.
-- [ ] With Desktop notifications OFF, no desktop notification is emitted for the newly observed certified request while queue state still updates normally.
+- [x] Request tab displays the resulting active certified request; owner confirmed the active request was visible immediately after the successful 0.6.5 sidebar activation.
+- [x] With Desktop notifications OFF, no desktop notification was emitted for the newly observed certified request while the request remained visible and normal polling continued.
 - [ ] Test request can be cancelled cleanly and preset remains intact.
 
 ## Real TornPDA acceptance
