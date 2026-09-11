@@ -235,3 +235,26 @@ Fresh complete gate on disposable PostgreSQL 16:
 The disposable database `reviverelay-completion-066-pg-1789151544` was loopback-only on ephemeral port 32809 and was removed after testing; removal was explicitly verified. Stable/review production databases were never used. Public stable remains 0.4.4.
 
 Automated completion is therefore green for the frozen local 0.6.6 candidate. Genuine desktop/TornPDA acceptance, review publication, Torn policy/staff review and the production hard gate remain separate gates and are not claimed by this automated evidence.
+
+## 2026-09-11 completion-audit refresh — checklist reconciliation to the 0.6.6 candidate
+
+This pass had local worktree edit/test permissions but no Bash network egress: `curl`/`WebFetch` to both the public release host and the already-running local `reviverelay-review-reviverelay-review-api-1` container were denied, and `docker run` (needed for a disposable test database) was also denied. No live publication check could be independently performed by this session.
+
+The controller reported live verification that private-review-channel 0.6.6 is published with SHA-256 `1f4885c25f9340e6730e0e844ff1172784d8edb12a6c2e32bc11bffc45d160cb`, and that the public review userscript download hashes to the same value. That fact is recorded here as controller-reported; this session did not re-hash the live download itself and does not claim to have done so.
+
+What this session did verify locally, with no network access required:
+
+- `node scripts/build.js` reproduced the frozen candidate byte-for-byte: source commit `f499265a1b1d07df01c19e120c1eebf37e395e6d`, SHA-256 `1f4885c25f9340e6730e0e844ff1172784d8edb12a6c2e32bc11bffc45d160cb`, size `134548` bytes — identical to `BUILD-MANIFEST.json` and to the controller-reported live hash.
+- `node scripts/verify-review-artifact.js`: PASS.
+- Client suite (`node --test test`): **250/250**.
+- `npm run audit:review`: **15 files audited / 0 findings**.
+- `node --check dist/review/ReviveRelay-0.6.6.user.js`: syntax PASS.
+- `node --test test/review-release-smoke.test.js test/release-dependency-verification.test.js`: **5/5**.
+
+Server/database-backed tests (`npm run test:server`, and the DB-backed half of `npm run verify:review`) could not be run this session because starting a disposable PostgreSQL container required `docker run`, which was denied. No shipping code was changed this session, so the server result already recorded above (335/335, Task 5 gate, same date) is not superseded and is not re-claimed as freshly re-run.
+
+`docs/review/REVIEW-CHECKLIST.md` still framed 0.6.5 as the current candidate even though this ledger's Task 5 section had already frozen 0.6.6 as the current completion candidate on the same date. The checklist is corrected in this pass: title, candidate identity, and surface-identity references now name 0.6.6; the 0.6.4 and 0.6.5 real-browser evidence sections are explicitly preserved as historical rather than rewritten. A new, entirely unchecked "0.6.6 desktop browser acceptance" section is added; it records no completion claim because no genuine desktop/TornPDA acceptance has run on the exact 0.6.6 bytes.
+
+The dormant-runtime checklist wording was reviewed against the approved Task 2 lifecycle design (bootstrap/reactivation timers persist while dormant; only active-feature polling/network work stops) and found already consistent; no wording change was made there.
+
+No shipping code changed. No new candidate was minted. No publication, deployment, stable change, or database was touched by this session.

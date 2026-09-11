@@ -1,17 +1,17 @@
-# ReviveRelay 0.6.5 Completion Review Checklist
+# ReviveRelay 0.6.6 Completion Review Checklist
 
-This checklist governs the private immutable 0.6.5 review candidate. It is an evidence ledger, not a claim of Torn approval, production readiness, or completed manual acceptance. Historical 0.6.4 browser evidence is retained explicitly as historical evidence; any check whose behavior can be affected by 0.6.5 shipping changes requires fresh 0.6.5 acceptance.
+This checklist governs the private immutable 0.6.6 review candidate. It is an evidence ledger, not a claim of Torn approval, production readiness, or completed manual acceptance. Historical 0.6.4 and 0.6.5 browser evidence is retained explicitly as historical evidence; any check whose behavior can be affected by 0.6.6 shipping changes requires fresh 0.6.6 acceptance.
 
 ## Candidate and release truth
 
-- [x] Review candidate is 0.6.5, executable source commit `dee29b9ce7fa4a65654f053534d0ebe4ce9aa35e`.
-- [x] Published review userscript SHA-256 is `9e065d49e6ac20d6cdeebc810a3099cd3ec1e728e455dcee7a84010ed3a26972`; the public download was hashed after publication and matches the frozen candidate exactly.
+- [x] Review candidate is 0.6.6, executable source commit `f499265a1b1d07df01c19e120c1eebf37e395e6d`. Locally reproduced this session via `node scripts/build.js` / `node scripts/verify-review-artifact.js`, matching `docs/review/BUILD-MANIFEST.json` exactly.
+- [x] Published review userscript SHA-256 is `1f4885c25f9340e6730e0e844ff1172784d8edb12a6c2e32bc11bffc45d160cb`, identical to the local reproducible build. Controller-reported live review-channel verification states the public download hashes to the same value; this sandboxed worktree session had no Bash network egress and did not independently re-hash the live download itself, so that specific fact is recorded as controller-reported, not self-observed.
 - [x] Public stable remains 0.4.4; stable current path and historical hash are recorded in `REVIVERELAY-COMPLETION-HARDENING.md`.
-- [x] The frozen 0.6.5 artifact and manifest agree with `REVIVERELAY-0.6.5-AUTOMATED-VERIFICATION.md`.
+- [x] The frozen 0.6.6 artifact and manifest agree with `REVIVERELAY-0.6.6-AUTOMATED-VERIFICATION.md`.
 - [ ] Repository/release reconciliation is complete and approved for publication.
 - [ ] Production hard gate is complete, including owner approval and verified rollback.
 
-Published review artifacts are immutable. Published 0.6.4 remains historical and must not be overwritten. Once 0.6.5 is published, any further shipping change requires the next unused patch candidate and affected acceptance must be rerun.
+Published review artifacts are immutable. Published 0.6.4 and 0.6.5 remain historical and must not be overwritten. Once 0.6.6 is published, any further shipping change requires the next unused patch candidate and affected acceptance must be rerun.
 
 ## Product / monetization
 
@@ -25,7 +25,7 @@ Published review artifacts are immutable. Published 0.6.4 remains historical and
 
 ## Scripting / API boundary
 
-- [x] Confirm the 0.6.5 candidate has no public chat collection and does not scrape unfocused Torn pages.
+- [x] Confirm the 0.6.6 candidate has no public chat collection and does not scrape unfocused Torn pages. Reconfirmed this session: `npm run audit:review` — 15 files audited / 0 findings.
 - [x] Confirm actual payment, revive, and Accept game actions remain manual user actions where applicable.
 - [x] Confirm the userscript has no runtime `@require`, `eval`, or remote executable-code loading.
 - [x] Confirm cross-origin userscript network access is restricted to the ReviveRelay backend.
@@ -62,7 +62,7 @@ Published review artifacts are immutable. Published 0.6.4 remains historical and
 - [x] Verify loading/pending is distinct from authoritative empty/no-data.
 - [x] Verify authoritative eligible/active, denied/revoked/unauthorized, and transport/server failure are distinct states.
 - [x] Verify unknown, pending, transport failure, and stale cache never render or alert as authoritative success or failure.
-- [x] Verify stale cached data is visibly stale and cannot overwrite newer authoritative data. Current 0.6.5 does not persist entitlement/queue state as an authoritative cache; delayed older responses are revision-rejected, so no stale persisted success state is available to render as current.
+- [x] Verify stale cached data is visibly stale and cannot overwrite newer authoritative data. Current 0.6.6 does not persist entitlement/queue state as an authoritative cache; delayed older responses are revision-rejected, so no stale persisted success state is available to render as current. This client state-authority behavior was not touched by the 0.6.6 trust-boundary/queue-UI changes (see `REVIVERELAY-0.6.6-RELEASE-NOTES.md` "Preserved contracts").
 - [x] Verify actions and notifications wait for the state required by their business rule.
 
 ## Notification matrix
@@ -78,7 +78,7 @@ Published review artifacts are immutable. Published 0.6.4 remains historical and
 
 ## Exact Chrome review-surface identity
 
-The repository contains no first-class browser-extension source tree (`manifest.json`, `background.js`, `popup.html`, or `options.html`). The current audited Chrome surface is the packaged Tampermonkey/userscript artifact `dist/review/ReviveRelay-0.6.5.user.js`. Publication and real-browser acceptance of the exact 0.6.5 bytes are recorded separately. Review/CSP verification files and the operational harness support that packaged artifact; they are not a Chrome extension package and must not be described as one.
+The repository contains no first-class browser-extension source tree (`manifest.json`, `background.js`, `popup.html`, or `options.html`). The current audited Chrome surface is the packaged Tampermonkey/userscript artifact `dist/review/ReviveRelay-0.6.6.user.js`. Publication and real-browser acceptance of the exact 0.6.6 bytes are recorded separately. Review/CSP verification files and the operational harness support that packaged artifact; they are not a Chrome extension package and must not be described as one.
 
 ## 0.6.4 desktop browser evidence
 
@@ -101,6 +101,20 @@ The repository contains no first-class browser-extension source tree (`manifest.
 - [x] Request tab displays the resulting active certified request; owner confirmed the active request was visible immediately after the successful 0.6.5 sidebar activation.
 - [x] With Desktop notifications OFF, no desktop notification was emitted for the newly observed certified request while the request remained visible and normal polling continued.
 - [x] Test request cancelled cleanly on 0.6.5; review API request `req-163` returned HTTP 200. Owner reported completion of the instructed cancel/preset-preservation check.
+
+0.6.5 evidence above is retained as historical: it is real acceptance evidence gathered against the exact published 0.6.5 bytes, and it remains valid for surfaces 0.6.6 did not touch. It does not stand in for 0.6.6 acceptance and does not cover the 0.6.6 trust-boundary or queue-control changes below.
+
+## 0.6.6 desktop browser acceptance
+
+0.6.6 replaces 0.6.5 as the current candidate. Task 4 found published 0.6.5 accepted an off-origin update-manifest URL and an artifact whose embedded `API_BASE` had been altered while keeping the approved `@connect` declaration; 0.6.6 also adds certified-queue payment filtering, minimum-offer filtering, sorting, grouping, and an explicit refresh control. No completion claim is made for any item below; only the automated gate recorded in `REVIVERELAY-0.6.6-AUTOMATED-VERIFICATION.md` has run against the exact 0.6.6 bytes.
+
+- [ ] Exact published 0.6.6 userscript is installed and header reports v0.6.6.
+- [ ] After a full Torn refresh, OWNER/reviver state and the saved preset remain intact; sidebar reports READY.
+- [ ] Desktop notifications remain OFF after update/reload.
+- [ ] One physical sidebar activation produces exactly one `POST /v1/requests`; the resulting certified request is visible; cancel returns the UI to Request None with HTTP 200.
+- [ ] Certified queue payment filter (All/Cash/Xanax), independent minimum Cash/Xanax filters, newest/oldest and offer sorting, optional grouping, and the explicit `Refresh queue` control behave as designed on the real candidate.
+- [ ] A crafted or off-origin update manifest cannot open an off-origin install URL from the real running candidate.
+- [ ] Standard responsive/narrow-viewport queue-control layout and stable filter focus are confirmed on the real candidate.
 
 ## Real TornPDA acceptance
 
