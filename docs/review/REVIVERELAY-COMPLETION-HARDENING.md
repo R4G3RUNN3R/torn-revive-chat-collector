@@ -188,3 +188,23 @@ Security-focused server coverage also passed **74/74**, including identity bindi
 The targeted client/update/audit checks are green. The plan-prescribed combined artifact command currently reports three expected candidate-integrity failures because `src/update-manager.js` changed after published 0.6.5 was frozen: two bundled-support byte mismatches and one immutable artifact SHA mismatch. These are release-version alarms, not security-test regressions. They must become green only by minting a new immutable candidate; 0.6.5 metadata and published bytes must not be rewritten.
 
 `npm run audit:review` against the frozen 0.6.5 package still passes with **15 files audited / 0 findings**. No deployed stable or review runtime, container, database, manifest, or published artifact was changed by Task 4.
+
+## Pre-candidate Task 6 defect closure — queue grouping/filter/sort
+
+The 2026-09-11 acceptance consolidation correctly left grouping/filter/sort OPEN because immutable 0.6.5 exposed only the raw certified queue. Since Task 4 already disqualified 0.6.5 from final promotion, this known desktop/TornPDA acceptance defect was fixed before minting another candidate rather than knowingly creating a short-lived intermediate version.
+
+Test-first evidence: `test/reviver-marketplace-ui.test.js` was extended before implementation and produced **5 passed / 3 failed** because the queue had no controls or view/group helpers. A separate focus-stability regression was then run against the old one-second queue rerender behavior and failed as expected.
+
+The client now provides:
+
+- payment filter: All / Cash / Xanax;
+- independent minimum Cash and minimum Xanax offer filters, avoiding false equivalence between currencies;
+- deterministic newest/oldest and offer ascending/descending sorting;
+- optional grouping by payment type or no grouping;
+- explicit `Refresh queue` control using the existing single-flight authoritative queue fetch;
+- responsive two-column controls that collapse to one column on narrow viewports;
+- stable filter focus because the one-second transaction countdown timer no longer rebuilds the queue merely because requests are present.
+
+Offer-value sorting is performed within payment currency. When mixed currencies are displayed without grouping, the currency name is a deterministic primary sort key; ReviveRelay does not pretend one Xanax and one Torn dollar are comparable numeric units.
+
+Green verification after implementation: syntax pass and **91/91** relevant client/UI/state/sidebar tests. Server behavior, entitlement gates, notification gates, and request acceptance authority were not changed. Immutable 0.6.5 remains untouched; the feature requires the next unused review candidate and genuine desktop/TornPDA acceptance on those exact bytes.

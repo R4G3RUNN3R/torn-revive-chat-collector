@@ -78,6 +78,11 @@
     verificationEditing: false,
     reviverEligibility: null,
     reviverQueue: [],
+    queuePaymentFilter: 'all',
+    queueMinCash: 0,
+    queueMinXanax: 0,
+    queueSort: 'newest',
+    queueGroup: 'payment',
     proStatus: null,
     runtime: null,
     runtimeCompatibility: 'unknown',
@@ -998,6 +1003,54 @@
     ${state.activeTransaction ? renderTransactionCard(state.activeTransaction, 'Your revive transaction') : ''}`;
   }
 
+  function queueViewRequests(requests) {
+    const paymentFilter = ['all', 'cash', 'xanax'].includes(state.queuePaymentFilter) ? state.queuePaymentFilter : 'all';
+    const minimumCash = Math.max(0, Number(state.queueMinCash) || 0);
+    const minimumXanax = Math.max(0, Number(state.queueMinXanax) || 0);
+    const sortMode = ['newest', 'oldest', 'offer-desc', 'offer-asc'].includes(state.queueSort) ? state.queueSort : 'newest';
+    const timestamp = value => {
+      const parsed = new Date(value).getTime();
+      return Number.isFinite(parsed) ? parsed : 0;
+    };
+    const list = (Array.isArray(requests) ? requests : []).filter(request => {
+      const method = request?.paymentMethod;
+      if (paymentFilter !== 'all' && method !== paymentFilter) return false;
+      const offer = Math.max(0, Number(request?.offerAmount) || 0);
+      if (method === 'cash' && offer < minimumCash) return false;
+      if (method === 'xanax' && offer < minimumXanax) return false;
+      return true;
+    });
+    const tieBreak = (a, b) => String(a?.id || '').localeCompare(String(b?.id || ''));
+    return list.sort((a, b) => {
+      if (sortMode === 'oldest') return timestamp(a?.createdAt) - timestamp(b?.createdAt) || tieBreak(a, b);
+      if (sortMode === 'offer-desc' || sortMode === 'offer-asc') {
+        const methodOrder = String(a?.paymentMethod || '').localeCompare(String(b?.paymentMethod || ''));
+        if (methodOrder) return methodOrder;
+        const amountOrder = (Number(a?.offerAmount) || 0) - (Number(b?.offerAmount) || 0);
+        if (amountOrder) return sortMode === 'offer-desc' ? -amountOrder : amountOrder;
+        return timestamp(b?.createdAt) - timestamp(a?.createdAt) || tieBreak(a, b);
+      }
+      return timestamp(b?.createdAt) - timestamp(a?.createdAt) || tieBreak(a, b);
+    });
+  }
+
+  function groupQueueRequests(requests) {
+    const list = Array.isArray(requests) ? requests : [];
+    if (state.queueGroup !== 'payment') return [{ key: 'all', label: 'All requests', requests: list }];
+    const definitions = [
+      ['cash', 'Cash'],
+      ['xanax', 'Xanax'],
+      ['other', 'Other']
+    ];
+    return definitions.map(([key, label]) => ({
+      key,
+      label,
+      requests: list.filter(request => key === 'other'
+        ? !['cash', 'xanax'].includes(request?.paymentMethod)
+        : request?.paymentMethod === key)
+    })).filter(group => group.requests.length > 0);
+  }
+
   function renderCertifiedRequest(request) {
     const certified = request?.certified === true;
     return `<div class="rr-card rr-queue-card ${certified ? 'rr-certified-card' : ''}">
@@ -1080,11 +1133,37 @@
       </div>`;
       return;
     }
+    const visibleRequests = queueViewRequests(state.reviverQueue);
+    const groupedRequests = groupQueueRequests(visibleRequests);
+    const queueMarkup = visibleRequests.length
+      ? groupedRequests.map(group => `${state.queueGroup === 'payment' ? `<div class="rr-queue-group-title">${escapeHtml(group.label)} <span>${group.requests.length}</span></div>` : ''}${group.requests.map(renderCertifiedRequest).join('')}`).join('')
+      : '<div class="rr-card rr-muted">No certified requests match the current queue filters.</div>';
     target.innerHTML = `<div class="rr-card">
       <div class="rr-card-title">Certified revive queue</div>
-      <div class="rr-muted">${state.reviverQueue.length} available request${state.reviverQueue.length === 1 ? '' : 's'}.</div>
+      <div class="rr-muted">${visibleRequests.length} shown of ${state.reviverQueue.length} available request${state.reviverQueue.length === 1 ? '' : 's'}.</div>
+      <div class="rr-queue-controls" aria-label="Certified revive queue controls">
+        <label>Payment<select id="rr-queue-payment-filter">
+          <option value="all" ${state.queuePaymentFilter === 'all' ? 'selected' : ''}>All</option>
+          <option value="cash" ${state.queuePaymentFilter === 'cash' ? 'selected' : ''}>Cash</option>
+          <option value="xanax" ${state.queuePaymentFilter === 'xanax' ? 'selected' : ''}>Xanax</option>
+        </select></label>
+        <label>Sort<select id="rr-queue-sort">
+          <option value="newest" ${state.queueSort === 'newest' ? 'selected' : ''}>Newest first</option>
+          <option value="oldest" ${state.queueSort === 'oldest' ? 'selected' : ''}>Oldest first</option>
+          <option value="offer-desc" ${state.queueSort === 'offer-desc' ? 'selected' : ''}>Offer high to low</option>
+          <option value="offer-asc" ${state.queueSort === 'offer-asc' ? 'selected' : ''}>Offer low to high</option>
+        </select></label>
+        <label>Min cash<input id="rr-queue-min-cash" type="number" min="0" step="50000" value="${escapeHtml(state.queueMinCash)}"></label>
+        <label>Min Xanax<input id="rr-queue-min-xanax" type="number" min="0" step="1" value="${escapeHtml(state.queueMinXanax)}"></label>
+        <label>Group<select id="rr-queue-group">
+          <option value="payment" ${state.queueGroup === 'payment' ? 'selected' : ''}>Payment type</option>
+          <option value="none" ${state.queueGroup === 'none' ? 'selected' : ''}>No grouping</option>
+        </select></label>
+        <button id="rr-refresh-queue" type="button">Refresh queue</button>
+      </div>
+      <p class="rr-muted">Offer sorting is kept within each payment currency so Cash and Xanax are never treated as equivalent units.</p>
     </div>
-    <div id="rr-reviver-queue">${state.reviverQueue.length ? state.reviverQueue.map(renderCertifiedRequest).join('') : '<div class="rr-card rr-muted">No certified requests waiting.</div>'}</div>
+    <div id="rr-reviver-queue">${queueMarkup}</div>
     <div id="rr-reviver-transaction">${state.activeTransaction?.participantRole === 'reviver' ? renderTransactionCard(state.activeTransaction, 'Accepted revive') : '<div class="rr-muted">No accepted revive transaction.</div>'}</div>`;
   }
 
@@ -1520,7 +1599,8 @@
       .rr-kv{display:flex;justify-content:space-between;gap:12px;padding:3px 0}.rr-kv span{color:#85919b}.rr-kv strong{text-align:right}.rr-muted{color:#798690;font-size:10px}.rr-status{padding:6px 9px;color:#8fa9ba;border-top:1px solid #303840;min-height:16px}.rr-status-error{color:#e4a1a1}
       .rr-actions,.rr-form-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}.rr-label{display:block;color:#9aa6af;margin:7px 0 3px}.rr-card input,.rr-card select,.rr-card textarea,.rr-settings-section input,.rr-settings-section select,.rr-settings-section textarea{box-sizing:border-box;width:100%;border:1px solid #3a4650;background:#0f1418;color:#e0e5e9;border-radius:5px;padding:6px;font:inherit}.rr-card button,.rr-settings-section button{border:1px solid #48545e;background:#242d34;color:#e6ebee;border-radius:5px;padding:5px 8px;font:inherit;cursor:pointer}.rr-card button:disabled,.rr-settings-section button:disabled{opacity:.45;cursor:not-allowed}
       .rr-certified-card{border-color:#806c3b;box-shadow:inset 3px 0 0 #b89a52}.rr-certified-line,.rr-queue-head{display:flex;align-items:center;justify-content:space-between;gap:8px}.rr-star{color:#d5b461}.rr-chip{font-size:8px;border:1px solid #88743e;color:#d9bc72;border-radius:8px;padding:1px 5px}.rr-offer{font-size:15px;font-weight:800;margin-top:7px}.rr-comment{margin:4px 0;color:#bcc5cc}.rr-deadlines{margin-top:6px}.rr-deadlines>div{display:flex;justify-content:space-between;color:#8e9aa3}.rr-invoice{margin-top:7px;padding-top:7px;border-top:1px solid #313a42}
-      @media(max-width:520px){#rr-panel{width:calc(100vw - 16px)}.rr-tabs button{font-size:10px}}
+      .rr-queue-controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-top:8px}.rr-queue-controls label{font-size:9px;color:#89959e}.rr-queue-controls select,.rr-queue-controls input{margin-top:2px}.rr-queue-controls button{align-self:end}.rr-queue-group-title{display:flex;justify-content:space-between;align-items:center;margin:10px 2px 6px;color:#b7c1c8;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.04em}.rr-queue-group-title span{color:#74818b}
+      @media(max-width:520px){#rr-panel{width:calc(100vw - 16px)}.rr-tabs button{font-size:10px}.rr-queue-controls{grid-template-columns:1fr}}
     `);
 
     panel = document.createElement('section');
@@ -1583,6 +1663,7 @@
       if (target.id === 'rr-bind-verification') return bindVerificationKey();
       if (target.id === 'rr-revoke-verification') return revokeVerificationKey();
       if (target.id === 'rr-register-reviver') return registerMarketplaceReviver();
+      if (target.id === 'rr-refresh-queue') return refreshReviverQueue().then(renderLiveState).catch(error => handleApiFailure(error, 'queue.manual', 'Queue refresh failed.'));
       if (target.id === 'rr-refresh') return refreshMarketplaceState({ includePlans: true }).then(renderAll).catch(error => handleApiFailure(error, 'manual.refresh'));
       if (target.id === 'rr-disconnect') return clearSession();
       if (target.id === 'rr-delete-account') return deleteReviveRelayAccount();
@@ -1601,6 +1682,26 @@
       }
       if (event.target?.id === 'rr-diagnostics-enabled') {
         GM_setValue(KEYS.clientDiagnosticsEnabled, Boolean(event.target.checked));
+      }
+      if (event.target?.id === 'rr-queue-payment-filter') {
+        state.queuePaymentFilter = ['all', 'cash', 'xanax'].includes(event.target.value) ? event.target.value : 'all';
+        renderReviverPanel();
+      }
+      if (event.target?.id === 'rr-queue-sort') {
+        state.queueSort = ['newest', 'oldest', 'offer-desc', 'offer-asc'].includes(event.target.value) ? event.target.value : 'newest';
+        renderReviverPanel();
+      }
+      if (event.target?.id === 'rr-queue-group') {
+        state.queueGroup = event.target.value === 'none' ? 'none' : 'payment';
+        renderReviverPanel();
+      }
+      if (event.target?.id === 'rr-queue-min-cash') {
+        state.queueMinCash = Math.max(0, Number(event.target.value) || 0);
+        renderReviverPanel();
+      }
+      if (event.target?.id === 'rr-queue-min-xanax') {
+        state.queueMinXanax = Math.max(0, Number(event.target.value) || 0);
+        renderReviverPanel();
       }
     });
 
@@ -1660,7 +1761,7 @@
       state.telemetry.drain().catch(() => {});
     }, TELEMETRY_DRAIN_MS);
     clockTimer = setInterval(() => {
-      if (!state.minimized && (state.activeTransaction || state.reviverQueue.length)) renderLiveState();
+      if (!state.minimized && state.activeTransaction) renderLiveState();
     }, 1000);
   }
 
