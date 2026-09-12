@@ -113,6 +113,7 @@
   let sidebarTimer = null;
   let telemetryTimer = null;
   let clockTimer = null;
+  let updateTimer = null;
   const pollFlights = new Map();
   const mutationFlights = new Set();
   const authoritativeStateRevisions = new Map();
@@ -136,7 +137,18 @@
   state.updateManager = UpdateManager.createUpdateManager({
     currentVersion: VERSION,
     channel: UPDATE_CHANNEL,
-    fetchManifest: () => state.api.getClientVersionManifest(),
+    fetchText: async url => {
+      const response = await requestTransport({
+        method: 'GET',
+        url,
+        headers: { Accept: 'text/plain' },
+        timeoutMs: 10_000
+      });
+      if (!response || response.status < 200 || response.status >= 300 || typeof response.responseText !== 'string') {
+        throw new Error('ReviveRelay update metadata unavailable');
+      }
+      return response.responseText;
+    },
     getState: () => GM_getValue(KEYS.updateState, {}),
     saveState: value => GM_setValue(KEYS.updateState, value),
     openUrl: url => window.open(url, '_blank', 'noopener,noreferrer')
@@ -1417,7 +1429,8 @@
         <div class="rr-kv"><span>Latest</span><strong id="rr-update-latest">${escapeHtml(updateResult?.latestVersion || 'Unknown')}</strong></div>
         <div class="rr-kv"><span>Checked</span><strong id="rr-update-checked">${escapeHtml(updateResult?.lastCheckedAt ? formatDate(updateResult.lastCheckedAt) : 'Not yet')}</strong></div>
         <div id="rr-update-banner">${updateResult?.updateAvailable ? `Update ${escapeHtml(updateResult.latestVersion)} available.` : ''}</div>
-        <div class="rr-actions"><button id="rr-update-check">Check updates</button></div>
+        <p class="rr-muted">ReviveRelay checks the Voidsmith distribution feed at most once every 12 hours while Torn is running. Your userscript manager also keeps its native auto-update path.</p>
+        <div class="rr-actions"><button id="rr-update-check">Check updates</button>${updateResult?.updateAvailable ? '<button id="rr-update-open">Install update</button>' : ''}</div>
       </div>
     </details>
     <details class="rr-settings-section">
@@ -1611,7 +1624,10 @@
 
   async function checkUpdates(force = false) {
     updateResult = await state.updateManager.check({ force });
-    if (force) renderSettingsDrawer();
+    if (updateResult?.updateAvailable && !updateResult.skipped) {
+      setStatus(`ReviveRelay ${updateResult.latestVersion} update available. Open Settings → Updates to install it.`);
+    }
+    if (force || state.settingsOpen) renderSettingsDrawer();
   }
 
   function openAvailableUpdate() {
@@ -1703,6 +1719,7 @@
       if (target.id === 'rr-disconnect') return clearSession();
       if (target.id === 'rr-delete-account') return deleteReviveRelayAccount();
       if (target.id === 'rr-update-check') return checkUpdates(true);
+      if (target.id === 'rr-update-open') return openAvailableUpdate();
       if (target.id === 'rr-minimize') {
         state.minimized = !state.minimized;
         GM_setValue(KEYS.minimized, state.minimized);
@@ -1811,6 +1828,9 @@
     clockTimer = setInterval(() => {
       if (!state.minimized && state.activeTransaction) renderLiveState();
     }, 1000);
+    updateTimer = setInterval(() => {
+      checkUpdates(false).catch(error => captureClientError(error, 'update.scheduled'));
+    }, UpdateManager.UPDATE_CHECK_MS);
   }
 
   async function init() {

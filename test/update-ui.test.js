@@ -16,3 +16,25 @@ test('userscript exposes channel-scoped update status UX and bundles updater dep
   assert.match(artifact,/const UPDATE_CHANNEL = 'review'/);
   assert.doesNotMatch(source,/eval\s*\(|new Function\s*\(/);
 });
+
+test('userscript checks the permanent dist metadata feed directly rather than using the API version manifest for update discovery', () => {
+  const source=fs.readFileSync('torn-revive-chat-collector.user.js','utf8');
+  assert.match(source,/fetchText:\s*async url\s*=>/);
+  assert.match(source,/requestTransport\(\{[\s\S]*?method:\s*'GET'[\s\S]*?url,[\s\S]*?Accept:\s*'text\/plain'/);
+  assert.match(source,/response\.responseText/);
+  assert.doesNotMatch(source,/fetchManifest:\s*\(\)\s*=>\s*state\.api\.getClientVersionManifest\(\)/);
+});
+
+test('userscript schedules a persisted 12-hour update check while Torn stays open', () => {
+  const source=fs.readFileSync('torn-revive-chat-collector.user.js','utf8');
+  assert.match(source,/let updateTimer = null;/);
+  assert.match(source,/updateTimer = setInterval\(\(\) => \{[\s\S]*?checkUpdates\(false\)[\s\S]*?\}, UpdateManager\.UPDATE_CHECK_MS\);/);
+  assert.match(source,/checkUpdates\(false\)\.catch\(error => captureClientError\(error, 'update\.initial'\)\)/);
+});
+
+test('detected updates expose an explicit install button and background notice', () => {
+  const source=fs.readFileSync('torn-revive-chat-collector.user.js','utf8');
+  assert.match(source,/id="rr-update-open"/);
+  assert.match(source,/target\.id === 'rr-update-open'\) return openAvailableUpdate\(\)/);
+  assert.match(source,/ReviveRelay .*update available\. Open Settings/);
+});
