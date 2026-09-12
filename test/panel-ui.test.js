@@ -62,10 +62,11 @@ test('panel remains responsive on narrow viewports and has no destructive close 
 });
 
 
-test('minimize state remains independent and persists across reloads', () => {
+test('minimize state remains independent, persists across reloads, and hides the entire floating panel', () => {
   assert.match(source, /minimized: Boolean\(GM_getValue\(KEYS\.minimized, false\)\)/);
   assert.match(source, /GM_setValue\(KEYS\.minimized, state\.minimized\)/);
-  assert.match(source, /body\.style\.display = state\.minimized/);
+  assert.match(source, /panel\.style\.display = state\.minimized/);
+  assert.doesNotMatch(source, /body\.style\.display = state\.minimized/);
 });
 
 test('request and reviver tabs expose direct certified cards without restoring the old request form', () => {

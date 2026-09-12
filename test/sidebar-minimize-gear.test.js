@@ -27,12 +27,12 @@ test('restorePanelFromMinimized exists and is a no-op when the panel is not mini
 
   const calls = { setValue: [], refresh: 0 };
   const state = { minimized: false };
-  const body = { style: { display: 'none' } };
+  const panel = { style: { display: 'none' } };
   const restorePanelFromMinimized = new Function(
-    'state', 'body', 'GM_setValue', 'KEYS', 'applyPanelPosition', 'refreshSidebarState',
+    'state', 'panel', 'GM_setValue', 'KEYS', 'applyPanelPosition', 'refreshSidebarState',
     `${fn}; return restorePanelFromMinimized;`
   )(
-    state, body,
+    state, panel,
     (key, value) => calls.setValue.push([key, value]),
     { minimized: 'reviverelay_panel_minimized' },
     () => {},
@@ -43,21 +43,21 @@ test('restorePanelFromMinimized exists and is a no-op when the panel is not mini
   assert.equal(state.minimized, false);
   assert.deepEqual(calls.setValue, []);
   assert.equal(calls.refresh, 0);
-  assert.equal(body.style.display, 'none', 'a panel that is not minimized must not be touched');
+  assert.equal(panel.style.display, 'none', 'a panel that is not minimized must not be touched');
 });
 
-test('restorePanelFromMinimized un-minimizes the panel, persists it, shows the body and reconciles the sidebar', () => {
+test('restorePanelFromMinimized un-minimizes the panel, persists it, shows the entire panel and reconciles the sidebar', () => {
   const fn = functionSlice('restorePanelFromMinimized', 'installSidebar');
   assert.ok(fn.length > 0);
 
   const calls = { setValue: [], refresh: 0, applyPosition: 0 };
   const state = { minimized: true, panelPosition: null };
-  const body = { style: { display: 'none' } };
+  const panel = { style: { display: 'none' } };
   const restorePanelFromMinimized = new Function(
-    'state', 'body', 'GM_setValue', 'KEYS', 'applyPanelPosition', 'refreshSidebarState',
+    'state', 'panel', 'GM_setValue', 'KEYS', 'applyPanelPosition', 'refreshSidebarState',
     `${fn}; return restorePanelFromMinimized;`
   )(
-    state, body,
+    state, panel,
     (key, value) => calls.setValue.push([key, value]),
     { minimized: 'reviverelay_panel_minimized' },
     () => { calls.applyPosition += 1; },
@@ -67,7 +67,7 @@ test('restorePanelFromMinimized un-minimizes the panel, persists it, shows the b
   restorePanelFromMinimized();
   assert.equal(state.minimized, false);
   assert.deepEqual(calls.setValue, [['reviverelay_panel_minimized', false]]);
-  assert.equal(body.style.display, '');
+  assert.equal(panel.style.display, '');
   assert.equal(calls.refresh, 1, 'the sidebar controller must reconcile so the gear disappears promptly');
 });
 

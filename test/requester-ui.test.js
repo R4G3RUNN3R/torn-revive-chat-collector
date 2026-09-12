@@ -91,12 +91,13 @@ test('Torn API key copy explains unified limited access and Tampermonkey handlin
 });
 
 
-test('opening Settings from the header gear restores a minimized panel before showing the drawer', () => {
+test('opening Settings from the header gear restores the entire minimized panel before showing the drawer', () => {
   const toggle = source.match(/function toggleSettingsDrawer\(\)\s*\{([\s\S]*?)\n\s*\}/)?.[1] || '';
   assert.ok(toggle.length > 0);
   assert.match(toggle, /state\.minimized/);
   assert.match(toggle, /GM_setValue\(KEYS\.minimized/);
-  assert.match(toggle, /body\.style\.display/);
+  assert.match(toggle, /panel\.style\.display/);
+  assert.doesNotMatch(toggle, /body\.style\.display/);
 });
 
 

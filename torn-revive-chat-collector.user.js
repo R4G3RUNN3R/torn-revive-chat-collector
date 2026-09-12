@@ -1523,7 +1523,7 @@
     if (state.minimized) {
       state.minimized = false;
       GM_setValue(KEYS.minimized, state.minimized);
-      if (body) body.style.display = '';
+      if (panel) panel.style.display = '';
       refreshSidebarState();
     }
     state.settingsOpen = true;
@@ -1537,7 +1537,7 @@
     if (opening && state.minimized) {
       state.minimized = false;
       GM_setValue(KEYS.minimized, state.minimized);
-      if (body) body.style.display = '';
+      if (panel) panel.style.display = '';
       refreshSidebarState();
     }
     state.settingsOpen = opening;
@@ -1552,7 +1552,7 @@
     if (state.minimized) {
       state.minimized = false;
       GM_setValue(KEYS.minimized, state.minimized);
-      if (body) body.style.display = state.minimized ? 'none' : '';
+      if (panel) panel.style.display = state.minimized ? 'none' : '';
       refreshSidebarState();
     }
     updateTabVisibility();
@@ -1686,7 +1686,7 @@
     document.body.appendChild(panel);
     body = panel.querySelector('#rr-body');
     connectionPill = panel.querySelector('#rr-connection-pill');
-    body.style.display = state.minimized ? 'none' : '';
+    panel.style.display = state.minimized ? 'none' : '';
     installPanelDrag(panel.querySelector('#rr-header'));
     applyPanelPosition(state.panelPosition);
 
@@ -1723,7 +1723,7 @@
       if (target.id === 'rr-minimize') {
         state.minimized = !state.minimized;
         GM_setValue(KEYS.minimized, state.minimized);
-        body.style.display = state.minimized ? 'none' : '';
+        panel.style.display = state.minimized ? 'none' : '';
         applyPanelPosition(state.panelPosition);
         refreshSidebarState();
       }
@@ -1779,7 +1779,7 @@
     if (!state.minimized) return;
     state.minimized = false;
     GM_setValue(KEYS.minimized, state.minimized);
-    if (body) body.style.display = '';
+    if (panel) panel.style.display = '';
     applyPanelPosition(state.panelPosition);
     refreshSidebarState();
   }
