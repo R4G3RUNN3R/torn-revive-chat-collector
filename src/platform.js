@@ -83,6 +83,7 @@
     }
 
     function migrateCacheToGm() {
+      if (initialized && backend === 'gm') return;
       backend = 'gm';
       for (const [key, value] of Object.entries(cache)) writeGm(key, value);
       writeGm(FALLBACK_DIRTY_KEY, true);
@@ -120,8 +121,11 @@
               const fallbackValue = readGm(key, sentinel);
               if (fallbackValue !== sentinel) recovery[key] = fallbackValue;
             }
-            await writeManyPda(recovery);
             Object.assign(cache, recovery);
+            await writeManyPda(recovery);
+            for (const key of Object.keys(recovery)) {
+              writeGm(key, Object.prototype.hasOwnProperty.call(legacyDefaults, key) ? legacyDefaults[key] : null);
+            }
             writeGm(FALLBACK_DIRTY_KEY, false);
             backend = 'pda';
             initialized = true;
@@ -175,6 +179,7 @@
         });
         return;
       }
+      if (runtime.isTornPda) cache[key] = value;
       writeGm(key, value);
     }
 

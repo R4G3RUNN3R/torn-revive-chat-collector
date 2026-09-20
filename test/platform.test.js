@@ -107,12 +107,14 @@ test('TornPDA restart reconciles newer dirty GM fallback state back into native 
     },
     gmGetValue:(key,fallback)=>Object.hasOwn(gm,key)?gm[key]:fallback,
     gmSetValue:(key,value)=>{gm[key]=value;},
-    keys:['token']
+    keys:['token'],
+    legacyDefaults:{token:''}
   });
   await storage.initialize();
   assert.equal(storage.mode(),'pda');
   assert.equal(storage.get('token',''),'fallback-new');
   assert.equal(native.token,'fallback-new');
+  assert.equal(gm.token,'');
   assert.equal(gm[Platform.FALLBACK_DIRTY_KEY],false);
 });
 
@@ -324,4 +326,63 @@ test('desktop navigation preserves new-tab behavior only for approved HTTPS host
   assert.equal(platform.openUrl('javascript:alert(1)'),false);
   assert.equal(opened.length,1);
   assert.equal(opened[0][1],'_blank');
+});
+
+
+test('failed dirty reconciliation keeps newer GM fallback state authoritative', async () => {
+  const gm={token:'fallback-new',[Platform.FALLBACK_DIRTY_KEY]:true};
+  const storage=Platform.createStorage({
+    runtime:{isTornPda:true},
+    pdaStorage:{
+      async loadAll(){return {token:'native-stale'};},
+      async setMany(){throw Object.assign(new Error('still unavailable'),{code:'QuotaExceeded'});},
+      async set(){}
+    },
+    gmGetValue:(key,fallback)=>Object.hasOwn(gm,key)?gm[key]:fallback,
+    gmSetValue:(key,value)=>{gm[key]=value;},
+    keys:['token'],
+    legacyDefaults:{token:''}
+  });
+  await storage.initialize();
+  assert.equal(storage.mode(),'gm');
+  assert.equal(storage.get('token',''),'fallback-new');
+  assert.equal(gm.token,'fallback-new');
+  assert.equal(gm[Platform.FALLBACK_DIRTY_KEY],true);
+});
+
+test('late native write failure cannot roll back a newer GM fallback write', async () => {
+  let rejectFirst;
+  let rejectSecond;
+  let writes=0;
+  const gm={};
+  const storage=Platform.createStorage({
+    runtime:{isTornPda:true},
+    pdaStorage:{
+      async loadAll(){return {token:'native-token',preset:'native-preset'};},
+      set(){
+        writes += 1;
+        return new Promise((resolve,reject)=>{
+          if(writes===1) rejectFirst=reject;
+          else rejectSecond=reject;
+        });
+      }
+    },
+    gmGetValue:(key,fallback)=>Object.hasOwn(gm,key)?gm[key]:fallback,
+    gmSetValue:(key,value)=>{gm[key]=value;},
+    keys:['token','preset']
+  });
+  await storage.initialize();
+  storage.set('token','token-a');
+  storage.set('preset','preset-b');
+  await new Promise(resolve=>setImmediate(resolve));
+  rejectFirst(new Error('first failed'));
+  await new Promise(resolve=>setTimeout(resolve,10));
+  assert.equal(storage.mode(),'gm');
+  storage.set('token','token-a-prime');
+  assert.equal(gm.token,'token-a-prime');
+  rejectSecond(new Error('second failed late'));
+  await new Promise(resolve=>setTimeout(resolve,10));
+  assert.equal(gm.token,'token-a-prime');
+  assert.equal(gm.preset,'preset-b');
+  assert.equal(gm[Platform.FALLBACK_DIRTY_KEY],true);
 });
