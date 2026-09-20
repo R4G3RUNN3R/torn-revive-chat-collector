@@ -86,7 +86,7 @@ test('reviver-capable binding resolves current Torn log category metadata', asyn
   assert.equal(metadataCalls, 1);
 });
 
-test('GET returns status only and DELETE revokes the authenticated user credential', async t => {
+test('GET returns status only and legacy DELETE plus PDA-safe POST revoke the authenticated user credential', async t => {
   const calls = [];
   const app = makeApp({
     credentialRepository: {
@@ -101,7 +101,9 @@ test('GET returns status only and DELETE revokes the authenticated user credenti
   const headers = { authorization:'Bearer token' };
   assert.equal((await app.inject({method:'GET',url:'/v1/verification-credential',headers})).statusCode,200);
   assert.equal((await app.inject({method:'DELETE',url:'/v1/verification-credential',headers})).statusCode,200);
-  assert.deepEqual(calls,[['get','user-1'],['revoke','user-1']]);
+  assert.equal((await app.inject({method:'POST',url:'/v1/verification-credential/revoke',headers})).statusCode,200);
+  assert.equal((await app.inject({method:'POST',url:'/v1/verification-credential/revoke'})).statusCode,401);
+  assert.deepEqual(calls,[['get','user-1'],['revoke','user-1'],['revoke','user-1']]);
 });
 
 test('insufficient credential is rejected before persistence', async t => {

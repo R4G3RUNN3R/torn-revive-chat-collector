@@ -35,6 +35,12 @@ test('runtime contract rejects invalid versions, channels, and missing subscript
     serverVersion:'0.6.1', minimumClientVersion:'0.6', releaseChannel:'review', subscription
   }), /minimum client version/i);
   assert.throws(() => createRuntimeContract({
+    serverVersion:'0.6.10', minimumClientVersion:'0.6.1', releaseChannel:'review', subscription
+  }), /server version/i);
+  assert.throws(() => createRuntimeContract({
+    serverVersion:'0.7.0', minimumClientVersion:'0.06.1', releaseChannel:'review', subscription
+  }), /minimum client version/i);
+  assert.throws(() => createRuntimeContract({
     serverVersion:'0.6.1', minimumClientVersion:'0.6.1', releaseChannel:'review', subscription:null
   }), /subscription/i);
 });

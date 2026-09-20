@@ -217,7 +217,7 @@
       cancelRequest(requestId) { return call('POST', `/v1/requests/${encodeURIComponent(String(requestId || ''))}/cancel`); },
       getVerificationCredential() { return call('GET', '/v1/verification-credential'); },
       bindVerificationCredential(apiKey) { return call('POST', '/v1/verification-credential', { apiKey: String(apiKey || '') }); },
-      revokeVerificationCredential() { return call('DELETE', '/v1/verification-credential'); },
+      revokeVerificationCredential() { return call('POST', '/v1/verification-credential/revoke'); },
       getReviverEligibility() { return call('GET', '/v1/reviver/eligibility'); },
       registerReviver() { return call('POST', '/v1/reviver/register'); },
       getReviverQueue() { return call('GET', '/v1/reviver/queue'); },

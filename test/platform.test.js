@@ -2,15 +2,33 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const Platform = require('../src/platform');
 
-test('detectRuntime identifies TornPDA from native storage or PDA HTTP bridge', () => {
+function pdaGlobals(overrides = {}) {
+  const {PDA_storage:storageOverrides,...rest}=overrides;
+  return {
+    flutter_inappwebview:{callHandler(){}},
+    PDA_storage:{
+      async loadAll(){ return {}; },
+      async set(){},
+      ...storageOverrides
+    },
+    async PDA_httpGet(){ return {status:200,responseText:'{}'}; },
+    async PDA_httpPost(){ return {status:200,responseText:'{}'}; },
+    ...rest
+  };
+}
+
+test('detectRuntime requires both durable PDA storage and core PDA HTTP handlers', () => {
   assert.equal(Platform.detectRuntime({}).isTornPda,false);
-  assert.equal(Platform.detectRuntime({PDA_storage:{loadAll(){}}}).isTornPda,true);
-  assert.equal(Platform.detectRuntime({PDA_httpGet(){}}).isTornPda,true);
+  assert.equal(Platform.detectRuntime({PDA_storage:{loadAll(){},set(){}}}).isTornPda,false);
+  assert.equal(Platform.detectRuntime({PDA_httpGet(){},PDA_httpPost(){}}).isTornPda,false);
+  assert.equal(Platform.detectRuntime({...pdaGlobals(),flutter_inappwebview:null}).isTornPda,false);
+  assert.equal(Platform.detectRuntime(pdaGlobals()).isTornPda,true);
 });
 
-test('TornPDA storage loads durable state and migrates missing GM values once', async () => {
+test('TornPDA storage loads durable state, migrates missing GM values, and clears migrated legacy copies', async () => {
   const durable={existing:'durable'};
   const migrated={};
+  const gmWrites=[];
   const storage=Platform.createStorage({
     runtime:{isTornPda:true},
     pdaStorage:{
@@ -19,54 +37,139 @@ test('TornPDA storage loads durable state and migrates missing GM values once', 
       async set(key,value){durable[key]=value;}
     },
     gmGetValue:(key,fallback)=>key==='legacy'?'from-gm':fallback,
-    gmSetValue:()=>{},
-    keys:['existing','legacy']
+    gmSetValue:(key,value)=>gmWrites.push([key,value]),
+    keys:['existing','legacy'],
+    legacyDefaults:{legacy:null}
   });
   await storage.initialize();
+  assert.equal(storage.mode(),'pda');
   assert.equal(storage.get('existing','x'),'durable');
   assert.equal(storage.get('legacy','x'),'from-gm');
   assert.deepEqual(migrated,{legacy:'from-gm'});
+  assert.deepEqual(gmWrites,[['legacy',null]]);
 });
 
-test('TornPDA storage writes update synchronous cache and durable adapter', async () => {
-  const writes=[];
+test('TornPDA storage falls back to GM storage if native initialization fails', async () => {
+  const gm = {token:'legacy-token'};
+  const errors=[];
   const storage=Platform.createStorage({
     runtime:{isTornPda:true},
-    pdaStorage:{async loadAll(){return {};},async set(key,value){writes.push([key,value]);}},
-    keys:[]
+    pdaStorage:{
+      async loadAll(){throw new Error('storage unavailable');},
+      async set(){throw new Error('must not write');}
+    },
+    gmGetValue:(key,fallback)=>Object.hasOwn(gm,key)?gm[key]:fallback,
+    gmSetValue:(key,value)=>{gm[key]=value;},
+    keys:['token'],
+    onError:(error,context)=>errors.push([context,error.message])
   });
   await storage.initialize();
-  storage.set('panel',{x:1});
-  assert.deepEqual(storage.get('panel',null),{x:1});
-  await new Promise(resolve=>setImmediate(resolve));
-  assert.deepEqual(writes,[['panel',{x:1}]]);
+  assert.equal(storage.mode(),'gm');
+  assert.equal(storage.get('token',''),'legacy-token');
+  storage.set('token','new-token');
+  assert.equal(gm.token,'new-token');
+  assert.equal(errors[0][0],'storage.pda.initialize');
 });
 
-test('TornPDA request adapter serializes POST bodies and keeps bodyless DELETE supported', async () => {
+
+
+test('TornPDA migration write failure preserves loaded durable state when degrading to GM', async () => {
+  const gm={token:'stale-token',legacy:'legacy-value'};
+  const storage=Platform.createStorage({
+    runtime:{isTornPda:true},
+    pdaStorage:{
+      async loadAll(){return {token:'durable-token'};},
+      async setMany(){throw Object.assign(new Error('full'),{code:'QuotaExceeded'});},
+      async set(){}
+    },
+    gmGetValue:(key,fallback)=>Object.hasOwn(gm,key)?gm[key]:fallback,
+    gmSetValue:(key,value)=>{gm[key]=value;},
+    keys:['token','legacy'],
+    legacyDefaults:{legacy:null}
+  });
+  await storage.initialize();
+  assert.equal(storage.mode(),'gm');
+  assert.equal(storage.get('token',''),'durable-token');
+  assert.equal(gm.token,'durable-token');
+  assert.equal(gm.legacy,'legacy-value');
+});
+
+test('TornPDA storage write failure degrades to GM and preserves cached state', async () => {
+  const gm={};
+  let fail=false;
+  const storage=Platform.createStorage({
+    runtime:{isTornPda:true},
+    pdaStorage:{
+      async loadAll(){return {token:'durable-token'};},
+      async set(key,value){if(fail) throw new Error('quota');}
+    },
+    gmGetValue:(key,fallback)=>Object.hasOwn(gm,key)?gm[key]:fallback,
+    gmSetValue:(key,value)=>{gm[key]=value;},
+    keys:['token']
+  });
+  await storage.initialize();
+  assert.equal(storage.mode(),'pda');
+  fail=true;
+  storage.set('token','new-token');
+  await new Promise(resolve=>setTimeout(resolve,10));
+  assert.equal(storage.mode(),'gm');
+  assert.equal(gm.token,'new-token');
+  assert.equal(storage.get('token',''),'new-token');
+});
+
+test('TornPDA request adapter serializes explicit and bodyless POSTs and keeps bodyless DELETE supported', async () => {
   const calls=[];
-  const globalObject={
+  const globalObject=pdaGlobals({
     async PDA_httpPost(url,headers,body){calls.push(['POST',url,headers,body]);return {status:200,responseText:'{"ok":true}'};},
     async PDA_httpDelete(url,headers){calls.push(['DELETE',url,headers]);return {status:204,responseText:''};}
-  };
+  });
   const request=Platform.createRequestAdapter({runtime:{isTornPda:true},globalObject});
   const post=await request({method:'POST',url:'https://example.test/v1/x',headers:{Accept:'application/json'},body:{a:1}});
   assert.equal(post.status,200);
   assert.deepEqual(post.body,{ok:true});
   assert.equal(calls[0][3],'{"a":1}');
   assert.equal(calls[0][2]['Content-Type'],'application/json');
+
+  await request({method:'POST',url:'https://example.test/v1/empty',headers:{}});
+  assert.equal(calls[1][3],'{}');
+  assert.equal(calls[1][2]['Content-Type'],'application/json');
+
   const del=await request({method:'DELETE',url:'https://example.test/v1/key',headers:{}});
   assert.equal(del.status,204);
 });
 
 test('TornPDA request adapter rejects DELETE bodies rather than silently dropping confirmation', async () => {
-  const request=Platform.createRequestAdapter({
-    runtime:{isTornPda:true},
-    globalObject:{async PDA_httpDelete(){throw new Error('must not be called');}}
-  });
+  const globalObject=pdaGlobals({async PDA_httpDelete(){throw new Error('must not be called');}});
+  const request=Platform.createRequestAdapter({runtime:{isTornPda:true},globalObject});
   await assert.rejects(
     ()=>request({method:'DELETE',url:'https://example.test/v1/account',body:{confirm:'DELETE'}}),
     error=>error && error.code==='TORNPDA_DELETE_BODY_UNSUPPORTED'
   );
+});
+
+test('TornPDA request adapter bounds hung native requests', async () => {
+  const globalObject=pdaGlobals({PDA_httpGet:()=>new Promise(()=>{})});
+  const request=Platform.createRequestAdapter({runtime:{isTornPda:true},globalObject});
+  await assert.rejects(
+    ()=>request({method:'GET',url:'https://example.test/v1/hang',timeoutMs:5}),
+    error=>error && error.code==='NETWORK_ERROR' && error.retryable===true
+  );
+});
+
+test('TornPDA request adapter falls back to GM transport when an optional native method is unavailable', async () => {
+  let gmMethod=null;
+  const globalObject=pdaGlobals();
+  const request=Platform.createRequestAdapter({
+    runtime:{isTornPda:true},
+    globalObject,
+    gmXmlHttpRequest:options=>{
+      gmMethod=options.method;
+      options.onload({status:200,responseText:'{"ok":true}'});
+    }
+  });
+  const response=await request({method:'PATCH',url:'https://example.test/v1/x',body:{a:1}});
+  assert.equal(gmMethod,'PATCH');
+  assert.deepEqual(response.body,{ok:true});
 });
 
 test('desktop request adapter preserves GM transport JSON behavior', async () => {
@@ -101,4 +204,36 @@ test('resume hooks coalesce TornPDA focus/pageshow/visibility events', async () 
   await new Promise(resolve=>setTimeout(resolve,150));
   assert.equal(calls,1);
   cleanup();
+});
+
+test('PDA notifier stacks multiple notifications instead of overlapping fixed toasts', () => {
+  const byId=new Map();
+  function node(tag) {
+    return {
+      tagName:String(tag).toUpperCase(),
+      id:'',
+      className:'',
+      children:[],
+      setAttribute(){},
+      append(...children){
+        this.children.push(...children);
+        for(const child of children){if(child.id) byId.set(child.id,child);}
+      },
+      appendChild(child){this.append(child);},
+      addEventListener(){},
+      remove(){},
+      textContent:''
+    };
+  }
+  const document={
+    body:node('body'),
+    createElement:node,
+    getElementById:id=>byId.get(id)||null
+  };
+  const notify=Platform.createNotifier({runtime:{isTornPda:true},document});
+  assert.equal(notify({title:'One',text:'First',timeout:3000}),true);
+  assert.equal(notify({title:'Two',text:'Second',timeout:3000}),true);
+  const stack=document.body.children[0];
+  assert.equal(stack.id,'rr-pda-toast-stack');
+  assert.equal(stack.children.length,2);
 });

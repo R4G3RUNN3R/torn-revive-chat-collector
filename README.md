@@ -86,13 +86,17 @@ The review package explicitly asks Torn staff to confirm whether ReviveRelay's *
 
 ## Source and release structure
 
-The tracked `torn-revive-chat-collector.user.js` file is the current userscript source template despite its historical filename. The current 0.6.3 review client is direct-only. Historical chat-related modules remain in the repository for regression/history purposes but are excluded from the generated review bundle.
+The tracked `torn-revive-chat-collector.user.js` file is the current userscript source template despite its historical filename. The current 0.7.0 review client is direct-only and supports both desktop userscript managers and TornPDA through one shared runtime adapter. Historical chat-related modules remain in the repository for regression/history purposes but are excluded from the generated review bundle.
 
 Installable review artifact:
 
-`dist/review/ReviveRelay-0.6.3.user.js`
+`dist/review/ReviveRelay-0.7.0.user.js`
 
-Review builds update only within the review channel. Stable builds update only within the stable channel. Released artifacts are immutable and carry semantic version, Git commit, build timestamp and channel-specific update/download URLs.
+### Updates
+
+ReviveRelay preserves native userscript update semantics instead of executing downloaded code itself. Each build carries `@version`, `@updateURL` and `@downloadURL` for its own release channel. The in-client update manager validates the expected channel, version and exact distribution URLs, checks automatically on startup and on a persisted 12-hour cadence, and opens the validated install URL when the user chooses to update. Review builds update only within the review channel; Stable builds update only within the stable channel.
+
+TornPDA 3.16+ can install remote `.user.js` scripts and update installed scripts from its script manager, including its bulk update action. ReviveRelay does not use remote `eval`, self-modifying JavaScript or TornPDA's global API key as part of updates. Released artifacts remain immutable and carry version, Git commit, build timestamp and channel-specific update/download URLs.
 
 ## Development and verification
 

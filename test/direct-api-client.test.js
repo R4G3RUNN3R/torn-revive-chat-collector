@@ -105,7 +105,7 @@ test('direct API client maps the marketplace routes and carries the bound sessio
     ['POST', '/v1/telemetry/errors'],
     ['GET', '/v1/verification-credential'],
     ['POST', '/v1/verification-credential'],
-    ['DELETE', '/v1/verification-credential'],
+    ['POST', '/v1/verification-credential/revoke'],
     ['GET', '/v1/reviver/eligibility'],
     ['POST', '/v1/reviver/register'],
     ['GET', '/v1/reviver/queue'],

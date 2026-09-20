@@ -7,18 +7,22 @@
 - Shared browser runtime adapter so one ReviveRelay client supports desktop userscript managers and TornPDA without forking product logic.
 - TornPDA runtime detection, native PDA_storage persistence, legacy GM-storage migration, PDA HTTP transport, in-app notification toasts and mobile resume reconciliation.
 - TornPDA-specific responsive presentation with safe-area handling and touch-sized controls.
-- Regression tests for native TornPDA storage, HTTP behavior, bodyless DELETE handling, resume-event coalescing and desktop fallback behavior.
+- Regression tests for native TornPDA storage, HTTP behavior, bounded native-request timeouts, bodyless DELETE handling, bodyless JSON POSTs, resume-event coalescing, notification stacking and desktop fallback behavior.
 
 ### Changed
 
 - ReviveRelay persistent client state now flows through the platform storage adapter rather than direct GM calls.
 - Account deletion uses authenticated POST /v1/account/delete with the same exact confirmation payload; the legacy DELETE /v1/account route remains for backwards compatibility.
-- ReviveRelay advances from 0.6.9 to 0.7.0 under the Voidsmith company-wide single-digit version-component policy. Numeric components above 9 are rejected by client version parsing.
+- Verification-key revocation uses PDA-safe POST /v1/verification-credential/revoke while retaining the legacy DELETE route for backwards compatibility.
+- ReviveRelay preserves native userscript update metadata plus validated automatic startup/12-hour update checks; applying an update remains a userscript-manager/TornPDA installer action rather than remote self-modifying code.
+- ReviveRelay advances from 0.6.9 to 0.7.0 under the Voidsmith company-wide single-digit version-component policy. Numeric components above 9 are rejected by both client and server version parsing/runtime contracts.
 
 ### Security
 
 - TornPDA does not automatically consume or persist TornPDA's global Torn API key. Existing explicit ReviveRelay key onboarding and server-side authority remain unchanged.
 - TornPDA DELETE requests carrying a body fail explicitly in the platform adapter rather than silently dropping confirmation data.
+- Native TornPDA HTTP calls are bounded by timeouts so a suspended or orphaned WebView request cannot permanently pin single-flight polling or resume reconciliation.
+- TornPDA native-storage initialization/write failures degrade to GM-compatible persistence while preserving the freshest loaded values; successfully migrated legacy values are neutralized to prevent stale-state resurrection.
 - Account deletion continues to require the exact server-validated confirmation string and authenticated ReviveRelay session.
 - No Torn API, entitlement, billing or transaction authority moved into the browser client.
 

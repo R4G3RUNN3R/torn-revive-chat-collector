@@ -1,6 +1,6 @@
 const HTTPS_URL=/^https:\/\//i;
 const CHANNELS=Object.freeze(['review','stable']);
-function parseClientVersion(value){const match=String(value??'').trim().match(/^(\d+)\.(\d+)\.(\d+)$/);if(!match)throw new Error('Invalid ReviveRelay version');return match.slice(1).map(Number);}
+function parseClientVersion(value){const match=String(value??'').trim().match(/^([0-9])\.([0-9])\.([0-9])$/);if(!match)throw new Error('Invalid ReviveRelay version: each numeric component must be 0-9');return match.slice(1).map(Number);}
 function compareClientVersions(a,b){const left=parseClientVersion(a),right=parseClientVersion(b);for(let i=0;i<3;i+=1){if(left[i]>right[i])return 1;if(left[i]<right[i])return -1;}return 0;}
 function meetsMinimum(current,minimum){return compareClientVersions(current,minimum)>=0;}
 function assertExactKeys(value,expected,label){if(!value||typeof value!=='object'||Array.isArray(value))throw new Error(`Invalid release manifest ${label}`);const actual=Object.keys(value).sort(),wanted=[...expected].sort();if(actual.length!==wanted.length||actual.some((key,i)=>key!==wanted[i]))throw new Error(`Invalid release manifest ${label}`);}

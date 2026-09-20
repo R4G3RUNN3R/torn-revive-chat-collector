@@ -7,21 +7,63 @@
 
   const RUNTIME_TORNPDA = 'tornpda';
   const RUNTIME_USERSCRIPT = 'userscript';
+  const DEFAULT_TIMEOUT_MS = 15000;
+  const STORAGE_INIT_TIMEOUT_MS = 3000;
+  const STORAGE_WRITE_TIMEOUT_MS = 3000;
+
+  function timeoutError(code) {
+    return Object.assign(new Error(code), { code, retryable: true });
+  }
+
+  function withTimeout(promise, timeoutMs, code) {
+    const ms = Math.max(1, Number(timeoutMs) || DEFAULT_TIMEOUT_MS);
+    let timer = null;
+    return Promise.race([
+      Promise.resolve(promise),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(timeoutError(code)), ms);
+      })
+    ]).finally(() => clearTimeout(timer));
+  }
 
   function detectRuntime(globalObject = globalThis) {
-    const hasPdaStorage = Boolean(globalObject && globalObject.PDA_storage && typeof globalObject.PDA_storage.loadAll === 'function');
-    const hasPdaHttp = Boolean(globalObject && (typeof globalObject.PDA_httpGet === 'function' || globalObject.window?.flutter_inappwebview));
+    const pdaStorage = globalObject && globalObject.PDA_storage;
+    const hasPdaStorage = Boolean(
+      pdaStorage
+      && typeof pdaStorage.loadAll === 'function'
+      && typeof pdaStorage.set === 'function'
+    );
+    const hasPdaHttp = Boolean(
+      globalObject
+      && typeof globalObject.PDA_httpGet === 'function'
+      && typeof globalObject.PDA_httpPost === 'function'
+    );
+    const hasFlutterBridge = Boolean(
+      globalObject
+      && (globalObject.flutter_inappwebview || globalObject.window?.flutter_inappwebview)
+    );
+    const isTornPda = hasPdaStorage && hasPdaHttp && hasFlutterBridge;
     return Object.freeze({
-      kind: hasPdaStorage || hasPdaHttp ? RUNTIME_TORNPDA : RUNTIME_USERSCRIPT,
-      isTornPda: hasPdaStorage || hasPdaHttp,
+      kind: isTornPda ? RUNTIME_TORNPDA : RUNTIME_USERSCRIPT,
+      isTornPda,
       hasPdaStorage,
-      hasPdaHttp
+      hasPdaHttp,
+      hasFlutterBridge
     });
   }
 
-  function createStorage({ runtime, pdaStorage, gmGetValue, gmSetValue, keys = [], onError = () => {} }) {
+  function createStorage({
+    runtime,
+    pdaStorage,
+    gmGetValue,
+    gmSetValue,
+    keys = [],
+    legacyDefaults = {},
+    onError = () => {}
+  }) {
     const cache = Object.create(null);
     let initialized = false;
+    let backend = 'gm';
 
     function readGm(key, fallback) {
       if (typeof gmGetValue !== 'function') return fallback;
@@ -34,11 +76,39 @@
       }
     }
 
+    function writeGm(key, value) {
+      if (typeof gmSetValue !== 'function') return;
+      try { gmSetValue(key, value); } catch (error) { onError(error, 'storage.gm.write'); }
+    }
+
+    function migrateCacheToGm() {
+      backend = 'gm';
+      for (const [key, value] of Object.entries(cache)) writeGm(key, value);
+    }
+
+    async function writeManyPda(values) {
+      const entries = Object.entries(values);
+      if (!entries.length) return;
+      if (typeof pdaStorage.setMany === 'function') {
+        await withTimeout(pdaStorage.setMany(values), STORAGE_WRITE_TIMEOUT_MS, 'TORNPDA_STORAGE_TIMEOUT');
+        return;
+      }
+      await withTimeout(
+        Promise.all(entries.map(([key, value]) => pdaStorage.set(key, value))),
+        STORAGE_WRITE_TIMEOUT_MS,
+        'TORNPDA_STORAGE_TIMEOUT'
+      );
+    }
+
     async function initialize() {
       if (initialized) return;
-      if (runtime.isTornPda && pdaStorage && typeof pdaStorage.loadAll === 'function') {
+      if (runtime.isTornPda && pdaStorage && typeof pdaStorage.loadAll === 'function' && typeof pdaStorage.set === 'function') {
         try {
-          const stored = await pdaStorage.loadAll();
+          const stored = await withTimeout(
+            pdaStorage.loadAll(),
+            STORAGE_INIT_TIMEOUT_MS,
+            'TORNPDA_STORAGE_TIMEOUT'
+          );
           if (stored && typeof stored === 'object' && !Array.isArray(stored)) Object.assign(cache, stored);
           const migrate = {};
           for (const key of keys) {
@@ -50,80 +120,68 @@
               migrate[key] = legacy;
             }
           }
-          if (Object.keys(migrate).length && typeof pdaStorage.setMany === 'function') await pdaStorage.setMany(migrate);
+          await writeManyPda(migrate);
+          for (const key of Object.keys(migrate)) {
+            writeGm(key, Object.prototype.hasOwnProperty.call(legacyDefaults, key) ? legacyDefaults[key] : null);
+          }
+          backend = 'pda';
         } catch (error) {
           onError(error, 'storage.pda.initialize');
-          for (const key of keys) cache[key] = readGm(key, undefined);
+          if (Object.keys(cache).length) migrateCacheToGm();
+          else backend = 'gm';
         }
       }
       initialized = true;
     }
 
     function get(key, fallback) {
-      if (runtime.isTornPda && initialized && Object.prototype.hasOwnProperty.call(cache, key)) {
+      if (backend === 'pda') {
+        if (!Object.prototype.hasOwnProperty.call(cache, key)) return fallback;
         const value = cache[key];
         return value === undefined ? fallback : value;
       }
-      if (runtime.isTornPda && initialized) return fallback;
       return readGm(key, fallback);
     }
 
     function set(key, value) {
-      if (runtime.isTornPda && initialized) {
+      if (backend === 'pda') {
         cache[key] = value;
-        if (pdaStorage && typeof pdaStorage.set === 'function') {
-          Promise.resolve(pdaStorage.set(key, value)).catch(error => onError(error, 'storage.pda.write'));
-        }
+        withTimeout(
+          pdaStorage.set(key, value),
+          STORAGE_WRITE_TIMEOUT_MS,
+          'TORNPDA_STORAGE_TIMEOUT'
+        ).catch(error => {
+          onError(error, 'storage.pda.write');
+          migrateCacheToGm();
+        });
         return;
       }
-      if (typeof gmSetValue === 'function') {
-        try { gmSetValue(key, value); } catch (error) { onError(error, 'storage.gm.write'); }
-      }
+      writeGm(key, value);
     }
 
-    return Object.freeze({ initialize, get, set, runtime });
+    return Object.freeze({
+      initialize,
+      get,
+      set,
+      mode: () => backend,
+      runtime
+    });
   }
 
   function normalizeResponse(response) {
     const status = Number(response && response.status) || 0;
     const responseText = response && typeof response.responseText === 'string' ? response.responseText : '';
     let body = {};
-    if (responseText) {
+    if (response && response.body && typeof response.body === 'object') {
+      body = response.body;
+    } else if (responseText) {
       try { body = JSON.parse(responseText); } catch (_) { body = {}; }
     }
     return { status, responseText, body };
   }
 
-  function createRequestAdapter({ runtime, globalObject = globalThis, gmXmlHttpRequest }) {
-    const methodMap = Object.freeze({
-      GET: 'PDA_httpGet',
-      POST: 'PDA_httpPost',
-      PUT: 'PDA_httpPut',
-      DELETE: 'PDA_httpDelete',
-      PATCH: 'PDA_httpPatch'
-    });
-
-    if (runtime.isTornPda) {
-      return async function pdaRequest(input) {
-        const method = String(input.method || 'GET').toUpperCase();
-        const fnName = methodMap[method];
-        const fn = fnName && globalObject && globalObject[fnName];
-        if (typeof fn !== 'function') throw Object.assign(new Error('TORNPDA_HTTP_UNAVAILABLE'), { code: 'TORNPDA_HTTP_UNAVAILABLE' });
-        const headers = { ...(input.headers || {}) };
-        const hasBody = input.body !== undefined;
-        if (hasBody && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
-        if (method === 'DELETE' && hasBody) {
-          throw Object.assign(new Error('TORNPDA_DELETE_BODY_UNSUPPORTED'), { code: 'TORNPDA_DELETE_BODY_UNSUPPORTED' });
-        }
-        const body = hasBody ? JSON.stringify(input.body) : undefined;
-        const response = (method === 'GET' || method === 'DELETE')
-          ? await fn(input.url, headers)
-          : await fn(input.url, headers, body);
-        return normalizeResponse(response);
-      };
-    }
-
-    if (typeof gmXmlHttpRequest !== 'function') throw new Error('GM_xmlhttpRequest is required');
+  function createGmRequest(gmXmlHttpRequest) {
+    if (typeof gmXmlHttpRequest !== 'function') return null;
     return function gmRequest(input) {
       return new Promise((resolve, reject) => {
         const headers = { ...(input.headers || {}) };
@@ -137,18 +195,86 @@
           url: input.url,
           headers,
           data,
-          timeout: Number(input.timeoutMs) || 15000,
+          timeout: Number(input.timeoutMs) || DEFAULT_TIMEOUT_MS,
           onload: response => resolve(normalizeResponse(response)),
-          onerror: () => reject(Object.assign(new Error('NETWORK_ERROR'), { code: 'NETWORK_ERROR', retryable: true })),
-          ontimeout: () => reject(Object.assign(new Error('NETWORK_ERROR'), { code: 'NETWORK_ERROR', retryable: true }))
+          onerror: () => reject(timeoutError('NETWORK_ERROR')),
+          ontimeout: () => reject(timeoutError('NETWORK_ERROR'))
         });
       });
+    };
+  }
+
+  function createRequestAdapter({ runtime, globalObject = globalThis, gmXmlHttpRequest }) {
+    const gmRequest = createGmRequest(gmXmlHttpRequest);
+    const methodMap = Object.freeze({
+      GET: 'PDA_httpGet',
+      POST: 'PDA_httpPost',
+      PUT: 'PDA_httpPut',
+      DELETE: 'PDA_httpDelete',
+      PATCH: 'PDA_httpPatch'
+    });
+
+    if (!runtime.isTornPda) {
+      if (!gmRequest) throw new Error('GM_xmlhttpRequest is required');
+      return gmRequest;
+    }
+
+    return async function pdaRequest(input) {
+      const method = String(input.method || 'GET').toUpperCase();
+      if (method === 'DELETE' && input.body !== undefined) {
+        throw Object.assign(new Error('TORNPDA_DELETE_BODY_UNSUPPORTED'), {
+          code: 'TORNPDA_DELETE_BODY_UNSUPPORTED',
+          retryable: false
+        });
+      }
+
+      const fnName = methodMap[method];
+      const fn = fnName && globalObject && globalObject[fnName];
+      if (typeof fn !== 'function') {
+        if (gmRequest) return gmRequest(input);
+        throw Object.assign(new Error('TORNPDA_HTTP_UNAVAILABLE'), {
+          code: 'TORNPDA_HTTP_UNAVAILABLE',
+          retryable: true
+        });
+      }
+
+      const headers = { ...(input.headers || {}) };
+      const hasBodyMethod = method === 'POST' || method === 'PUT' || method === 'PATCH';
+      let body;
+      if (hasBodyMethod) {
+        if (!headers['Content-Type']) headers['Content-Type'] = 'application/json';
+        body = input.body === undefined ? '{}' : JSON.stringify(input.body);
+      }
+
+      let nativePromise;
+      if (method === 'GET' || method === 'DELETE') nativePromise = fn(input.url, headers);
+      else nativePromise = fn(input.url, headers, body);
+
+      try {
+        const response = await withTimeout(
+          nativePromise,
+          Number(input.timeoutMs) || DEFAULT_TIMEOUT_MS,
+          'NETWORK_ERROR'
+        );
+        return normalizeResponse(response);
+      } catch (error) {
+        if (error && error.code) throw error;
+        throw timeoutError('NETWORK_ERROR');
+      }
     };
   }
 
   function createNotifier({ runtime, document, gmNotification, onError = () => {} }) {
     function showPdaToast({ title, text, timeout = 12000, onclick }) {
       if (!document || !document.body) return false;
+      let stack = document.getElementById('rr-pda-toast-stack');
+      if (!stack) {
+        stack = document.createElement('div');
+        stack.id = 'rr-pda-toast-stack';
+        stack.className = 'rr-pda-toast-stack';
+        stack.setAttribute('aria-live', 'polite');
+        document.body.appendChild(stack);
+      }
       const toast = document.createElement('button');
       toast.type = 'button';
       toast.className = 'rr-pda-toast';
@@ -161,7 +287,7 @@
       toast.addEventListener('click', () => {
         try { if (typeof onclick === 'function') onclick(); } finally { toast.remove(); }
       });
-      document.body.appendChild(toast);
+      stack.appendChild(toast);
       setTimeout(() => toast.remove(), Math.max(3000, Number(timeout) || 12000));
       return true;
     }
@@ -181,7 +307,9 @@
       clearTimeout(timer);
       timer = setTimeout(() => callback(), 100);
     };
-    const onVisibility = () => { if (!document || document.visibilityState === 'visible') schedule(); };
+    const onVisibility = () => {
+      if (!document || document.visibilityState === 'visible') schedule();
+    };
     window?.addEventListener?.('focus', schedule);
     window?.addEventListener?.('pageshow', schedule);
     document?.addEventListener?.('visibilitychange', onVisibility);
@@ -199,6 +327,7 @@
     document = globalThis.document,
     gm = {},
     storageKeys = [],
+    legacyDefaults = {},
     onError = () => {}
   } = {}) {
     const runtime = detectRuntime(globalObject);
@@ -208,10 +337,20 @@
       gmGetValue: gm.getValue,
       gmSetValue: gm.setValue,
       keys: storageKeys,
+      legacyDefaults,
       onError
     });
-    const request = createRequestAdapter({ runtime, globalObject, gmXmlHttpRequest: gm.xmlHttpRequest });
-    const notify = createNotifier({ runtime, document, gmNotification: gm.notification, onError });
+    const request = createRequestAdapter({
+      runtime,
+      globalObject,
+      gmXmlHttpRequest: gm.xmlHttpRequest
+    });
+    const notify = createNotifier({
+      runtime,
+      document,
+      gmNotification: gm.notification,
+      onError
+    });
 
     function addStyle(css) {
       if (typeof gm.addStyle === 'function') return gm.addStyle(css);
@@ -242,6 +381,10 @@
   return Object.freeze({
     RUNTIME_TORNPDA,
     RUNTIME_USERSCRIPT,
+    DEFAULT_TIMEOUT_MS,
+    STORAGE_INIT_TIMEOUT_MS,
+    STORAGE_WRITE_TIMEOUT_MS,
+    withTimeout,
     detectRuntime,
     createStorage,
     createRequestAdapter,

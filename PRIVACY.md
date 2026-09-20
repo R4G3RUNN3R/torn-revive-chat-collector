@@ -1,12 +1,14 @@
 # ReviveRelay Privacy
 
-This document describes the implemented ReviveRelay 0.6.1 review candidate. Public production remains 0.4.4.
+This document describes the implemented ReviveRelay 0.7.0 review candidate. Public production remains unchanged until an explicit verified promotion.
 
 ## Data Storage
 
 ReviveRelay stores only service data needed to operate direct certified revive requests, reviver eligibility, transaction evidence, subscriptions, security controls and supportable audit history. This can include Torn user ID and current display name, ReviveRelay sessions, request/transaction state, reviver registration, subscription/invoice records, payment/refund evidence references and audit events.
 
 ReviveRelay uses one Torn API key per account. The same Torn API key submitted to `/v1/auth/bind` to resolve identity is also submitted to `/v1/verification-credential` to establish the persistent ReviveRelay Verification credential used for later evidence checks; no second key is requested. That credential is encrypted at rest with AES-GCM using server-side key material held outside PostgreSQL. Plaintext Torn API keys are not returned to the userscript after binding.
+
+On TornPDA 3.15+, ReviveRelay prefers TornPDA's per-script `PDA_storage` for client-side session/UI preferences because it survives browser-cache clearing and is isolated by script namespace. If native storage is unavailable or a write fails, ReviveRelay degrades to the existing GM-compatible storage path rather than silently becoming memory-only. ReviveRelay does not automatically consume TornPDA's global Torn API key.
 
 ## Data Sharing
 
@@ -25,7 +27,7 @@ Stored information is used to:
 - operate the 7-day Reviver Pro trial and prepaid subscription entitlement;
 - protect the service from abuse and retain a bounded audit trail.
 
-ReviveRelay 0.6.1 does **not scrape public chat** and performs no public chat collection.
+ReviveRelay 0.7.0 does **not scrape public chat** and performs no public chat collection.
 
 ## Diagnostics
 
@@ -57,4 +59,4 @@ Where the review/live subscription mode is enabled, subscription payment is made
 
 ## Contact / review status
 
-ReviveRelay 0.6.1 is a private review candidate. Paid public launch is awaiting Torn approval and explicit owner promotion. The review package intentionally does not claim that manual browser acceptance or Torn approval has already occurred.
+ReviveRelay 0.7.0 is a private review candidate. Paid public launch is awaiting Torn approval and explicit owner promotion. The review package intentionally does not claim that manual browser acceptance or Torn approval has already occurred.

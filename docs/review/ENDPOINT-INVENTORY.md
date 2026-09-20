@@ -1,6 +1,6 @@
-# ReviveRelay 0.6.1 Endpoint Inventory
+# ReviveRelay 0.7.0 Endpoint Inventory
 
-This inventory describes the direct 0.6.1 runtime surface. Legacy candidate route source files remain in the repository for history/tests, but `buildApp()` does not register `/v1/candidates` or `/v1/candidates/recent` in the direct runtime; direct-only tests require those routes to return 404.
+This inventory describes the direct 0.7.0 runtime surface. Legacy candidate route source files remain in the repository for history/tests, but `buildApp()` does not register `/v1/candidates` or `/v1/candidates/recent` in the direct runtime; direct-only tests require those routes to return 404.
 
 ## Public / bootstrap
 
@@ -15,10 +15,12 @@ This inventory describes the direct 0.6.1 runtime surface. Legacy candidate rout
 | Method | Route | Purpose |
 | --- | --- | --- |
 | GET | `/v1/me` | Public ReviveRelay identity/roles plus safe entitlement/subscription state. |
-| DELETE | `/v1/account` | Explicit account-data deletion flow. |
+| DELETE | `/v1/account` | Legacy explicit account-data deletion flow retained for compatible desktop clients. |
+| POST | `/v1/account/delete` | PDA-safe explicit account-data deletion flow with the same authenticated exact-confirmation requirement. |
 | GET | `/v1/verification-credential` | Return safe masked/status/capability information only. |
 | POST | `/v1/verification-credential` | Validate and bind encrypted ReviveRelay Verification credential. |
-| DELETE | `/v1/verification-credential` | Revoke stored ReviveRelay Verification credential. |
+| DELETE | `/v1/verification-credential` | Legacy revocation route retained for compatible desktop clients. |
+| POST | `/v1/verification-credential/revoke` | PDA-safe revocation route used by 0.7.0+ clients. |
 
 ## Requester
 
@@ -84,4 +86,4 @@ Administrator credentials/tokens are not included in this review package.
 
 ## Network boundary
 
-The 0.6.1 userscript's cross-origin application network permission is limited to `reviverelay.voidsmithindustries.com`. Torn API calls are made by the ReviveRelay backend. The userscript opens Torn key/settings/profile links only as explicit browser navigation; it does not use them as hidden non-API request channels.
+The 0.7.0 userscript's cross-origin application network permission is limited to `reviverelay.voidsmithindustries.com`. Torn API calls are made by the ReviveRelay backend. The userscript opens Torn key/settings/profile links only as explicit browser navigation; it does not use them as hidden non-API request channels.

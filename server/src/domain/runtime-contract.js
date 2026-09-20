@@ -1,5 +1,5 @@
 const RELEASE_CHANNELS = Object.freeze(['stable','review']);
-const SEMVER = /^\d+\.\d+\.\d+$/;
+const SEMVER = /^[0-9]\.[0-9]\.[0-9]$/;
 
 function assertVersion(value, label) {
   const version = String(value || '');

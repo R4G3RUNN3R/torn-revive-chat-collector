@@ -84,14 +84,18 @@ async function registerVerificationCredentialRoutes(app, {
     }
   });
 
-  app.delete('/v1/verification-credential', { preHandler: app.authenticate }, async (request, reply) => {
+  const revokeHandler = async (request, reply) => {
     const revoked = await verificationCredentialRepository.revoke({
       userId: request.reviveRelayUser.userId,
       reason: 'user_revoke',
       now: new Date()
     });
     return reply.code(200).send({ revoked });
-  });
+  };
+
+  const revokeOptions = { preHandler: app.authenticate };
+  app.delete('/v1/verification-credential', revokeOptions, revokeHandler);
+  app.post('/v1/verification-credential/revoke', revokeOptions, revokeHandler);
 }
 
 module.exports = {

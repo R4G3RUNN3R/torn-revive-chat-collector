@@ -14,7 +14,7 @@ test('strict single-digit numeric version comparison', () => {
 });
 
 test('Voidsmith version policy rejects any component above 9', () => {
-  for (const invalid of ['0.6.10','3.4.10','1.2.11','10.0.0','0.10.0','0.0.10']) {
+  for (const invalid of ['0.6.10','3.4.10','1.2.11','10.0.0','0.10.0','0.0.10','0.07.0','00.7.0']) {
     assert.throws(() => parseVersion(invalid), /above 9|version/i, invalid);
   }
 });
