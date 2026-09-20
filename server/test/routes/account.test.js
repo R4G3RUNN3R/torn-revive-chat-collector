@@ -78,3 +78,31 @@ test('DELETE /v1/account commits safe deletion response and invalidates the old 
   assert.equal(oldSession.statusCode,401,oldSession.body);
   assert.equal(oldSession.json().error,'AUTH_REQUIRED');
 });
+
+
+test('POST /v1/account/delete supports body-carrying clients such as TornPDA while preserving exact confirmation',async t=>{
+  const {app,getCalls}=makeApp();
+  t.after(()=>app.close());
+
+  const bad=await app.inject({
+    method:'POST',url:'/v1/account/delete',headers:AUTH,payload:{confirm:'DELETE'}
+  });
+  assert.equal(bad.statusCode,422,bad.body);
+  assert.equal(bad.json().error,'ACCOUNT_DELETE_CONFIRMATION_REQUIRED');
+  assert.equal(getCalls(),0);
+
+  const response=await app.inject({
+    method:'POST',url:'/v1/account/delete',headers:AUTH,
+    payload:{confirm:'DELETE REVIVERELAY ACCOUNT'}
+  });
+  assert.equal(response.statusCode,200,response.body);
+  assert.deepEqual(response.json(),{
+    deleted:true,
+    retained:['billing_history','payment_reuse_protection','security_audit_history']
+  });
+  assert.equal(getCalls(),1);
+
+  const oldSession=await app.inject({method:'GET',url:'/v1/me',headers:AUTH});
+  assert.equal(oldSession.statusCode,401,oldSession.body);
+  assert.equal(oldSession.json().error,'AUTH_REQUIRED');
+});

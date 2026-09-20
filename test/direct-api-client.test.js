@@ -121,7 +121,7 @@ test('direct API client maps the marketplace routes and carries the bound sessio
     ['GET', '/v1/pro/plans'],
     ['POST', '/v1/pro/invoices'],
     ['GET', '/v1/pro/invoices/66666666-6666-4666-8666-666666666666'],
-    ['DELETE', '/v1/account']
+    ['POST', '/v1/account/delete']
   ]);
 
   assert.equal(calls[0].headers.Authorization, undefined);

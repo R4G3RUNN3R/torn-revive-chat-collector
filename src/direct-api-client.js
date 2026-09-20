@@ -240,7 +240,7 @@
       async getProInvoice(invoiceId) {
         return call('GET', `/v1/pro/invoices/${encodeURIComponent(validateInvoiceId(invoiceId))}`);
       },
-      deleteAccount() { return call('DELETE', '/v1/account', { confirm: ACCOUNT_DELETE_CONFIRMATION }); }
+      deleteAccount() { return call('POST', '/v1/account/delete', { confirm: ACCOUNT_DELETE_CONFIRMATION }); }
     });
   }
 

@@ -34,8 +34,8 @@ test('sidebar one-click request validates the saved preset and posts only to Rev
 
 test('request preset is the only persisted revive request configuration and contains no credential fields',()=>{
   assert.match(source,/requestPreset:\s*'reviverelay_request_preset'/);
-  assert.match(source,/GM_setValue\(KEYS\.requestPreset,\s*validation\.preset\)/);
-  assert.doesNotMatch(source,/GM_setValue\([^\n]*(?:apiKey|tornKey|verificationKey|PRO_RECEIVER|receiverApiKey)/i);
+  assert.match(source,/storage\.set\(KEYS\.requestPreset,\s*validation\.preset\)/);
+  assert.doesNotMatch(source,/storage\.set\([^\n]*(?:apiKey|tornKey|verificationKey|PRO_RECEIVER|receiverApiKey)/i);
 });
 
 test('requester can create immediately while acceptance and reviver actions remain evidence-gated',()=>{

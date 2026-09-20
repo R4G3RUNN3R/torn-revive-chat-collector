@@ -52,6 +52,7 @@
     telemetryOutbox: 'reviverelay_telemetry_outbox'
   });
 
+  const Platform = globalThis.ReviveRelayPlatform;
   const Core = globalThis.TornReviveCore;
   const DirectApiClient = globalThis.ReviveRelayDirectApiClient;
   const UpdateManager = globalThis.ReviveRelayUpdateManager;
@@ -59,19 +60,34 @@
   const RequestPreset = globalThis.ReviveRelayRequestPreset;
   const SidebarAction = globalThis.ReviveRelaySidebarAction;
 
-  if (!Core || !DirectApiClient || !UpdateManager || !TelemetryClient || !RequestPreset || !SidebarAction) {
+  if (!Platform || !Core || !DirectApiClient || !UpdateManager || !TelemetryClient || !RequestPreset || !SidebarAction) {
     console.error('[ReviveRelay] Required direct-runtime dependency unavailable.');
     return;
   }
 
-  const requestTransport = DirectApiClient.createGmRequestAdapter(GM_xmlhttpRequest);
+  const platform = Platform.createPlatform({
+    globalObject: globalThis,
+    window,
+    document,
+    gm: {
+      getValue: typeof GM_getValue === 'function' ? GM_getValue : null,
+      setValue: typeof GM_setValue === 'function' ? GM_setValue : null,
+      xmlHttpRequest: typeof GM_xmlhttpRequest === 'function' ? GM_xmlhttpRequest : null,
+      addStyle: typeof GM_addStyle === 'function' ? GM_addStyle : null,
+      notification: typeof GM_notification === 'function' ? GM_notification : null
+    },
+    storageKeys: Object.values(KEYS),
+    onError: (error, context) => console.warn('[ReviveRelay]', context, error?.message || error)
+  });
+  const storage = platform.storage;
+  const requestTransport = platform.request;
   const state = {
     api: null,
     telemetry: null,
     updateManager: null,
-    sessionToken: String(GM_getValue(KEYS.sessionToken, '') || ''),
-    identity: GM_getValue(KEYS.publicIdentity, null),
-    preset: GM_getValue(KEYS.requestPreset, null),
+    sessionToken: '',
+    identity: null,
+    preset: null,
     activeRequest: null,
     activeTransaction: null,
     verificationCredential: null,
@@ -94,9 +110,9 @@
     sidebarController: null,
     settingsOpen: false,
     settingsSection: null,
-    minimized: Boolean(GM_getValue(KEYS.minimized, false)),
-    panelPosition: GM_getValue(KEYS.panelPosition, null),
-    panelTab: Core.normalizePanelTab(GM_getValue(KEYS.panelTab, 'request'))
+    minimized: false,
+    panelPosition: null,
+    panelTab: 'request'
   };
 
   let panel = null;
@@ -128,8 +144,8 @@
 
   state.telemetry = TelemetryClient.createTelemetryClient({
     submit: payload => state.api.submitTelemetry(payload.errors),
-    getStoredQueue: () => GM_getValue(KEYS.telemetryOutbox, []),
-    saveStoredQueue: queue => GM_setValue(KEYS.telemetryOutbox, Array.isArray(queue) ? queue : []),
+    getStoredQueue: () => storage.get(KEYS.telemetryOutbox, []),
+    saveStoredQueue: queue => storage.set(KEYS.telemetryOutbox, Array.isArray(queue) ? queue : []),
     version: VERSION,
     buildCommit: BUILD_COMMIT
   });
@@ -149,9 +165,9 @@
       }
       return response.responseText;
     },
-    getState: () => GM_getValue(KEYS.updateState, {}),
-    saveState: value => GM_setValue(KEYS.updateState, value),
-    openUrl: url => window.open(url, '_blank', 'noopener,noreferrer')
+    getState: () => storage.get(KEYS.updateState, {}),
+    saveState: value => storage.set(KEYS.updateState, value),
+    openUrl: url => platform.openUrl(url)
   });
 
   function escapeHtml(value) {
@@ -341,7 +357,7 @@
   }
 
   function captureClientError(error, operation) {
-    if (!GM_getValue(KEYS.clientDiagnosticsEnabled, false)) return;
+    if (!storage.get(KEYS.clientDiagnosticsEnabled, false)) return;
     try {
       state.telemetry.captureError(error, { operation });
     } catch (_) {
@@ -415,8 +431,8 @@
     state.currentInvoice = null;
     state.submittingRequest = false;
     lastRequestError = null;
-    GM_setValue(KEYS.sessionToken, '');
-    GM_setValue(KEYS.publicIdentity, null);
+    storage.set(KEYS.sessionToken, '');
+    storage.set(KEYS.publicIdentity, null);
     setStatus(message, false);
     refreshSidebarState();
     renderAll();
@@ -433,7 +449,7 @@
       };
       const runtimeResult = applyRuntimeContract(me?.runtime || null);
       state.proStatus = runtimeResult.compatible && me?.pro ? me.pro : null;
-      GM_setValue(KEYS.publicIdentity, publicIdentity());
+      storage.set(KEYS.publicIdentity, publicIdentity());
     });
     return me;
   }
@@ -454,8 +470,8 @@
       state.verificationCredential = verificationResult?.credential || null;
       state.verificationEditing = false;
       if (apiKeyInput) apiKeyInput.value = '';
-      GM_setValue(KEYS.sessionToken, state.sessionToken);
-      GM_setValue(KEYS.publicIdentity, publicIdentity());
+      storage.set(KEYS.sessionToken, state.sessionToken);
+      storage.set(KEYS.publicIdentity, publicIdentity());
       await refreshMarketplaceState({ includePlans: true });
       setStatus(runtimeCompatible() ? 'ReviveRelay connected with your Torn API key.' : runtimeCompatibilityMessage(), !runtimeCompatible());
       refreshSidebarState();
@@ -558,24 +574,24 @@
   }
 
   function readSeenRequestIds() {
-    const stored = GM_getValue(KEYS.seenRequestIds, []);
+    const stored = storage.get(KEYS.seenRequestIds, []);
     return Array.isArray(stored) ? stored.map(String).slice(-MAX_SEEN_REQUEST_IDS) : [];
   }
 
   function writeSeenRequestIds(ids) {
     const bounded = Array.from(new Set(ids.map(String))).slice(-MAX_SEEN_REQUEST_IDS);
-    GM_setValue(KEYS.seenRequestIds, bounded);
+    storage.set(KEYS.seenRequestIds, bounded);
   }
 
   function desktopNotificationsEnabled() {
-    return Boolean(GM_getValue(KEYS.desktopNotificationsEnabled, true));
+    return Boolean(storage.get(KEYS.desktopNotificationsEnabled, true));
   }
 
   function notifyNewQueueRequests(requests) {
     if (!hasReviverSubscriptionAccess() || !hasRole('reviver') || !hasCredentialCapability('reviver') || !hasConfirmedReviveAbility()) return;
     const seen = new Set(readSeenRequestIds());
     const next = [...seen];
-    const canNotify = desktopNotificationsEnabled() && typeof GM_notification === 'function';
+    const canNotify = desktopNotificationsEnabled() && typeof platform.notify === 'function';
     for (const request of Array.isArray(requests) ? requests : []) {
       const id = String(request?.id || '');
       if (!id || seen.has(id)) continue;
@@ -585,7 +601,7 @@
       const requester = `${request.requesterName || 'Player'} [${request.requesterTornId || '?'}]`;
       if (!canNotify) continue;
       try {
-        GM_notification({
+        platform.notify({
           title: 'ReviveRelay · Certified request',
           text: `${requester} · ${offer}`,
           timeout: 12_000,
@@ -726,13 +742,13 @@
         state.subscription = null;
         state.proPlans = [];
         state.currentInvoice = null;
-        GM_setValue(KEYS.sessionToken, '');
-        GM_setValue(KEYS.publicIdentity, null);
-        GM_setValue(KEYS.requestPreset, null);
-        GM_setValue(KEYS.seenRequestIds, []);
-        GM_setValue(KEYS.updateState, {});
-        GM_setValue(KEYS.clientDiagnosticsEnabled, false);
-        GM_setValue(KEYS.telemetryOutbox, []);
+        storage.set(KEYS.sessionToken, '');
+        storage.set(KEYS.publicIdentity, null);
+        storage.set(KEYS.requestPreset, null);
+        storage.set(KEYS.seenRequestIds, []);
+        storage.set(KEYS.updateState, {});
+        storage.set(KEYS.clientDiagnosticsEnabled, false);
+        storage.set(KEYS.telemetryOutbox, []);
         setStatus('ReviveRelay account data deletion completed. Minimal billing/security evidence may remain only where required for payment-reuse prevention, refunds, disputes, or audit history.');
         refreshSidebarState();
         renderAll();
@@ -756,7 +772,7 @@
       return;
     }
     state.preset = validation.preset;
-    GM_setValue(KEYS.requestPreset, validation.preset);
+    storage.set(KEYS.requestPreset, validation.preset);
     lastRequestError = null;
     setStatus('Revive Me preset saved.');
     refreshSidebarState();
@@ -1452,7 +1468,7 @@
     <details class="rr-settings-section">
       <summary>Diagnostics / Advanced</summary>
       <div class="rr-settings-body">
-        <label><input id="rr-diagnostics-enabled" type="checkbox" ${GM_getValue(KEYS.clientDiagnosticsEnabled, false) ? 'checked' : ''}> Send sanitized ReviveRelay error diagnostics</label>
+        <label><input id="rr-diagnostics-enabled" type="checkbox" ${storage.get(KEYS.clientDiagnosticsEnabled, false) ? 'checked' : ''}> Send sanitized ReviveRelay error diagnostics</label>
         <p class="rr-muted">Diagnostics exclude API keys, bearer tokens, payment receiver credentials and public chat content.</p>
       </div>
     </details>`;
@@ -1522,7 +1538,7 @@
     state.settingsSection = ['preset', 'verification'].includes(section) ? section : null;
     if (state.minimized) {
       state.minimized = false;
-      GM_setValue(KEYS.minimized, state.minimized);
+      storage.set(KEYS.minimized, state.minimized);
       if (panel) panel.style.display = '';
       refreshSidebarState();
     }
@@ -1536,7 +1552,7 @@
     if (opening) state.settingsSection = null;
     if (opening && state.minimized) {
       state.minimized = false;
-      GM_setValue(KEYS.minimized, state.minimized);
+      storage.set(KEYS.minimized, state.minimized);
       if (panel) panel.style.display = '';
       refreshSidebarState();
     }
@@ -1548,10 +1564,10 @@
   function activatePanelTab(tab) {
     state.settingsOpen = false;
     state.panelTab = Core.normalizePanelTab(tab);
-    GM_setValue(KEYS.panelTab, state.panelTab);
+    storage.set(KEYS.panelTab, state.panelTab);
     if (state.minimized) {
       state.minimized = false;
-      GM_setValue(KEYS.minimized, state.minimized);
+      storage.set(KEYS.minimized, state.minimized);
       if (panel) panel.style.display = state.minimized ? 'none' : '';
       refreshSidebarState();
     }
@@ -1581,12 +1597,12 @@
 
   function persistPanelPosition() {
     if (!state.panelPosition) return;
-    GM_setValue(KEYS.panelPosition, state.panelPosition);
+    storage.set(KEYS.panelPosition, state.panelPosition);
   }
 
   function resetPanelPosition() {
     state.panelPosition = null;
-    GM_setValue(KEYS.panelPosition, null);
+    storage.set(KEYS.panelPosition, null);
     applyPanelPosition(null);
     persistPanelPosition();
   }
@@ -1635,7 +1651,7 @@
   }
 
   function createPanel() {
-    GM_addStyle(`
+    platform.addStyle(`
       #rr-panel{position:fixed;z-index:999999;width:min(420px,calc(100vw - 16px));max-height:calc(100vh - 16px);background:#11161b;color:#d9e0e6;border:1px solid #3e4851;border-radius:9px;box-shadow:0 14px 40px rgba(0,0,0,.45);font:12px/1.45 Arial,sans-serif;overflow:hidden}
       #rr-header{display:flex;align-items:center;gap:9px;padding:9px 10px;background:#171d23;border-bottom:1px solid #343d45;cursor:move;user-select:none}
       .rr-brand{font-weight:800;letter-spacing:.06em}.rr-brand small{display:block;font-size:9px;color:#7f8b95;font-weight:500}.rr-spacer{flex:1}
@@ -1652,11 +1668,12 @@
       .rr-actions,.rr-form-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}.rr-label{display:block;color:#9aa6af;margin:7px 0 3px}.rr-card input,.rr-card select,.rr-card textarea,.rr-settings-section input,.rr-settings-section select,.rr-settings-section textarea{box-sizing:border-box;width:100%;border:1px solid #3a4650;background:#0f1418;color:#e0e5e9;border-radius:5px;padding:6px;font:inherit}.rr-card button,.rr-settings-section button{border:1px solid #48545e;background:#242d34;color:#e6ebee;border-radius:5px;padding:5px 8px;font:inherit;cursor:pointer}.rr-card button:disabled,.rr-settings-section button:disabled{opacity:.45;cursor:not-allowed}
       .rr-certified-card{border-color:#806c3b;box-shadow:inset 3px 0 0 #b89a52}.rr-certified-line,.rr-queue-head{display:flex;align-items:center;justify-content:space-between;gap:8px}.rr-star{color:#d5b461}.rr-chip{font-size:8px;border:1px solid #88743e;color:#d9bc72;border-radius:8px;padding:1px 5px}.rr-offer{font-size:15px;font-weight:800;margin-top:7px}.rr-comment{margin:4px 0;color:#bcc5cc}.rr-deadlines{margin-top:6px}.rr-deadlines>div{display:flex;justify-content:space-between;color:#8e9aa3}.rr-invoice{margin-top:7px;padding-top:7px;border-top:1px solid #313a42}
       .rr-queue-controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-top:8px}.rr-queue-controls label{font-size:9px;color:#89959e}.rr-queue-controls select,.rr-queue-controls input{margin-top:2px}.rr-queue-controls button{align-self:end}.rr-queue-group-title{display:flex;justify-content:space-between;align-items:center;margin:10px 2px 6px;color:#b7c1c8;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.04em}.rr-queue-group-title span{color:#74818b}
-      @media(max-width:520px){#rr-panel{width:calc(100vw - 16px)}.rr-tabs button{font-size:10px}.rr-queue-controls{grid-template-columns:1fr}}
+      .rr-pda-toast{position:fixed;z-index:1000001;left:10px;right:10px;bottom:calc(10px + env(safe-area-inset-bottom,0px));display:grid;gap:2px;text-align:left;border:1px solid #66727c;background:#151c22;color:#eef2f5;border-radius:9px;padding:10px 12px;box-shadow:0 10px 30px rgba(0,0,0,.5);font:12px/1.4 Arial,sans-serif}.rr-pda-toast strong{font-size:12px}.rr-pda-toast span{color:#b7c1c8}#rr-panel.rr-tornpda{width:calc(100vw - 12px);max-height:calc(100dvh - 12px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px))}#rr-panel.rr-tornpda button,#rr-panel.rr-tornpda input,#rr-panel.rr-tornpda select{min-height:44px}#rr-panel.rr-tornpda #rr-header{cursor:default;padding-top:max(9px,env(safe-area-inset-top,0px))}#rr-panel.rr-tornpda #rr-body{max-height:calc(100dvh - 64px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px))}@media(max-width:520px){#rr-panel{width:calc(100vw - 16px)}.rr-tabs button{font-size:10px}.rr-queue-controls{grid-template-columns:1fr}}
     `);
 
     panel = document.createElement('section');
     panel.id = 'rr-panel';
+    if (platform.runtime.isTornPda) panel.classList.add('rr-tornpda');
     panel.innerHTML = `<div id="rr-header">
       <div class="rr-brand">REVIVERELAY<small>VOIDsMITH INDUSTRIES · v${escapeHtml(VERSION)}</small></div>
       <div class="rr-spacer"></div>
@@ -1709,7 +1726,7 @@
       if (target.id === 'rr-start-trial' || target.id === 'rr-start-trial-inline') return startProTrial();
       if (target.id === 'rr-create-pro-invoice') return createProInvoice();
       if (target.id === 'rr-refresh-invoice') return refreshCurrentInvoice().then(renderLiveState).catch(error => handleApiFailure(error, 'pro.invoice.refresh'));
-      if (target.id === 'rr-create-api-key') return window.open(REVIVERELAY_API_KEY_URL, '_blank', 'noopener,noreferrer');
+      if (target.id === 'rr-create-api-key') return platform.openUrl(REVIVERELAY_API_KEY_URL);
       if (target.id === 'rr-replace-verification') return beginVerificationReplacement();
       if (target.id === 'rr-bind-verification') return bindVerificationKey();
       if (target.id === 'rr-revoke-verification') return revokeVerificationKey();
@@ -1722,7 +1739,7 @@
       if (target.id === 'rr-update-open') return openAvailableUpdate();
       if (target.id === 'rr-minimize') {
         state.minimized = !state.minimized;
-        GM_setValue(KEYS.minimized, state.minimized);
+        storage.set(KEYS.minimized, state.minimized);
         panel.style.display = state.minimized ? 'none' : '';
         applyPanelPosition(state.panelPosition);
         refreshSidebarState();
@@ -1731,10 +1748,10 @@
 
     panel.addEventListener('change', event => {
       if (event.target?.id === 'rr-desktop-notifications-enabled') {
-        GM_setValue(KEYS.desktopNotificationsEnabled, Boolean(event.target.checked));
+        storage.set(KEYS.desktopNotificationsEnabled, Boolean(event.target.checked));
       }
       if (event.target?.id === 'rr-diagnostics-enabled') {
-        GM_setValue(KEYS.clientDiagnosticsEnabled, Boolean(event.target.checked));
+        storage.set(KEYS.clientDiagnosticsEnabled, Boolean(event.target.checked));
       }
       if (event.target?.id === 'rr-queue-payment-filter') {
         state.queuePaymentFilter = ['all', 'cash', 'xanax'].includes(event.target.value) ? event.target.value : 'all';
@@ -1778,7 +1795,7 @@
   function restorePanelFromMinimized() {
     if (!state.minimized) return;
     state.minimized = false;
-    GM_setValue(KEYS.minimized, state.minimized);
+    storage.set(KEYS.minimized, state.minimized);
     if (panel) panel.style.display = '';
     applyPanelPosition(state.panelPosition);
     refreshSidebarState();
@@ -1822,7 +1839,7 @@
     }, INVOICE_POLL_MS);
     sidebarTimer = setInterval(refreshSidebarState, SIDEBAR_RECONCILE_MS);
     telemetryTimer = setInterval(() => {
-      if (!GM_getValue(KEYS.clientDiagnosticsEnabled, false)) return;
+      if (!storage.get(KEYS.clientDiagnosticsEnabled, false)) return;
       state.telemetry.drain().catch(() => {});
     }, TELEMETRY_DRAIN_MS);
     clockTimer = setInterval(() => {
@@ -1833,10 +1850,37 @@
     }, UpdateManager.UPDATE_CHECK_MS);
   }
 
+  function hydratePersistentState() {
+    state.sessionToken = String(storage.get(KEYS.sessionToken, '') || '');
+    state.identity = storage.get(KEYS.publicIdentity, null) || null;
+    state.preset = storage.get(KEYS.requestPreset, null) || null;
+    state.minimized = Boolean(storage.get(KEYS.minimized, false));
+    state.panelPosition = storage.get(KEYS.panelPosition, null) || null;
+    state.panelTab = Core.normalizePanelTab(storage.get(KEYS.panelTab, 'request'));
+  }
+
+  let resumeRefreshInFlight = null;
+  function refreshAfterResume() {
+    if (!platform.runtime.isTornPda || resumeRefreshInFlight) return resumeRefreshInFlight;
+    resumeRefreshInFlight = Promise.resolve()
+      .then(async () => {
+        refreshSidebarState();
+        if (!state.sessionToken) return;
+        await refreshMarketplaceState({ includePlans: false });
+        renderAll();
+      })
+      .catch(error => handleApiFailure(error, 'runtime.resume', 'ReviveRelay could not refresh after returning to Torn.'))
+      .finally(() => { resumeRefreshInFlight = null; });
+    return resumeRefreshInFlight;
+  }
+
   async function init() {
+    await platform.initialize();
+    hydratePersistentState();
     createPanel();
     installSidebar();
     installGlobalErrorHooks();
+    platform.onResume(refreshAfterResume);
     startTimers();
     refreshSidebarState();
     await restoreSession();

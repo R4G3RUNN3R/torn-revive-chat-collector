@@ -22,7 +22,7 @@ test('sidebar gear restore clears persisted minimized state and restores the ent
   assert.ok(restore.length > 0, 'restorePanelFromMinimized must exist');
   assert.match(restore, /if \(!state\.minimized\) return/);
   assert.match(restore, /state\.minimized\s*=\s*false/);
-  assert.match(restore, /GM_setValue\(KEYS\.minimized,\s*state\.minimized\)/);
+  assert.match(restore, /storage\.set\(KEYS\.minimized,\s*state\.minimized\)/);
   assert.match(restore, /panel\) panel\.style\.display\s*=\s*''/);
   assert.match(restore, /applyPanelPosition\(state\.panelPosition\)/);
   assert.match(restore, /refreshSidebarState\(\)/);
@@ -38,7 +38,7 @@ test('sidebar controller is wired to minimized state and its gear restore handle
 
 test('panel minimize button persists the state, hides the entire floating panel and immediately reconciles the sidebar controls', () => {
   assert.match(source, /target\.id === 'rr-minimize'[\s\S]{0,420}state\.minimized\s*=\s*!state\.minimized/);
-  assert.match(source, /target\.id === 'rr-minimize'[\s\S]{0,420}GM_setValue\(KEYS\.minimized,\s*state\.minimized\)/);
+  assert.match(source, /target\.id === 'rr-minimize'[\s\S]{0,420}storage\.set\(KEYS\.minimized,\s*state\.minimized\)/);
   assert.match(source, /target\.id === 'rr-minimize'[\s\S]{0,420}panel\.style\.display\s*=\s*state\.minimized\s*\?\s*'none'\s*:\s*''/);
   assert.doesNotMatch(source, /target\.id === 'rr-minimize'[\s\S]{0,420}body\.style\.display\s*=\s*state\.minimized/);
   assert.match(source, /target\.id === 'rr-minimize'[\s\S]{0,420}refreshSidebarState\(\)/);

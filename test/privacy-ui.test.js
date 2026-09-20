@@ -52,9 +52,9 @@ test('account deletion explains immediate deletion versus retained minimal billi
   assert.match(deletion,/retained/i);
   assert.match(deletion,/window\.confirm/);
   assert.match(deletion,/state\.api\.deleteAccount\(\)/);
-  assert.match(deletion,/GM_setValue\(KEYS\.sessionToken,\s*''\)/);
-  assert.match(deletion,/GM_setValue\(KEYS\.requestPreset,\s*null\)/);
-  assert.match(deletion,/GM_setValue\(KEYS\.clientDiagnosticsEnabled,\s*false\)/);
+  assert.match(deletion,/storage\.set\(KEYS\.sessionToken,\s*''\)/);
+  assert.match(deletion,/storage\.set\(KEYS\.requestPreset,\s*null\)/);
+  assert.match(deletion,/storage\.set\(KEYS\.clientDiagnosticsEnabled,\s*false\)/);
   assert.match(deletion,/runMutation\('account-delete'/);
 });
 

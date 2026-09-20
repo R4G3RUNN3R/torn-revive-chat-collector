@@ -64,7 +64,7 @@ test('Pro queue notifications are bounded, persisted, Pro-only and never auto-ac
   assert.match(source,/@grant\s+GM_notification/);
   assert.match(source,/seenRequestIds:\s*'reviverelay_seen_request_ids'/);
   assert.match(source,/MAX_SEEN_REQUEST_IDS\s*=\s*200/);
-  assert.match(source,/GM_notification\(/);
+  assert.match(source,/platform\.notify\(/);
   assert.match(source,/notifyNewQueueRequests/);
   assert.match(source,/activatePanelTab\(['"]reviver['"]/);
   const notifyFn=source.match(/function notifyNewQueueRequests\([^)]*\)\s*\{([\s\S]*?)\n\s*\}/)?.[1]||'';

@@ -1,6 +1,7 @@
 'use strict';
 
 const DIRECT_SUPPORT_MODULES = Object.freeze([
+  'src/platform.js',
   'src/core.js',
   'src/direct-api-client.js',
   'src/versioning.js',

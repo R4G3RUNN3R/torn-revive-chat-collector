@@ -103,8 +103,8 @@ test('one-time identity bootstrap key is cleared and never persisted client-side
   assert.ok(connect.length > 0);
   assert.match(connect, /state\.api\.bind\(apiKey/);
   assert.match(connect, /apiKeyInput\.value\s*=\s*''/);
-  assert.match(connect, /GM_setValue\(KEYS\.sessionToken/);
-  assert.doesNotMatch(connect, /GM_setValue\([^\n]*(?:apiKey|api_key|identityKey|identity_key)/i);
+  assert.match(connect, /storage\.set\(KEYS\.sessionToken/);
+  assert.doesNotMatch(connect, /storage\.set\([^\n]*(?:apiKey|api_key|identityKey|identity_key)/i);
 });
 
 test('client telemetry sanitizes API keys, bearer tokens, cookies and unsafe context fields', () => {

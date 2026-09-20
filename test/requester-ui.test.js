@@ -95,7 +95,7 @@ test('opening Settings from the header gear restores the entire minimized panel 
   const toggle = source.match(/function toggleSettingsDrawer\(\)\s*\{([\s\S]*?)\n\s*\}/)?.[1] || '';
   assert.ok(toggle.length > 0);
   assert.match(toggle, /state\.minimized/);
-  assert.match(toggle, /GM_setValue\(KEYS\.minimized/);
+  assert.match(toggle, /storage\.set\(KEYS\.minimized/);
   assert.match(toggle, /panel\.style\.display/);
   assert.doesNotMatch(toggle, /body\.style\.display/);
 });
@@ -108,7 +108,7 @@ test('ReviveRelay offers one canonical Torn API key helper for requester and rev
   assert.doesNotMatch(source, /Create requester verification key/i);
   assert.doesNotMatch(source, /Create reviver verification key/i);
   assert.match(source, /Create ReviveRelay API Key/i);
-  assert.match(source, /window\.open\(REVIVERELAY_API_KEY_URL/);
+  assert.match(source, /platform\.openUrl\(REVIVERELAY_API_KEY_URL/);
 });
 
 test('Reviver Verification accepts broad keys but warns that they grant more access than required', () => {
@@ -184,8 +184,8 @@ test('contextual settings buttons open the section they advertise', () => {
 test('desktop notifications can be disabled from Settings and default to enabled', () => {
   assert.match(source, /desktopNotificationsEnabled/);
   assert.match(source, /id=["']rr-desktop-notifications-enabled["']/);
-  assert.match(source, /GM_getValue\(KEYS\.desktopNotificationsEnabled,\s*true\)/);
-  assert.match(source, /GM_setValue\(KEYS\.desktopNotificationsEnabled,\s*Boolean\(event\.target\.checked\)\)/);
+  assert.match(source, /storage\.get\(KEYS\.desktopNotificationsEnabled,\s*true\)/);
+  assert.match(source, /storage\.set\(KEYS\.desktopNotificationsEnabled,\s*Boolean\(event\.target\.checked\)\)/);
 
   const notifyStart=source.indexOf('function notifyNewQueueRequests(requests)');
   const notifyEnd=source.indexOf('async function refreshReviverQueue()',notifyStart);
@@ -201,7 +201,7 @@ test('initial ReviveRelay connect reuses the same Torn API key for identity and 
   assert.ok(fn.length > 0);
   const bindIdentity = fn.indexOf('state.api.bind(apiKey, VERSION)');
   const bindVerification = fn.indexOf('state.api.bindVerificationCredential(apiKey)');
-  const persistSession = fn.indexOf('GM_setValue(KEYS.sessionToken');
+  const persistSession = fn.indexOf('storage.set(KEYS.sessionToken');
   const clearInput = fn.indexOf("apiKeyInput.value = ''");
   assert.ok(bindIdentity >= 0, 'identity bind missing');
   assert.ok(bindVerification > bindIdentity, 'same key must bind verification after identity');

@@ -5,6 +5,7 @@ const path = require('node:path');
 const { DIRECT_SUPPORT_MODULES } = require('../scripts/client-modules');
 
 const REQUIRED = [
+  'src/platform.js',
   'src/core.js',
   'src/direct-api-client.js',
   'src/versioning.js',
@@ -59,6 +60,6 @@ test('current review bundle contains direct support exactly once and zero legacy
 });
 
 
-test('current direct-only review implementation is versioned as 0.6.9', () => {
-  assert.equal(require('../package.json').version, '0.6.9');
+test('current direct-only review implementation is versioned as 0.7.0', () => {
+  assert.equal(require('../package.json').version, '0.7.0');
 });

@@ -62,7 +62,7 @@ test('important mutations use a shared in-flight guard and rendered buttons expo
 test('notification API is optional and absence cannot break queue processing',()=>{
   const notify=functionSlice('notifyNewQueueRequests','refreshReviverQueue');
   assert.ok(notify.length>0);
-  assert.match(notify,/typeof GM_notification\s*===\s*'function'/);
+  assert.match(notify,/typeof platform\.notify\s*===\s*'function'/);
   assert.match(notify,/if \(!canNotify\) continue;/);
 });
 

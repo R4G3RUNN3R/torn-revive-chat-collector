@@ -12,8 +12,8 @@ test('ReviveRelay panel persists draggable position and selected tab', () => {
   for (const token of [
     "panelPosition: 'reviverelay_panel_position'",
     "panelTab: 'reviverelay_panel_tab'",
-    'GM_setValue(KEYS.panelPosition',
-    'GM_setValue(KEYS.panelTab',
+    'storage.set(KEYS.panelPosition',
+    'storage.set(KEYS.panelTab',
     'Core.clampPanelPosition',
     'Core.normalizePanelTab'
   ]) assert.match(source, literal(token));
@@ -63,8 +63,8 @@ test('panel remains responsive on narrow viewports and has no destructive close 
 
 
 test('minimize state remains independent, persists across reloads, and hides the entire floating panel', () => {
-  assert.match(source, /minimized: Boolean\(GM_getValue\(KEYS\.minimized, false\)\)/);
-  assert.match(source, /GM_setValue\(KEYS\.minimized, state\.minimized\)/);
+  assert.match(source, /state\.minimized = Boolean\(storage\.get\(KEYS\.minimized, false\)\)/);
+  assert.match(source, /storage\.set\(KEYS\.minimized, state\.minimized\)/);
   assert.match(source, /panel\.style\.display = state\.minimized/);
   assert.doesNotMatch(source, /body\.style\.display = state\.minimized/);
 });

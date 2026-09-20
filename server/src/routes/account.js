@@ -12,10 +12,7 @@ async function registerAccountRoutes(app,{accountDeletionService}) {
     throw new Error('accountDeletionService is required');
   }
 
-  app.delete('/v1/account',{
-    preHandler:app.authenticate,
-    config:{rateLimit:RATE_LIMITS.ACCOUNT_DELETE}
-  },async(request,reply)=>{
+  const handler=async(request,reply)=>{
     const parsed=deleteAccountSchema.safeParse(request.body || {});
     if (!parsed.success) {
       return reply.code(422).send({error:'ACCOUNT_DELETE_CONFIRMATION_REQUIRED'});
@@ -28,7 +25,18 @@ async function registerAccountRoutes(app,{accountDeletionService}) {
       deleted:Boolean(result && result.deleted),
       retained:Array.isArray(result && result.retained) ? result.retained : []
     });
-  });
+  };
+
+  const options={
+    preHandler:app.authenticate,
+    config:{rateLimit:RATE_LIMITS.ACCOUNT_DELETE}
+  };
+
+  // Keep the legacy DELETE route for existing desktop clients. TornPDA's
+  // native DELETE bridge cannot carry a request body, so v0.7.0+ uses the
+  // equivalent POST action endpoint without weakening explicit confirmation.
+  app.delete('/v1/account',options,handler);
+  app.post('/v1/account/delete',options,handler);
 }
 
 module.exports={

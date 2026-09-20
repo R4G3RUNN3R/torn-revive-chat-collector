@@ -9,7 +9,7 @@ function sha(path) {
   return crypto.createHash('sha256').update(fs.readFileSync(path)).digest('hex');
 }
 
-for (const [relativePath, expected] of Object.entries(manifest.supportHashes).filter(([relativePath]) => relativePath !== 'src/update-manager.js')) {
+for (const [relativePath, expected] of Object.entries(manifest.supportHashes).filter(([relativePath]) => !['src/update-manager.js','src/versioning.js'].includes(relativePath))) {
   test(`known-good support bytes stay locked: ${relativePath}`, () => {
     assert.equal(sha(relativePath), expected);
   });

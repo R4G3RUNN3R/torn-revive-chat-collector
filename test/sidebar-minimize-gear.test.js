@@ -54,11 +54,11 @@ test('restorePanelFromMinimized un-minimizes the panel, persists it, shows the e
   const state = { minimized: true, panelPosition: null };
   const panel = { style: { display: 'none' } };
   const restorePanelFromMinimized = new Function(
-    'state', 'panel', 'GM_setValue', 'KEYS', 'applyPanelPosition', 'refreshSidebarState',
+    'state', 'panel', 'storage', 'KEYS', 'applyPanelPosition', 'refreshSidebarState',
     `${fn}; return restorePanelFromMinimized;`
   )(
     state, panel,
-    (key, value) => calls.setValue.push([key, value]),
+    { set:(key, value) => calls.setValue.push([key, value]) },
     { minimized: 'reviverelay_panel_minimized' },
     () => { calls.applyPosition += 1; },
     () => { calls.refresh += 1; }

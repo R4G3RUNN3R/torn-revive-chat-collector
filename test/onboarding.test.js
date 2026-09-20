@@ -9,8 +9,8 @@ test('ReviveRelay onboarding binds a Torn key but persists only the opaque Reviv
   assert.match(source, /Verify\s*(?:&|&amp;)\s*;?\s*connect/i);
   assert.match(source, /\.bind\(/);
   assert.match(source, /sessionToken/);
-  assert.match(source, /GM_setValue\(KEYS\.sessionToken/);
-  assert.doesNotMatch(source, /GM_setValue\([^\n]*(?:apiKey|tornKey)/i);
+  assert.match(source, /storage\.set\(KEYS\.sessionToken/);
+  assert.doesNotMatch(source, /storage\.set\([^\n]*(?:apiKey|tornKey)/i);
   assert.match(source, /apiKeyInput\.value\s*=\s*['"]{2}/);
   assert.match(source, /getMe\(\)/);
 });

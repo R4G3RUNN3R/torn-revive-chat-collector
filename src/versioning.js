@@ -7,7 +7,9 @@
   function parseVersion(value) {
     const match = String(value ?? '').trim().match(/^(\d+)\.(\d+)\.(\d+)$/);
     if (!match) throw new Error('Invalid ReviveRelay version');
-    return match.slice(1).map(Number);
+    const parts = match.slice(1).map(Number);
+    if (parts.some(part => part > 9)) throw new Error('Invalid ReviveRelay version component: values above 9 are not permitted');
+    return parts;
   }
   function compareVersions(a, b) {
     const left = parseVersion(a); const right = parseVersion(b);
