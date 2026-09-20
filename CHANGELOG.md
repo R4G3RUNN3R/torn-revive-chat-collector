@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.7.1 - TornPDA launcher recovery hotfix
+
+### Fixed
+
+- TornPDA runtime detection now tolerates the app bridge and helper APIs becoming available at slightly different times instead of requiring every PDA signal in the same startup instant.
+- A minimized ReviveRelay panel on TornPDA now exposes a dedicated 48px safe-area launcher, so the interface remains recoverable even when Torn's mobile layout has no desktop-style sidebar target for the existing restore gear.
+- The TornPDA launcher clears persisted minimized state and restores the panel without depending on Torn sidebar markup.
+
+### Verification
+
+- Added regression coverage for staggered TornPDA runtime signals, the independent mobile launcher, safe-area/touch sizing and launcher-based panel restoration.
+- Desktop sidebar behavior, server-side authority, entitlement logic, API-key handling and the Stable 0.4.4 line are unchanged.
+
+### Release status
+
+0.7.1 is a Beta/Review hotfix candidate. TornPDA compatibility remains pending genuine device acceptance and must not be represented as Stable until that acceptance is recorded.
+
 ## 0.7.0 - TornPDA runtime compatibility
 
 ### Added

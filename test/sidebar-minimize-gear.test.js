@@ -71,6 +71,14 @@ test('restorePanelFromMinimized un-minimizes the panel, persists it, shows the e
   assert.equal(calls.refresh, 1, 'the sidebar controller must reconcile so the gear disappears promptly');
 });
 
+test('TornPDA launcher restore does not depend on sidebar existence or prior minimized truth', () => {
+  const fn = functionSlice('restorePanelFromPdaLauncher', 'syncPdaLauncher');
+  assert.ok(fn.length > 0);
+  assert.match(fn, /state\.minimized\s*=\s*false/);
+  assert.match(fn, /panel\.style\.display\s*=\s*''/);
+  assert.match(fn, /renderAll\(\)/);
+});
+
 test('the header minimize toggle reconciles the sidebar so the gear appears or disappears immediately', () => {
   const start = source.indexOf("if (target.id === 'rr-minimize') {");
   const end = source.indexOf('\n    });', start);

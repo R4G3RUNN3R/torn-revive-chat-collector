@@ -86,11 +86,11 @@ The review package explicitly asks Torn staff to confirm whether ReviveRelay's *
 
 ## Source and release structure
 
-The tracked `torn-revive-chat-collector.user.js` file is the current userscript source template despite its historical filename. The current 0.7.0 review client is direct-only and supports both desktop userscript managers and TornPDA through one shared runtime adapter. Historical chat-related modules remain in the repository for regression/history purposes but are excluded from the generated review bundle.
+The tracked `torn-revive-chat-collector.user.js` file is the current userscript source template despite its historical filename. The current 0.7.1 review client is direct-only and supports both desktop userscript managers and TornPDA through one shared runtime adapter. Historical chat-related modules remain in the repository for regression/history purposes but are excluded from the generated review bundle.
 
 Installable review artifact:
 
-`dist/review/ReviveRelay-0.7.0.user.js`
+`dist/review/ReviveRelay-0.7.1.user.js`
 
 ### Updates
 

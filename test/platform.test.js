@@ -17,11 +17,12 @@ function pdaGlobals(overrides = {}) {
   };
 }
 
-test('detectRuntime requires both durable PDA storage and core PDA HTTP handlers', () => {
+test('detectRuntime tolerates TornPDA bridge/helper injection timing without accepting partial helper pairs', () => {
   assert.equal(Platform.detectRuntime({}).isTornPda,false);
   assert.equal(Platform.detectRuntime({PDA_storage:{loadAll(){},set(){}}}).isTornPda,false);
   assert.equal(Platform.detectRuntime({PDA_httpGet(){},PDA_httpPost(){}}).isTornPda,false);
-  assert.equal(Platform.detectRuntime({...pdaGlobals(),flutter_inappwebview:null}).isTornPda,false);
+  assert.equal(Platform.detectRuntime({...pdaGlobals(),flutter_inappwebview:null}).isTornPda,true);
+  assert.equal(Platform.detectRuntime({flutter_inappwebview:{callHandler(){}}}).isTornPda,true);
   assert.equal(Platform.detectRuntime(pdaGlobals()).isTornPda,true);
 });
 

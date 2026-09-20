@@ -43,7 +43,12 @@
       globalObject
       && (globalObject.flutter_inappwebview || globalObject.window?.flutter_inappwebview)
     );
-    const isTornPda = hasPdaStorage && hasPdaHttp && hasFlutterBridge;
+    // TornPDA injects its bridge/helpers independently. Treat the Flutter
+    // bridge as authoritative when it is already present, and also accept the
+    // complete storage+HTTP helper pair if the bridge is temporarily absent.
+    // Requiring all three signals at one instant can misclassify TornPDA during
+    // userscript startup and strand mobile-only UI recovery paths.
+    const isTornPda = hasFlutterBridge || (hasPdaStorage && hasPdaHttp);
     return Object.freeze({
       kind: isTornPda ? RUNTIME_TORNPDA : RUNTIME_USERSCRIPT,
       isTornPda,

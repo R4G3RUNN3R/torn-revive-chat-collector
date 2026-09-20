@@ -69,6 +69,15 @@ test('minimize state remains independent, persists across reloads, and hides the
   assert.doesNotMatch(source, /body\.style\.display = state\.minimized/);
 });
 
+test('TornPDA minimized state exposes a safe-area floating launcher independent of Torn sidebar markup', () => {
+  assert.match(source, /id = 'rr-pda-launcher'/);
+  assert.match(source, /document\.body\.appendChild\(pdaLauncher\)/);
+  assert.match(source, /pdaLauncher\.style\.display = shouldShow \? 'inline-flex' : 'none'/);
+  assert.match(source, /#rr-pda-launcher\{[^}]*width:48px;height:48px/);
+  assert.match(source, /env\(safe-area-inset-right,0px\)/);
+  assert.match(source, /env\(safe-area-inset-bottom,0px\)/);
+});
+
 test('request and reviver tabs expose direct certified cards without restoring the old request form', () => {
   assert.doesNotMatch(source, /id=["']rr-request-form["']/);
   assert.match(source, /ReviveRelay → Revive Me!/);
