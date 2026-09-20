@@ -55,3 +55,13 @@ test('release manifest configuration is either absent or supplies both review an
   assert.equal(cfg.REVIVERELAY_REVIEW_MANIFEST_FILE,'/releases/review.json');
   assert.equal(cfg.REVIVERELAY_STABLE_MANIFEST_FILE,'/releases/stable.json');
 });
+
+
+test('runtime version configuration enforces single-digit Voidsmith components', () => {
+  const base={NODE_ENV:'test',DATABASE_URL:'postgres://x:y@localhost/z',API_KEY_ENCRYPTION_KEY:'a'.repeat(64),SESSION_TOKEN_PEPPER:'pepper'};
+  assert.doesNotThrow(()=>loadConfig({...base,REVIVERELAY_SERVER_VERSION:'0.7.0',REVIVERELAY_MINIMUM_CLIENT_VERSION:'0.6.9'}));
+  for(const invalid of ['0.6.10','0.10.0','10.0.0','0.07.0']){
+    assert.throws(()=>loadConfig({...base,REVIVERELAY_SERVER_VERSION:invalid}),/REVIVERELAY_SERVER_VERSION|Invalid string|format/i,invalid);
+    assert.throws(()=>loadConfig({...base,REVIVERELAY_MINIMUM_CLIENT_VERSION:invalid}),/REVIVERELAY_MINIMUM_CLIENT_VERSION|Invalid string|format/i,invalid);
+  }
+});

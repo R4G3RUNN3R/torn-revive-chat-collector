@@ -120,9 +120,15 @@ The repository contains no first-class browser-extension source tree (`manifest.
 
 TornPDA acceptance requires a genuine TornPDA app/in-app browser on a physical device or equivalent genuine runtime; a narrow desktop viewport is not sufficient.
 
-- [ ] Install/update and boot on real TornPDA.
+- [ ] Fresh install on real TornPDA opens the panel normally, keeps Diagnostics OFF by default, and creates no bogus session or preset state.
+- [ ] Install/update and boot on real TornPDA; confirm the native script manager detects a newer ReviveRelay build and the validated ReviveRelay update action navigates to the approved install URL.
+- [ ] Confirm Create API key opens the intended Torn API-key page inside the TornPDA WebView.
+- [ ] Background/suspend and resume during an in-flight request recovers after the bounded request timeout and refreshes authoritative state.
 - [ ] Verify sidebar/control availability, requester flow, queue presentation, filtering/sorting, and navigation/remount behavior.
-- [ ] Verify verification, dormant/disabled, error, trial, and safely exercisable subscription states.
+- [ ] Verify verification, dormant/disabled, error, trial, and safely exercisable subscription states, including POST-based account deletion and Verification-key revocation.
+- [ ] Verify multiple certified-request notifications stack visibly rather than overlap; record that notification delivery is in-page and therefore not guaranteed while TornPDA is suspended/backgrounded.
+- [ ] Rotate portrait/landscape and confirm safe-area placement, scrolling, touch targets, keyboard behavior and minimize/restore access.
+- [ ] Close/reopen TornPDA after a simulated/faulted storage fallback and confirm the latest session/UI state is reconciled rather than stale native state returning.
 - [ ] Record any TornPDA capability difference as an explicit compatibility rule, including notification support.
 
 ## Subscription safety

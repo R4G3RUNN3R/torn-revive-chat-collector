@@ -10,6 +10,7 @@
   const DEFAULT_TIMEOUT_MS = 15000;
   const STORAGE_INIT_TIMEOUT_MS = 3000;
   const STORAGE_WRITE_TIMEOUT_MS = 3000;
+  const FALLBACK_DIRTY_KEY = 'reviverelay_pda_fallback_dirty';
 
   function timeoutError(code) {
     return Object.assign(new Error(code), { code, retryable: true });
@@ -84,6 +85,7 @@
     function migrateCacheToGm() {
       backend = 'gm';
       for (const [key, value] of Object.entries(cache)) writeGm(key, value);
+      writeGm(FALLBACK_DIRTY_KEY, true);
     }
 
     async function writeManyPda(values) {
@@ -94,7 +96,7 @@
         return;
       }
       await withTimeout(
-        Promise.all(entries.map(([key, value]) => pdaStorage.set(key, value))),
+        Promise.all(entries.map(([key, value]) => Promise.resolve().then(() => pdaStorage.set(key, value)))),
         STORAGE_WRITE_TIMEOUT_MS,
         'TORNPDA_STORAGE_TIMEOUT'
       );
@@ -110,10 +112,26 @@
             'TORNPDA_STORAGE_TIMEOUT'
           );
           if (stored && typeof stored === 'object' && !Array.isArray(stored)) Object.assign(cache, stored);
+
+          if (readGm(FALLBACK_DIRTY_KEY, false) === true) {
+            const recovery = {};
+            for (const key of keys) {
+              const sentinel = `\u0000ReviveRelayMissing:${key}`;
+              const fallbackValue = readGm(key, sentinel);
+              if (fallbackValue !== sentinel) recovery[key] = fallbackValue;
+            }
+            await writeManyPda(recovery);
+            Object.assign(cache, recovery);
+            writeGm(FALLBACK_DIRTY_KEY, false);
+            backend = 'pda';
+            initialized = true;
+            return;
+          }
+
           const migrate = {};
           for (const key of keys) {
             if (Object.prototype.hasOwnProperty.call(cache, key)) continue;
-            const sentinel = Object.freeze({});
+            const sentinel = `\u0000ReviveRelayMissing:${key}`;
             const legacy = readGm(key, sentinel);
             if (legacy !== sentinel) {
               cache[key] = legacy;
@@ -124,6 +142,7 @@
           for (const key of Object.keys(migrate)) {
             writeGm(key, Object.prototype.hasOwnProperty.call(legacyDefaults, key) ? legacyDefaults[key] : null);
           }
+          writeGm(FALLBACK_DIRTY_KEY, false);
           backend = 'pda';
         } catch (error) {
           onError(error, 'storage.pda.initialize');
@@ -147,7 +166,7 @@
       if (backend === 'pda') {
         cache[key] = value;
         withTimeout(
-          pdaStorage.set(key, value),
+          Promise.resolve().then(() => pdaStorage.set(key, value)),
           STORAGE_WRITE_TIMEOUT_MS,
           'TORNPDA_STORAGE_TIMEOUT'
         ).catch(error => {
@@ -362,8 +381,25 @@
     }
 
     function openUrl(url) {
-      if (!window) return null;
-      return window.open(url, '_blank', 'noopener,noreferrer');
+      if (!window) return false;
+      let target;
+      try {
+        target = new URL(String(url || ''), window.location?.href || undefined);
+      } catch (_) {
+        return false;
+      }
+      if (target.protocol !== 'https:') return false;
+      const allowedHosts = new Set(['torn.com', 'www.torn.com', 'reviverelay.voidsmithindustries.com']);
+      if (!allowedHosts.has(target.hostname)) return false;
+      if (runtime.isTornPda) {
+        if (window.location && typeof window.location.assign === 'function') {
+          window.location.assign(target.href);
+          return true;
+        }
+        return false;
+      }
+      window.open(target.href, '_blank', 'noopener,noreferrer');
+      return true;
     }
 
     return Object.freeze({
@@ -384,6 +420,7 @@
     DEFAULT_TIMEOUT_MS,
     STORAGE_INIT_TIMEOUT_MS,
     STORAGE_WRITE_TIMEOUT_MS,
+    FALLBACK_DIRTY_KEY,
     withTimeout,
     detectRuntime,
     createStorage,

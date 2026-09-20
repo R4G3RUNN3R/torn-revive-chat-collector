@@ -22,7 +22,8 @@
 - TornPDA does not automatically consume or persist TornPDA's global Torn API key. Existing explicit ReviveRelay key onboarding and server-side authority remain unchanged.
 - TornPDA DELETE requests carrying a body fail explicitly in the platform adapter rather than silently dropping confirmation data.
 - Native TornPDA HTTP calls are bounded by timeouts so a suspended or orphaned WebView request cannot permanently pin single-flight polling or resume reconciliation.
-- TornPDA native-storage initialization/write failures degrade to GM-compatible persistence while preserving the freshest loaded values; successfully migrated legacy values are neutralized to prevent stale-state resurrection.
+- TornPDA native-storage initialization/write failures degrade to GM-compatible persistence while preserving the freshest loaded values; a dirty-fallback marker reconciles newer fallback state back into native storage on the next healthy start, and successfully migrated legacy values are neutralized to prevent stale-state resurrection.
+- TornPDA update/API-key navigation stays inside the current WebView and is restricted to approved HTTPS hosts; desktop keeps its normal new-tab behavior.
 - Account deletion continues to require the exact server-validated confirmation string and authenticated ReviveRelay session.
 - No Torn API, entitlement, billing or transaction authority moved into the browser client.
 

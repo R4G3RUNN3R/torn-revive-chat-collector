@@ -46,7 +46,7 @@ test('TornPDA storage loads durable state, migrates missing GM values, and clear
   assert.equal(storage.get('existing','x'),'durable');
   assert.equal(storage.get('legacy','x'),'from-gm');
   assert.deepEqual(migrated,{legacy:'from-gm'});
-  assert.deepEqual(gmWrites,[['legacy',null]]);
+  assert.deepEqual(gmWrites,[['legacy',null],[Platform.FALLBACK_DIRTY_KEY,false]]);
 });
 
 test('TornPDA storage falls back to GM storage if native initialization fails', async () => {
@@ -92,6 +92,50 @@ test('TornPDA migration write failure preserves loaded durable state when degrad
   assert.equal(storage.get('token',''),'durable-token');
   assert.equal(gm.token,'durable-token');
   assert.equal(gm.legacy,'legacy-value');
+  assert.equal(gm[Platform.FALLBACK_DIRTY_KEY],true);
+});
+
+test('TornPDA restart reconciles newer dirty GM fallback state back into native storage', async () => {
+  const gm={token:'fallback-new',[Platform.FALLBACK_DIRTY_KEY]:true};
+  const native={token:'native-stale'};
+  const storage=Platform.createStorage({
+    runtime:{isTornPda:true},
+    pdaStorage:{
+      async loadAll(){return {...native};},
+      async setMany(values){Object.assign(native,values);},
+      async set(key,value){native[key]=value;}
+    },
+    gmGetValue:(key,fallback)=>Object.hasOwn(gm,key)?gm[key]:fallback,
+    gmSetValue:(key,value)=>{gm[key]=value;},
+    keys:['token']
+  });
+  await storage.initialize();
+  assert.equal(storage.mode(),'pda');
+  assert.equal(storage.get('token',''),'fallback-new');
+  assert.equal(native.token,'fallback-new');
+  assert.equal(gm[Platform.FALLBACK_DIRTY_KEY],false);
+});
+
+test('TornPDA storage write synchronous throw degrades safely to GM', async () => {
+  const gm={};
+  let shouldThrow=false;
+  const storage=Platform.createStorage({
+    runtime:{isTornPda:true},
+    pdaStorage:{
+      async loadAll(){return {token:'native'};},
+      set(){if(shouldThrow) throw new Error('sync failure'); return Promise.resolve();}
+    },
+    gmGetValue:(key,fallback)=>Object.hasOwn(gm,key)?gm[key]:fallback,
+    gmSetValue:(key,value)=>{gm[key]=value;},
+    keys:['token']
+  });
+  await storage.initialize();
+  shouldThrow=true;
+  assert.doesNotThrow(()=>storage.set('token','changed'));
+  await new Promise(resolve=>setTimeout(resolve,10));
+  assert.equal(storage.mode(),'gm');
+  assert.equal(gm.token,'changed');
+  assert.equal(gm[Platform.FALLBACK_DIRTY_KEY],true);
 });
 
 test('TornPDA storage write failure degrades to GM and preserves cached state', async () => {
@@ -236,4 +280,48 @@ test('PDA notifier stacks multiple notifications instead of overlapping fixed to
   const stack=document.body.children[0];
   assert.equal(stack.id,'rr-pda-toast-stack');
   assert.equal(stack.children.length,2);
+});
+
+
+test('TornPDA navigation uses current WebView for approved HTTPS update and Torn links', () => {
+  const assigned=[];
+  const window={
+    location:{href:'https://www.torn.com/index.php',assign:url=>assigned.push(url)},
+    open(){throw new Error('TornPDA must not use popup navigation');}
+  };
+  const globals=pdaGlobals();
+  const platform=Platform.createPlatform({
+    globalObject:globals,
+    window,
+    document:{},
+    gm:{}
+  });
+  assert.equal(platform.runtime.isTornPda,true);
+  assert.equal(platform.openUrl('https://reviverelay.voidsmithindustries.com/dist/review/ReviveRelay.user.js'),true);
+  assert.equal(platform.openUrl('https://www.torn.com/preferences.php#tab=api'),true);
+  assert.equal(platform.openUrl('http://www.torn.com/'),false);
+  assert.equal(platform.openUrl('https://evil.example/steal'),false);
+  assert.deepEqual(assigned,[
+    'https://reviverelay.voidsmithindustries.com/dist/review/ReviveRelay.user.js',
+    'https://www.torn.com/preferences.php#tab=api'
+  ]);
+});
+
+test('desktop navigation preserves new-tab behavior only for approved HTTPS hosts', () => {
+  const opened=[];
+  const window={
+    location:{href:'https://www.torn.com/index.php'},
+    open:(...args)=>{opened.push(args); return null;}
+  };
+  const platform=Platform.createPlatform({
+    globalObject:{},
+    window,
+    document:{},
+    gm:{xmlHttpRequest(){}}
+  });
+  assert.equal(platform.runtime.isTornPda,false);
+  assert.equal(platform.openUrl('https://reviverelay.voidsmithindustries.com/dist/review/ReviveRelay.user.js'),true);
+  assert.equal(platform.openUrl('javascript:alert(1)'),false);
+  assert.equal(opened.length,1);
+  assert.equal(opened[0][1],'_blank');
 });
