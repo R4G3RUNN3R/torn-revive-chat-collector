@@ -2,7 +2,7 @@
 
 **Task:** REV-002  
 **Date:** 20 September 2026  
-**Status:** IMPLEMENTED / AUTOMATED VERIFIED / NOT RELEASED
+**Status:** IMPLEMENTED / AUTOMATED VERIFIED / PUBLIC BETA-REVIEW PUBLISHED / STABLE NOT PROMOTED
 
 ## Candidate identity
 
@@ -13,7 +13,9 @@
 - Build timestamp: `2026-09-20T07:25:24.000Z`
 - SHA-256: `25ca10f9ef87ca5287485b74cb94f45630d2cbe6ae39d083ff18bd624d10c5d8`
 - Size: `165903` bytes
-- Public promoted: `false`
+- Public Beta/Review website distribution: `published 2026-09-20`
+- Stable promoted: `false`
+- Website distribution wrapper SHA-256: `d625196ae162972f3378087ec688869af192b7207ffd7f9376820321c9fc69c8`
 
 ## Implemented TornPDA compatibility
 
@@ -71,13 +73,26 @@ Claude and Codex were used as independent read-only review lanes.
 - Codex independently reviewed the same final delta, found no Critical/High/Medium issue, and returned **BLOCKER: NO**.
 - Reviewer feedback was reconciled against code and automated tests rather than accepted by model consensus alone.
 
-## Remaining human / deployment gates
+## Review publication evidence
 
-The candidate is **not released** and must not be described as live.
+George explicitly authorised the website update on 20 September 2026. Publication remained review-only; Stable 0.4.4 was not promoted.
 
-Before promotion:
+- The isolated review backend was patched with only the two PDA-safe POST aliases on top of the existing 0.6.1 review server release. No database migration was introduced.
+- Public review readback returned `401 AUTH_REQUIRED` for unauthenticated `POST /review/v1/account/delete` and `POST /review/v1/verification-credential/revoke`, proving both routes exist and remain authenticated.
+- The immutable review artifact is publicly readable at `/releases/review/0.7.0/ReviveRelay-0.7.0.user.js` with exact SHA-256 `25ca10f9ef87ca5287485b74cb94f45630d2cbe6ae39d083ff18bd624d10c5d8`.
+- The mutable `/dist/review/` update bridge and `https://voidsmithindustries.com/torn/install/reviverelay.user.js` now report `@version 0.7.0`.
+- The website wrapper changes userscript metadata only; its executable body is byte-for-byte identical to the tested candidate body. Wrapper SHA-256 is `d625196ae162972f3378087ec688869af192b7207ffd7f9376820321c9fc69c8`.
+- Public website installer response includes `Cache-Control: no-cache` as required for the mutable distribution endpoint.
+- The public Torn catalogue reports ReviveRelay `0.7.0`, lifecycle `Beta`, install approved, and TornPDA compatibility `Unknown` pending genuine device acceptance.
+- Website source was reconciled to local canonical main commit `bdfd2fbce1e3f316546d3369aa0ce09ac0877d47`. That repository currently has no configured Git remote, so no remote push is claimed.
+- Public stable `/v1/client/version` continued to report `0.4.4`; the stable API and worker were not restarted or replaced.
 
-1. Deploy/read back the server compatibility aliases before publishing the 0.7.0 client/update metadata.
-2. Complete the Real TornPDA acceptance section in `docs/review/REVIEW-CHECKLIST.md` on genuine Android and iOS TornPDA runtimes.
-3. Confirm fresh install, update discovery/install navigation, API-key navigation, suspend/resume, storage fallback recovery, account deletion, verification revocation, notification stacking, safe-area/orientation behavior and minimize/restore.
-4. Re-verify the exact artifact bytes after any authorised deployment/promotion step.
+## Remaining human gate
+
+ReviveRelay 0.7.0 is publicly distributed as **Beta/Review** for acceptance testing. It must not be described as Stable or as verified TornPDA-compatible yet.
+
+Before Stable promotion:
+
+1. Complete the Real TornPDA acceptance section in `docs/review/REVIEW-CHECKLIST.md` on genuine Android and iOS TornPDA runtimes.
+2. Confirm fresh install, update discovery/install navigation, API-key navigation, suspend/resume, storage fallback recovery, account deletion, verification revocation, notification stacking, safe-area/orientation behavior and minimize/restore.
+3. Re-verify the exact artifact bytes and public readback before any later Stable promotion.
