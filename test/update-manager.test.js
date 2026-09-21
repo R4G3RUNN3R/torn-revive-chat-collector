@@ -162,6 +162,22 @@ test('openUpdate opens only a validated newer dist userscript for the current ch
   assert.equal(opened.length, 1);
 });
 
+test('openUpdate reports failure when the trusted installer cannot be opened', async () => {
+  let state = {};
+  const manager = createUpdateManager({
+    currentVersion: '0.6.7',
+    channel: 'review',
+    fetchText: async () => meta(),
+    getState: () => state,
+    saveState: value => { state = value; },
+    now: () => UPDATE_CHECK_MS + 1,
+    openUrl: () => false
+  });
+
+  await manager.check({ force: true });
+  assert.equal(manager.openUpdate(), false);
+});
+
 test('openUpdate does nothing when dist reports the already-installed version', async () => {
   let state = {};
   const opened = [];
