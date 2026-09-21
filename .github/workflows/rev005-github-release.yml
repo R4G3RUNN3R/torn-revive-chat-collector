@@ -18,7 +18,7 @@ jobs:
       - name: Checkout verified release record
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
-          persist-credentials: false
+          persist-credentials: true
           fetch-depth: 0
 
       - name: Set up Node 20
@@ -95,18 +95,43 @@ jobs:
           sha256sum ReviveRelay-0.7.2-public.user.js ReviveRelay-0.7.2-public.meta.js
           wc -c ReviveRelay-0.7.2-public.user.js ReviveRelay-0.7.2-public.meta.js
 
-      - name: Publish GitHub prerelease
+      - name: Publish or refresh GitHub prerelease
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create reviverelay-v0.7.2-beta \
-            --repo "${GITHUB_REPOSITORY}" \
-            --target 999208663fac2238e10411cb2e8f5749ef094aa3 \
-            --title "ReviveRelay 0.7.2 Public Beta" \
-            --prerelease \
-            --notes "Public Beta/Review release. Adds a one-click safe update handoff from ReviveRelay to the canonical Voidsmith installer. Background checks remain notification-only. No remote eval or self-modification. Stable remains 0.4.4 and genuine TornPDA device acceptance is still pending." \
-            dist/review/ReviveRelay-0.7.2.user.js \
-            dist/review/ReviveRelay-0.7.2.meta.js \
-            ReviveRelay-0.7.2-public.user.js \
-            ReviveRelay-0.7.2-public.meta.js \
-            ReviveRelay-0.7.2-release-manifest.json
+          if gh release view reviverelay-v0.7.2-beta --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release upload reviverelay-v0.7.2-beta --repo "${GITHUB_REPOSITORY}" --clobber \
+              dist/review/ReviveRelay-0.7.2.user.js \
+              dist/review/ReviveRelay-0.7.2.meta.js \
+              ReviveRelay-0.7.2-public.user.js \
+              ReviveRelay-0.7.2-public.meta.js \
+              ReviveRelay-0.7.2-release-manifest.json
+          else
+            gh release create reviverelay-v0.7.2-beta \
+              --repo "${GITHUB_REPOSITORY}" \
+              --target 999208663fac2238e10411cb2e8f5749ef094aa3 \
+              --title "ReviveRelay 0.7.2 Public Beta" \
+              --prerelease \
+              --notes "Public Beta/Review release. Adds a one-click safe update handoff from ReviveRelay to the canonical Voidsmith installer. Background checks remain notification-only. No remote eval or self-modification. Stable remains 0.4.4 and genuine TornPDA device acceptance is still pending." \
+              dist/review/ReviveRelay-0.7.2.user.js \
+              dist/review/ReviveRelay-0.7.2.meta.js \
+              ReviveRelay-0.7.2-public.user.js \
+              ReviveRelay-0.7.2-public.meta.js \
+              ReviveRelay-0.7.2-release-manifest.json
+          fi
+
+      - name: Stage verified release files on release branch
+        run: |
+          mkdir -p release-assets/0.7.2
+          cp dist/review/ReviveRelay-0.7.2.user.js release-assets/0.7.2/
+          cp dist/review/ReviveRelay-0.7.2.meta.js release-assets/0.7.2/
+          cp ReviveRelay-0.7.2-public.user.js release-assets/0.7.2/
+          cp ReviveRelay-0.7.2-public.meta.js release-assets/0.7.2/
+          cp ReviveRelay-0.7.2-release-manifest.json release-assets/0.7.2/
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add release-assets/0.7.2
+          if ! git diff --cached --quiet; then
+            git commit -m "release-assets: stage verified ReviveRelay 0.7.2"
+            git push origin HEAD:fix/rev-005-one-click-updater
+          fi
