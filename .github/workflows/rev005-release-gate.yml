@@ -35,6 +35,12 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
+      - name: Set up Node 20
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '20'
+          package-manager-cache: false
+
       - name: Show candidate identity
         run: |
           node --version
