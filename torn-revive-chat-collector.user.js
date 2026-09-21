@@ -1669,13 +1669,19 @@
 
   async function checkUpdates(force = false) {
     updateResult = await state.updateManager.check({ force });
-    if (updateResult?.updateAvailable && !updateResult.skipped) {
-      if (force && state.updateManager.openUpdate()) {
-        setStatus(`ReviveRelay ${updateResult.latestVersion} verified. Opening the installer now.`);
+    if (updateResult?.updateAvailable && !updateResult.skipped && !updateResult.error) {
+      if (force) {
+        if (state.updateManager.openUpdate()) {
+          setStatus(`ReviveRelay ${updateResult.latestVersion} verified. Opening the installer now.`);
+        } else {
+          setStatus('The update was verified, but ReviveRelay could not open the trusted installer. Use Install update to retry.', true);
+        }
       } else {
         setStatus(`ReviveRelay ${updateResult.latestVersion} update available. Open Settings → Updates to install it.`);
       }
-    } else if (force && !updateResult?.error) {
+    } else if (force && updateResult?.error) {
+      setStatus('Update check failed. A previously detected update, if shown below, can still be retried manually.', true);
+    } else if (force) {
       setStatus('ReviveRelay is already up to date.');
     }
     if (force || state.settingsOpen) renderSettingsDrawer();
