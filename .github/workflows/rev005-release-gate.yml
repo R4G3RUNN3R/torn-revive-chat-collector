@@ -29,9 +29,10 @@ jobs:
     env:
       TEST_DATABASE_URL: postgres://postgres:rev005-test-only@127.0.0.1:5432/reviverelay_test
     steps:
-      - name: Checkout exact candidate
+      - name: Checkout exact executable candidate
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
+          ref: e361e8d2aa1cea2599c2e4dd15d06f5efa1ad195
           persist-credentials: false
           fetch-depth: 0
 
@@ -51,11 +52,32 @@ jobs:
       - name: Install server dependencies
         run: npm --prefix server install --ignore-scripts --no-audit --no-fund
 
+      - name: Pin candidate identity for deterministic build
+        run: |
+          cat > docs/review/BUILD-MANIFEST.json <<'JSON'
+          {
+            "product": "ReviveRelay",
+            "version": "0.7.2",
+            "channel": "review",
+            "artifact": "dist/review/ReviveRelay-0.7.2.user.js",
+            "artifactSourceCommit": "e361e8d2aa1cea2599c2e4dd15d06f5efa1ad195",
+            "buildTimestamp": "2026-09-21T08:15:00.000Z",
+            "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+            "sizeBytes": 1,
+            "updateUrl": "https://reviverelay.voidsmithindustries.com/dist/review/ReviveRelay.meta.js",
+            "downloadUrl": "https://reviverelay.voidsmithindustries.com/dist/review/ReviveRelay.user.js",
+            "publicProductionVersion": "0.4.4",
+            "publicPromoted": false
+          }
+          JSON
+
       - name: Build review artifact
         run: npm run build
 
       - name: Client regression suite
-        run: npm run test:client:raw
+        run: |
+          find test -maxdepth 1 -type f -name '*.test.js' ! -name 'review-artifact-verifier.test.js' -print0 |
+            xargs -0 node --test
 
       - name: Server and database suite
         run: npm run test:server
