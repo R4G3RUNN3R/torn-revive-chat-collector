@@ -1,0 +1,18 @@
+{
+  "latestVersion": "0.7.2",
+  "minimumVersion": "0.6.1",
+  "buildTimestamp": "2026-09-21T08:15:00.000Z",
+  "releaseNotes": "ReviveRelay 0.7.2 adds one-click safe update handoff through the canonical Voidsmith installer while keeping background checks notification-only.",
+  "gitCommit": "e361e8d2aa1cea2599c2e4dd15d06f5efa1ad195",
+  "releaseChannel": "review",
+  "sha256": "43bd6278630e970e6113edf6638bae003fc159a82d310295669d0cef637dd29c",
+  "apiCompatibility": {
+    "minimum": 1,
+    "current": 1
+  },
+  "install": {
+    "installUrl": "https://reviverelay.voidsmithindustries.com/releases/review/0.7.2/ReviveRelay-0.7.2.user.js",
+    "metaUrl": "https://reviverelay.voidsmithindustries.com/releases/review/0.7.2/ReviveRelay-0.7.2.meta.js"
+  },
+  "mandatory": false
+}
