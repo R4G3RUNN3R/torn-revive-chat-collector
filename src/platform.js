@@ -399,7 +399,7 @@
         return false;
       }
       if (target.protocol !== 'https:') return false;
-      const allowedHosts = new Set(['torn.com', 'www.torn.com', 'reviverelay.voidsmithindustries.com']);
+      const allowedHosts = new Set(['torn.com', 'www.torn.com', 'reviverelay.voidsmithindustries.com', 'voidsmithindustries.com']);
       if (!allowedHosts.has(target.hostname)) return false;
       if (runtime.isTornPda) {
         if (window.location && typeof window.location.assign === 'function') {
