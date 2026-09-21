@@ -10,6 +10,7 @@
   const UPDATE_STATE_SOURCE = 'distribution-meta-v1';
   const CHANNELS = Object.freeze(['review', 'stable']);
   const DISTRIBUTION_ORIGIN = 'https://reviverelay.voidsmithindustries.com';
+  const PUBLIC_REVIEW_INSTALL_URL = 'https://voidsmithindustries.com/torn/install/reviverelay.user.js';
 
   function versioning() {
     if (browserVersioning) return browserVersioning;
@@ -205,8 +206,8 @@
       const state = read();
       const release = validatedStoredRelease(state);
       if (!release || compareVersions(release.latestVersion, currentVersion) <= 0) return false;
-      openUrl(release.install.installUrl);
-      return true;
+      const installUrl = channel === 'review' ? PUBLIC_REVIEW_INSTALL_URL : release.install.installUrl;
+      return openUrl(installUrl) === true;
     }
 
     return Object.freeze({ check, dismiss, openUpdate, getState: read });
@@ -216,6 +217,7 @@
     DAY_MS,
     UPDATE_CHECK_MS,
     UPDATE_STATE_SOURCE,
+    PUBLIC_REVIEW_INSTALL_URL,
     distributionUrls,
     parseDistributionMetadata,
     validateManifest,

@@ -300,12 +300,12 @@ test('TornPDA navigation uses current WebView for approved HTTPS update and Torn
     gm:{}
   });
   assert.equal(platform.runtime.isTornPda,true);
-  assert.equal(platform.openUrl('https://reviverelay.voidsmithindustries.com/dist/review/ReviveRelay.user.js'),true);
+  assert.equal(platform.openUrl('https://voidsmithindustries.com/torn/install/reviverelay.user.js'),true);
   assert.equal(platform.openUrl('https://www.torn.com/preferences.php#tab=api'),true);
   assert.equal(platform.openUrl('http://www.torn.com/'),false);
   assert.equal(platform.openUrl('https://evil.example/steal'),false);
   assert.deepEqual(assigned,[
-    'https://reviverelay.voidsmithindustries.com/dist/review/ReviveRelay.user.js',
+    'https://voidsmithindustries.com/torn/install/reviverelay.user.js',
     'https://www.torn.com/preferences.php#tab=api'
   ]);
 });

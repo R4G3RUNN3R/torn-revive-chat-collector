@@ -1,0 +1,56 @@
+name: ReviveRelay 0.7.2 pinned artifact
+
+on:
+  push:
+    branches:
+      - fix/rev-005-one-click-updater
+
+permissions:
+  contents: read
+
+jobs:
+  pinned-artifact:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout pinned release record
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Set up Node 20
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '20'
+          package-manager-cache: false
+
+      - name: Build pinned artifact
+        run: npm run build
+
+      - name: Verify immutable artifact
+        run: node scripts/verify-review-artifact.js
+
+      - name: Syntax and static audit
+        run: |
+          node --check dist/review/ReviveRelay-0.7.2.user.js
+          npm run audit:review
+
+      - name: Confirm artifact identity
+        run: |
+          sha256sum dist/review/ReviveRelay-0.7.2.user.js
+          wc -c dist/review/ReviveRelay-0.7.2.user.js
+          cmp dist/review/ReviveRelay-0.7.2.user.js dist/distribution/review/ReviveRelay.user.js
+          cmp dist/review/ReviveRelay-0.7.2.meta.js dist/distribution/review/ReviveRelay.meta.js
+
+      - name: Preserve exact release bytes
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ReviveRelay-0.7.2-review
+          path: |
+            dist/review/ReviveRelay-0.7.2.user.js
+            dist/review/ReviveRelay-0.7.2.meta.js
+            dist/distribution/review/ReviveRelay.user.js
+            dist/distribution/review/ReviveRelay.meta.js
+          if-no-files-found: error
+          retention-days: 30

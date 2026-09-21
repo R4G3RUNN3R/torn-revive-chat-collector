@@ -6,12 +6,16 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       postgres:
-        image: postgres:16-alpine
+        image: postgres:16
         env:
           POSTGRES_USER: reviverelay
           POSTGRES_PASSWORD: test
@@ -19,31 +23,48 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U reviverelay"
-          --health-interval 10s
+          --health-cmd "pg_isready -U reviverelay -d reviverelay_test"
+          --health-interval 5s
           --health-timeout 5s
-          --health-retries 5
+          --health-retries 12
     env:
       TEST_DATABASE_URL: postgres://reviverelay:test@127.0.0.1:5432/reviverelay_test
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
-          node-version: 20
-      - run: npm install --prefix server --no-audit --no-fund
-      - name: Full client and server test suite
-        run: npm test
-      - name: Explicit server PostgreSQL suite
-        run: npm --prefix server test
-      - name: Build installable userscript
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Set up Node 20
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '20'
+          package-manager-cache: false
+
+      - name: Install server dependencies
+        run: npm --prefix server install --ignore-scripts --no-audit --no-fund
+
+      - name: Build pinned review artifact
         run: npm run build
-      - name: Syntax check userscript sources and build
+
+      - name: Client regression suite
+        run: npm run test:client:raw
+
+      - name: Server PostgreSQL suite
+        run: npm run test:server
+
+      - name: Verify immutable artifact
+        run: node scripts/verify-review-artifact.js
+
+      - name: Static review audit
+        run: npm run audit:review
+
+      - name: Syntax check current userscript source and artifact
         run: |
           node --check torn-revive-chat-collector.user.js
-          node --check dist/torn-revive-chat-collector.user.js
-          node --check src/core.js
-          node --check src/chat-dom.js
-          node --check src/public-channels.js
+          node --check "dist/review/ReviveRelay-$(node -p "require('./package.json').version").user.js"
+
       - name: Syntax check ReviveRelay server entrypoints
         run: |
           node --check server/src/config.js
@@ -53,6 +74,7 @@ jobs:
           node --check server/src/db/migrate.js
           node --check server/src/db/jobs.js
           node --check server/src/db/transactions.js
+
       - name: Syntax check deployment scripts
         run: |
           sh -n deploy/backup.sh

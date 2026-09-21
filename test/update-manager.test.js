@@ -150,16 +150,32 @@ test('openUpdate opens only a validated newer dist userscript for the current ch
     getState: () => state,
     saveState: value => { state = value; },
     now: () => UPDATE_CHECK_MS + 1,
-    openUrl: url => opened.push(url)
+    openUrl: url => { opened.push(url); return true; }
   });
 
   await manager.check({ force: true });
   assert.equal(manager.openUpdate(), true);
-  assert.deepEqual(opened, ['https://reviverelay.voidsmithindustries.com/dist/review/ReviveRelay.user.js']);
+  assert.deepEqual(opened, ['https://voidsmithindustries.com/torn/install/reviverelay.user.js']);
 
   state.lastManifest.install.installUrl = 'https://evil.example/ReviveRelay.user.js';
   assert.equal(manager.openUpdate(), false);
   assert.equal(opened.length, 1);
+});
+
+test('openUpdate reports failure when the trusted installer cannot be opened', async () => {
+  let state = {};
+  const manager = createUpdateManager({
+    currentVersion: '0.6.7',
+    channel: 'review',
+    fetchText: async () => meta(),
+    getState: () => state,
+    saveState: value => { state = value; },
+    now: () => UPDATE_CHECK_MS + 1,
+    openUrl: () => false
+  });
+
+  await manager.check({ force: true });
+  assert.equal(manager.openUpdate(), false);
 });
 
 test('openUpdate does nothing when dist reports the already-installed version', async () => {

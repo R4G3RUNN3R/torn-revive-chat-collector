@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.7.2 - One-click safe update handoff
+
+### Changed
+
+- Settings now exposes **Check & install update**. A manual check validates the trusted ReviveRelay distribution metadata and, when a newer Beta/Review build exists, immediately opens the canonical Voidsmith installer for the userscript manager or TornPDA to handle.
+- The existing **Install update** action remains available after discovery as a retry/fallback.
+- Review-channel update handoff now uses the company-approved public installer authority at `https://voidsmithindustries.com/torn/install/reviverelay.user.js` rather than opening the mutable review-distribution URL directly.
+- Background startup/12-hour update checks remain non-intrusive: they notify about a newer version but do not open the installer without an explicit user action.
+
+### Security
+
+- ReviveRelay still does not download-and-eval remote JavaScript, rewrite its own installed source, bypass the userscript manager, or silently install an update.
+- The update manager continues to validate the expected ReviveRelay origin, release channel, version metadata and distribution URLs before any installer handoff.
+- Installer navigation remains restricted to approved HTTPS Voidsmith/Torn hosts.
+
+### Release status
+
+0.7.2 is a Beta/Review candidate. Stable remains 0.4.4 and TornPDA compatibility remains pending genuine device acceptance.
+
 ## 0.7.1 - TornPDA launcher recovery hotfix
 
 ### Fixed
