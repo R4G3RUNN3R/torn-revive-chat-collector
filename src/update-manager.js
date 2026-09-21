@@ -207,8 +207,7 @@
       const release = validatedStoredRelease(state);
       if (!release || compareVersions(release.latestVersion, currentVersion) <= 0) return false;
       const installUrl = channel === 'review' ? PUBLIC_REVIEW_INSTALL_URL : release.install.installUrl;
-      openUrl(installUrl);
-      return true;
+      return openUrl(installUrl) === true;
     }
 
     return Object.freeze({ check, dismiss, openUpdate, getState: read });
