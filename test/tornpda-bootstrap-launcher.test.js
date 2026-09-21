@@ -39,3 +39,11 @@ test('recovery launcher critical style is not dependent on injected stylesheet s
   assert.match(source, /visibility: 'visible'/);
   assert.match(source, /opacity: '1'/);
 });
+
+test('recovery launcher watcher remounts the control after Torn/WebView DOM replacement', () => {
+  assert.match(source, /function startPdaLauncherWatch\(\)/);
+  assert.match(source, /window\.setInterval\(\(\) => \{/);
+  assert.match(source, /syncPdaLauncher\(\{ forceVisible: true \}\)/);
+  assert.match(source, /\}, 2000\)/);
+  assert.match(source, /startPdaLauncherWatch\(\);/);
+});
