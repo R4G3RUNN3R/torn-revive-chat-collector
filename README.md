@@ -1,10 +1,10 @@
 # ReviveRelay
 
-ReviveRelay is a Torn userscript and isolated Voidsmith backend for direct, certified revive requests. Version **0.6.1** is the private Torn review candidate. Public production remains **0.4.4** until Torn review, manual browser acceptance, and explicit owner approval are complete.
+ReviveRelay is a Torn userscript and isolated Voidsmith backend for direct, certified revive requests. Version **0.7.2** is the current Public Beta/Review candidate. Stable remains **0.4.4** until the remaining review and genuine-device acceptance gates are complete.
 
 ## Runtime model
 
-ReviveRelay 0.6.1 is direct-only. It does **not scrape public chat**, does not collect Faction/Company/private chat, and does not make automated non-API Torn game requests. Requesters create certified requests through the ReviveRelay API; eligible revivers receive the server-certified queue and may manually accept a request.
+ReviveRelay 0.7.2 is direct-only. It does **not scrape public chat**, does not collect Faction/Company/private chat, and does not make automated non-API Torn game requests. Requesters create certified requests through the ReviveRelay API; eligible revivers receive the server-certified queue and may manually accept a request.
 
 Requester access is free. A requester can create a request immediately, but the request cannot enter the reviver queue or be accepted until the connected Torn API key has a usable requester-evidence capability. ReviveRelay uses one Torn API key for the whole account: the same key that binds Torn identity also supplies verification evidence, so there is no separate requester key to create or maintain.
 
@@ -19,7 +19,7 @@ Reviver access uses the same connected Torn API key; no second key is required. 
 
 ### Review runtime isolation
 
-The 0.6.1 review client uses `https://reviverelay.voidsmithindustries.com/review/v1/` and requires a compatible server-declared `review` runtime contract. Stable public 0.4.4 continues to use `/v1/` and is unchanged. Missing, malformed, stable-channel or incompatible review metadata fails closed; it never grants free/Pro access by absence.
+The 0.7.2 Beta/Review client uses `https://reviverelay.voidsmithindustries.com/review/v1/` and requires a compatible server-declared `review` runtime contract. Stable public 0.4.4 continues to use `/v1/` and is unchanged. Missing, malformed, stable-channel or incompatible review metadata fails closed; it never grants free/Pro access by absence.
 
 ## Subscription modes
 
