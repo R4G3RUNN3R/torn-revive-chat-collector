@@ -69,11 +69,17 @@ test('minimize state remains independent, persists across reloads, and hides the
   assert.doesNotMatch(source, /body\.style\.display = state\.minimized/);
 });
 
-test('TornPDA minimized state exposes a safe-area floating launcher independent of Torn sidebar markup', () => {
+test('TornPDA/mobile recovery launcher is independent of minimized state and one-time runtime detection', () => {
+  assert.match(source, /function isTornPdaNow\(\)/);
+  assert.match(source, /Platform\.detectRuntime\(globalThis\)/);
+  assert.match(source, /function isRecoveryLauncherContext\(\)/);
+  assert.match(source, /pointer: coarse/);
+  assert.match(source, /viewportWidth <= 900/);
   assert.match(source, /id = 'rr-pda-launcher'/);
   assert.match(source, /document\.body\.appendChild\(pdaLauncher\)/);
-  assert.match(source, /pdaLauncher\.style\.display = shouldShow \? 'inline-flex' : 'none'/);
-  assert.match(source, /#rr-pda-launcher\{[^}]*width:48px;height:48px/);
+  assert.match(source, /options\.forceVisible \|\| state\.minimized \|\| isRecoveryLauncherContext\(\)/);
+  assert.doesNotMatch(source, /function syncPdaLauncher\([^)]*\) \{\s*if \(!platform\.runtime\.isTornPda/);
+  assert.match(source, /z-index:2147483646!important/);
   assert.match(source, /env\(safe-area-inset-right,0px\)/);
   assert.match(source, /env\(safe-area-inset-bottom,0px\)/);
 });
