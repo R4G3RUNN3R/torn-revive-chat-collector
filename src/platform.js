@@ -43,18 +43,20 @@
       globalObject
       && (globalObject.flutter_inappwebview || globalObject.window?.flutter_inappwebview)
     );
-    // TornPDA injects its bridge/helpers independently. Treat the Flutter
-    // bridge as authoritative when it is already present, and also accept the
-    // complete storage+HTTP helper pair if the bridge is temporarily absent.
-    // Requiring all three signals at one instant can misclassify TornPDA during
-    // userscript startup and strand mobile-only UI recovery paths.
-    const isTornPda = hasFlutterBridge || (hasPdaStorage && hasPdaHttp);
+    const readyPromise = globalObject && globalObject.__PDA_platformReadyPromise;
+    const hasPdaReadyPromise = Boolean(readyPromise && typeof readyPromise.then === 'function');
+    // TornPDA injects its bridge/helpers independently. Its own HTTP helpers
+    // wait on __PDA_platformReadyPromise before using flutter_inappwebview, so
+    // the ready promise is a reliable early marker even when the native bridge
+    // itself has not appeared yet on a cold/recovered WebView.
+    const isTornPda = hasPdaReadyPromise || hasFlutterBridge || (hasPdaStorage && hasPdaHttp);
     return Object.freeze({
       kind: isTornPda ? RUNTIME_TORNPDA : RUNTIME_USERSCRIPT,
       isTornPda,
       hasPdaStorage,
       hasPdaHttp,
-      hasFlutterBridge
+      hasFlutterBridge,
+      hasPdaReadyPromise
     });
   }
 
