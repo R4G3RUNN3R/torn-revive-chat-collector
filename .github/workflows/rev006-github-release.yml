@@ -1,0 +1,137 @@
+name: Publish ReviveRelay 0.7.3 GitHub prerelease
+
+on:
+  push:
+    branches:
+      - fix/rev-006-tornpda-bootstrap-launcher
+    paths:
+      - .github/workflows/rev006-github-release.yml
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout verified release record
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: true
+          fetch-depth: 0
+
+      - name: Set up Node 20
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '20'
+          package-manager-cache: false
+
+      - name: Build and verify immutable candidate
+        run: |
+          npm run build
+          node scripts/verify-review-artifact.js
+          node --check dist/review/ReviveRelay-0.7.3.user.js
+          npm run audit:review
+          echo "d46e344bc49b939a82df17f67a839296716af5147a53717973e265161dbe68cd  dist/review/ReviveRelay-0.7.3.user.js" | sha256sum -c -
+
+      - name: Build public installer metadata wrapper
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib, json
+
+          src_path=Path('dist/review/ReviveRelay-0.7.3.user.js')
+          src=src_path.read_text()
+          marker='// ==/UserScript=='
+          cut=src.index(marker)+len(marker)
+          header=src[:cut]
+          body=src[cut:]
+          icon='// @icon         data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Crect%20width%3D%2264%22%20height%3D%2264%22%20rx%3D%2214%22%20fill%3D%22%2311170d%22%2F%3E%3Crect%20x%3D%2211%22%20y%3D%2218%22%20width%3D%2242%22%20height%3D%2234%22%20rx%3D%227%22%20fill%3D%22%23f3f7ee%22%2F%3E%3Cpath%20d%3D%22M24%2018v-3c0-3%202-5%205-5h6c3%200%205%202%205%205v3%22%20fill%3D%22none%22%20stroke%3D%22%23d9ff52%22%20stroke-width%3D%225%22%20stroke-linecap%3D%22round%22%2F%3E%3Cpath%20d%3D%22M28%2025h8v7h7v8h-7v7h-8v-7h-7v-8h7z%22%20fill%3D%22%23d9ff52%22%2F%3E%3C%2Fsvg%3E'
+          out=[]
+          for line in header.splitlines():
+              if line.startswith('// @updateURL'):
+                  out += [
+                      icon,
+                      '// @supportURL   https://voidsmithindustries.com/torn/support.html',
+                      '// @updateURL    https://voidsmithindustries.com/torn/install/reviverelay.user.js'
+                  ]
+              elif line.startswith('// @downloadURL'):
+                  out.append('// @downloadURL  https://voidsmithindustries.com/torn/install/reviverelay.user.js')
+              else:
+                  out.append(line)
+          public_header='\n'.join(out)
+          public_user=public_header+body
+          Path('ReviveRelay-0.7.3-public.user.js').write_text(public_user)
+          Path('ReviveRelay-0.7.3-public.meta.js').write_text(public_header+'\n')
+
+          def executable_body(path):
+              b=Path(path).read_bytes()
+              m=b'// ==/UserScript=='
+              return b[b.index(m)+len(m):]
+
+          assert executable_body(src_path) == executable_body('ReviveRelay-0.7.3-public.user.js')
+          assert hashlib.sha256(src_path.read_bytes()).hexdigest() == 'd46e344bc49b939a82df17f67a839296716af5147a53717973e265161dbe68cd'
+
+          manifest={
+            'latestVersion':'0.7.3',
+            'minimumVersion':'0.6.1',
+            'buildTimestamp':'2026-09-21T11:04:19.939Z',
+            'releaseNotes':'ReviveRelay 0.7.3 hardens TornPDA/mobile bootstrap recovery: RR is mounted before full initialization, stays available independently of minimized state, re-detects delayed PDA readiness and remounts after DOM/WebView replacement.',
+            'gitCommit':'e661af8a999aa46c7db47352210fb50426218e10',
+            'releaseChannel':'review',
+            'sha256':'d46e344bc49b939a82df17f67a839296716af5147a53717973e265161dbe68cd',
+            'apiCompatibility':{'minimum':1,'current':1},
+            'install':{
+              'installUrl':'https://reviverelay.voidsmithindustries.com/releases/review/0.7.3/ReviveRelay-0.7.3.user.js',
+              'metaUrl':'https://reviverelay.voidsmithindustries.com/releases/review/0.7.3/ReviveRelay-0.7.3.meta.js'
+            },
+            'mandatory':False
+          }
+          Path('ReviveRelay-0.7.3-release-manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
+          print('PUBLIC_WRAPPER_SHA256='+hashlib.sha256(Path('ReviveRelay-0.7.3-public.user.js').read_bytes()).hexdigest())
+          print('PUBLIC_WRAPPER_SIZE='+str(Path('ReviveRelay-0.7.3-public.user.js').stat().st_size))
+          PY
+          sha256sum ReviveRelay-0.7.3-public.user.js ReviveRelay-0.7.3-public.meta.js
+          wc -c ReviveRelay-0.7.3-public.user.js ReviveRelay-0.7.3-public.meta.js
+
+      - name: Publish or refresh GitHub prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view reviverelay-v0.7.3-beta --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release upload reviverelay-v0.7.3-beta --repo "${GITHUB_REPOSITORY}" --clobber \
+              dist/review/ReviveRelay-0.7.3.user.js \
+              dist/review/ReviveRelay-0.7.3.meta.js \
+              ReviveRelay-0.7.3-public.user.js \
+              ReviveRelay-0.7.3-public.meta.js \
+              ReviveRelay-0.7.3-release-manifest.json
+          else
+            gh release create reviverelay-v0.7.3-beta \
+              --repo "${GITHUB_REPOSITORY}" \
+              --target 2d5e1f5cd94d3ab523664510b40810a9c8348b16 \
+              --title "ReviveRelay 0.7.3 Public Beta" \
+              --prerelease \
+              --notes "Public Beta/Review release. Hardens the TornPDA/mobile RR recovery launcher using early platform-ready detection, pre-init mounting, retry-on-tap, late reconciliation and a recovery-only remount watchdog. Stable remains 0.4.4; genuine TornPDA device acceptance is still pending." \
+              dist/review/ReviveRelay-0.7.3.user.js \
+              dist/review/ReviveRelay-0.7.3.meta.js \
+              ReviveRelay-0.7.3-public.user.js \
+              ReviveRelay-0.7.3-public.meta.js \
+              ReviveRelay-0.7.3-release-manifest.json
+          fi
+
+      - name: Stage verified release files on release branch
+        run: |
+          mkdir -p release-assets/0.7.3
+          cp dist/review/ReviveRelay-0.7.3.user.js release-assets/0.7.3/
+          cp dist/review/ReviveRelay-0.7.3.meta.js release-assets/0.7.3/
+          cp ReviveRelay-0.7.3-public.user.js release-assets/0.7.3/
+          cp ReviveRelay-0.7.3-public.meta.js release-assets/0.7.3/
+          cp ReviveRelay-0.7.3-release-manifest.json release-assets/0.7.3/
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add release-assets/0.7.3
+          if ! git diff --cached --quiet; then
+            git commit -m "release-assets: stage verified ReviveRelay 0.7.3"
+            git push origin HEAD:fix/rev-006-tornpda-bootstrap-launcher
+          fi
