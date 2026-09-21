@@ -1,0 +1,18 @@
+{
+  "latestVersion": "0.7.3",
+  "minimumVersion": "0.6.1",
+  "buildTimestamp": "2026-09-21T11:04:19.939Z",
+  "releaseNotes": "ReviveRelay 0.7.3 hardens TornPDA/mobile bootstrap recovery: RR is mounted before full initialization, stays available independently of minimized state, re-detects delayed PDA readiness and remounts after DOM/WebView replacement.",
+  "gitCommit": "e661af8a999aa46c7db47352210fb50426218e10",
+  "releaseChannel": "review",
+  "sha256": "d46e344bc49b939a82df17f67a839296716af5147a53717973e265161dbe68cd",
+  "apiCompatibility": {
+    "minimum": 1,
+    "current": 1
+  },
+  "install": {
+    "installUrl": "https://reviverelay.voidsmithindustries.com/releases/review/0.7.3/ReviveRelay-0.7.3.user.js",
+    "metaUrl": "https://reviverelay.voidsmithindustries.com/releases/review/0.7.3/ReviveRelay-0.7.3.meta.js"
+  },
+  "mandatory": false
+}
