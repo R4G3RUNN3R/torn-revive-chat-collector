@@ -136,6 +136,7 @@
   let pdaLauncher = null;
   let initPromise = null;
   let pdaReadyHookInstalled = false;
+  let pdaLauncherWatchTimer = null;
   let statusMessage = '';
   let statusIsError = false;
   let lastRequestError = null;
@@ -1769,8 +1770,17 @@
     return pdaLauncher;
   }
 
+  function startPdaLauncherWatch() {
+    if (pdaLauncherWatchTimer || !isRecoveryLauncherContext()) return;
+    pdaLauncherWatchTimer = window.setInterval(() => {
+      if (!document.body) return;
+      syncPdaLauncher({ forceVisible: true });
+    }, 2000);
+  }
+
   function reconcilePdaReadyUi() {
     syncPdaLauncher({ forceVisible: true });
+    startPdaLauncherWatch();
     if (!panel || !isTornPdaNow()) return;
     panel.classList.add('rr-tornpda');
     applyPanelPosition(null);
@@ -2032,6 +2042,7 @@
   function start() {
     installPdaReadinessHook();
     syncPdaLauncher({ forceVisible: isRecoveryLauncherContext() });
+    startPdaLauncherWatch();
     if (initPromise) return initPromise;
     initPromise = init().catch(error => {
       console.error('[ReviveRelay] Initialization failed.', error);
