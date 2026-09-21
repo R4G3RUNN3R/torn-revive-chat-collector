@@ -1462,8 +1462,8 @@
         <div class="rr-kv"><span>Latest</span><strong id="rr-update-latest">${escapeHtml(updateResult?.latestVersion || 'Unknown')}</strong></div>
         <div class="rr-kv"><span>Checked</span><strong id="rr-update-checked">${escapeHtml(updateResult?.lastCheckedAt ? formatDate(updateResult.lastCheckedAt) : 'Not yet')}</strong></div>
         <div id="rr-update-banner">${updateResult?.updateAvailable ? `Update ${escapeHtml(updateResult.latestVersion)} available.` : ''}</div>
-        <p class="rr-muted">ReviveRelay checks the Voidsmith distribution feed at most once every 12 hours while Torn is running. Your userscript manager also keeps its native auto-update path.</p>
-        <div class="rr-actions"><button id="rr-update-check">Check updates</button>${updateResult?.updateAvailable ? '<button id="rr-update-open">Install update</button>' : ''}</div>
+        <p class="rr-muted">ReviveRelay checks the Voidsmith distribution feed at most once every 12 hours while Torn is running. Check updates validates the feed and, when a newer build exists, opens the trusted Voidsmith installer so Tampermonkey or TornPDA can perform the update.</p>
+        <div class="rr-actions"><button id="rr-update-check">Check &amp; install update</button>${updateResult?.updateAvailable ? '<button id="rr-update-open">Install update</button>' : ''}</div>
       </div>
     </details>
     <details class="rr-settings-section">
@@ -1670,7 +1670,13 @@
   async function checkUpdates(force = false) {
     updateResult = await state.updateManager.check({ force });
     if (updateResult?.updateAvailable && !updateResult.skipped) {
-      setStatus(`ReviveRelay ${updateResult.latestVersion} update available. Open Settings → Updates to install it.`);
+      if (force && state.updateManager.openUpdate()) {
+        setStatus(`ReviveRelay ${updateResult.latestVersion} verified. Opening the installer now.`);
+      } else {
+        setStatus(`ReviveRelay ${updateResult.latestVersion} update available. Open Settings → Updates to install it.`);
+      }
+    } else if (force && !updateResult?.error) {
+      setStatus('ReviveRelay is already up to date.');
     }
     if (force || state.settingsOpen) renderSettingsDrawer();
   }
