@@ -32,8 +32,11 @@ test('userscript schedules a persisted 12-hour update check while Torn stays ope
   assert.match(source,/checkUpdates\(false\)\.catch\(error => captureClientError\(error, 'update\.initial'\)\)/);
 });
 
-test('detected updates expose an explicit install button and background notice', () => {
+test('detected updates expose one-click verified installer handoff plus explicit fallback install button', () => {
   const source=fs.readFileSync('torn-revive-chat-collector.user.js','utf8');
+  assert.match(source,/Check &amp; install update/);
+  assert.match(source,/force && state\.updateManager\.openUpdate\(\)/);
+  assert.match(source,/Opening the installer now/);
   assert.match(source,/id="rr-update-open"/);
   assert.match(source,/target\.id === 'rr-update-open'\) return openAvailableUpdate\(\)/);
   assert.match(source,/ReviveRelay .*update available\. Open Settings/);
