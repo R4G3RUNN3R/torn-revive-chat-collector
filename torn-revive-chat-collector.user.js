@@ -134,6 +134,9 @@
   let body = null;
   let connectionPill = null;
   let pdaLauncher = null;
+  let initPromise = null;
+  let pdaReadyHookInstalled = false;
+  let pdaLauncherWatchTimer = null;
   let statusMessage = '';
   let statusIsError = false;
   let lastRequestError = null;
@@ -1604,7 +1607,7 @@
 
   function applyPanelPosition(position = state.panelPosition) {
     if (!panel) return;
-    if (platform.runtime.isTornPda) {
+    if (isTornPdaNow()) {
       state.panelPosition = null;
       panel.style.left = '6px';
       panel.style.right = '6px';
@@ -1634,7 +1637,7 @@
   }
 
   function installPanelDrag(header) {
-    if (platform.runtime.isTornPda) return;
+    if (isTornPdaNow()) return;
     let dragging = false;
     let startX = 0;
     let startY = 0;
@@ -1691,17 +1694,62 @@
     if (!state.updateManager.openUpdate()) setStatus('No validated ReviveRelay update is available for this release channel.', true);
   }
 
+  function isTornPdaNow() {
+    if (platform.runtime.isTornPda) return true;
+    try { return Platform.detectRuntime(globalThis).isTornPda; } catch (_) { return false; }
+  }
+
+  function isRecoveryLauncherContext() {
+    if (isTornPdaNow()) return true;
+    let coarsePointer = false;
+    try { coarsePointer = Boolean(window.matchMedia && window.matchMedia('(pointer: coarse)').matches); } catch (_) {}
+    const viewportWidth = Number(window.innerWidth) || 0;
+    return coarsePointer || (viewportWidth > 0 && viewportWidth <= 900);
+  }
+
+  function applyRecoveryLauncherCriticalStyle(button) {
+    const critical = {
+      position: 'fixed',
+      zIndex: '2147483646',
+      right: '10px',
+      bottom: '10px',
+      width: '48px',
+      height: '48px',
+      alignItems: 'center',
+      justifyContent: 'center',
+      border: '1px solid #e06565',
+      borderRadius: '50%',
+      background: '#a4161a',
+      color: '#fff',
+      font: '800 12px/1 Arial,sans-serif',
+      letterSpacing: '.05em',
+      boxShadow: '0 8px 24px rgba(0,0,0,.5)',
+      touchAction: 'manipulation',
+      visibility: 'visible',
+      opacity: '1',
+      pointerEvents: 'auto'
+    };
+    for (const [name, value] of Object.entries(critical)) button.style.setProperty(name.replace(/[A-Z]/g, match => '-' + match.toLowerCase()), value, 'important');
+    button.style.setProperty('right', 'calc(10px + env(safe-area-inset-right,0px))', 'important');
+    button.style.setProperty('bottom', 'calc(10px + env(safe-area-inset-bottom,0px))', 'important');
+  }
+
   function restorePanelFromPdaLauncher() {
+    if (!panel) {
+      start();
+      return;
+    }
     state.minimized = false;
     storage.set(KEYS.minimized, false);
-    if (panel) panel.style.display = '';
+    panel.style.display = '';
+    if (isTornPdaNow()) panel.classList.add('rr-tornpda');
     applyPanelPosition(state.panelPosition);
     refreshSidebarState();
     renderAll();
   }
 
-  function syncPdaLauncher() {
-    if (!platform.runtime.isTornPda || !document.body) return null;
+  function syncPdaLauncher(options = {}) {
+    if (!document.body) return null;
     if (!pdaLauncher || !pdaLauncher.isConnected) {
       pdaLauncher = document.getElementById('rr-pda-launcher');
       if (!pdaLauncher) {
@@ -1715,10 +1763,37 @@
         document.body.appendChild(pdaLauncher);
       }
     }
-    const shouldShow = Boolean(state.minimized);
-    pdaLauncher.style.display = shouldShow ? 'inline-flex' : 'none';
+    applyRecoveryLauncherCriticalStyle(pdaLauncher);
+    const shouldShow = Boolean(options.forceVisible || state.minimized || isRecoveryLauncherContext());
+    pdaLauncher.style.setProperty('display', shouldShow ? 'inline-flex' : 'none', 'important');
     pdaLauncher.setAttribute('aria-hidden', shouldShow ? 'false' : 'true');
     return pdaLauncher;
+  }
+
+  function startPdaLauncherWatch() {
+    if (pdaLauncherWatchTimer || !isRecoveryLauncherContext()) return;
+    pdaLauncherWatchTimer = window.setInterval(() => {
+      if (!document.body) return;
+      syncPdaLauncher({ forceVisible: true });
+    }, 2000);
+  }
+
+  function reconcilePdaReadyUi() {
+    syncPdaLauncher({ forceVisible: true });
+    startPdaLauncherWatch();
+    if (!panel || !isTornPdaNow()) return;
+    panel.classList.add('rr-tornpda');
+    applyPanelPosition(null);
+  }
+
+  function installPdaReadinessHook() {
+    if (pdaReadyHookInstalled) return;
+    pdaReadyHookInstalled = true;
+    window.addEventListener?.('flutterInAppWebViewPlatformReady', reconcilePdaReadyUi);
+    const readyPromise = globalThis.__PDA_platformReadyPromise;
+    if (readyPromise && typeof readyPromise.then === 'function') {
+      Promise.resolve(readyPromise).then(reconcilePdaReadyUi).catch(() => {});
+    }
   }
 
   function createPanel() {
@@ -1739,13 +1814,13 @@
       .rr-actions,.rr-form-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}.rr-label{display:block;color:#9aa6af;margin:7px 0 3px}.rr-card input,.rr-card select,.rr-card textarea,.rr-settings-section input,.rr-settings-section select,.rr-settings-section textarea{box-sizing:border-box;width:100%;border:1px solid #3a4650;background:#0f1418;color:#e0e5e9;border-radius:5px;padding:6px;font:inherit}.rr-card button,.rr-settings-section button{border:1px solid #48545e;background:#242d34;color:#e6ebee;border-radius:5px;padding:5px 8px;font:inherit;cursor:pointer}.rr-card button:disabled,.rr-settings-section button:disabled{opacity:.45;cursor:not-allowed}
       .rr-certified-card{border-color:#806c3b;box-shadow:inset 3px 0 0 #b89a52}.rr-certified-line,.rr-queue-head{display:flex;align-items:center;justify-content:space-between;gap:8px}.rr-star{color:#d5b461}.rr-chip{font-size:8px;border:1px solid #88743e;color:#d9bc72;border-radius:8px;padding:1px 5px}.rr-offer{font-size:15px;font-weight:800;margin-top:7px}.rr-comment{margin:4px 0;color:#bcc5cc}.rr-deadlines{margin-top:6px}.rr-deadlines>div{display:flex;justify-content:space-between;color:#8e9aa3}.rr-invoice{margin-top:7px;padding-top:7px;border-top:1px solid #313a42}
       .rr-queue-controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-top:8px}.rr-queue-controls label{font-size:9px;color:#89959e}.rr-queue-controls select,.rr-queue-controls input{margin-top:2px}.rr-queue-controls button{align-self:end}.rr-queue-group-title{display:flex;justify-content:space-between;align-items:center;margin:10px 2px 6px;color:#b7c1c8;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.04em}.rr-queue-group-title span{color:#74818b}
-      #rr-pda-launcher{position:fixed;z-index:1000002;right:calc(10px + env(safe-area-inset-right,0px));bottom:calc(10px + env(safe-area-inset-bottom,0px));width:48px;height:48px;align-items:center;justify-content:center;border:1px solid #e06565;border-radius:50%;background:#a4161a;color:#fff;font:800 12px/1 Arial,sans-serif;letter-spacing:.05em;box-shadow:0 8px 24px rgba(0,0,0,.5);touch-action:manipulation}
+      #rr-pda-launcher{position:fixed!important;z-index:2147483646!important;right:calc(10px + env(safe-area-inset-right,0px))!important;bottom:calc(10px + env(safe-area-inset-bottom,0px))!important;width:48px!important;height:48px!important;align-items:center!important;justify-content:center!important;border:1px solid #e06565!important;border-radius:50%!important;background:#a4161a!important;color:#fff!important;font:800 12px/1 Arial,sans-serif!important;letter-spacing:.05em!important;box-shadow:0 8px 24px rgba(0,0,0,.5)!important;touch-action:manipulation!important;visibility:visible!important;opacity:1!important;pointer-events:auto!important}
       .rr-pda-toast-stack{position:fixed;z-index:1000001;left:calc(10px + env(safe-area-inset-left,0px));right:calc(10px + env(safe-area-inset-right,0px));bottom:calc(10px + env(safe-area-inset-bottom,0px));display:grid;gap:6px;max-height:50dvh;overflow:auto}.rr-pda-toast{position:relative;width:100%;display:grid;gap:2px;text-align:left;border:1px solid #66727c;background:#151c22;color:#eef2f5;border-radius:9px;padding:10px 12px;box-shadow:0 10px 30px rgba(0,0,0,.5);font:12px/1.4 Arial,sans-serif}.rr-pda-toast strong{font-size:12px}.rr-pda-toast span{color:#b7c1c8}#rr-panel.rr-tornpda{width:auto;max-height:none;display:flex;flex-direction:column}#rr-panel.rr-tornpda button,#rr-panel.rr-tornpda input:not([type=checkbox]):not([type=radio]),#rr-panel.rr-tornpda select{min-height:44px}#rr-panel.rr-tornpda input[type=text],#rr-panel.rr-tornpda input[type=password],#rr-panel.rr-tornpda input[type=number],#rr-panel.rr-tornpda textarea,#rr-panel.rr-tornpda select{font-size:16px}#rr-panel.rr-tornpda #rr-header{cursor:default;touch-action:auto}#rr-panel.rr-tornpda #rr-body{max-height:none;min-height:0;flex:1;overscroll-behavior:contain}@media(max-width:520px){#rr-panel{width:calc(100vw - 16px)}#rr-panel.rr-tornpda{width:auto}.rr-tabs button{font-size:10px}.rr-queue-controls{grid-template-columns:1fr}}
     `);
 
     panel = document.createElement('section');
     panel.id = 'rr-panel';
-    if (platform.runtime.isTornPda) panel.classList.add('rr-tornpda');
+    if (isTornPdaNow()) panel.classList.add('rr-tornpda');
     panel.innerHTML = `<div id="rr-header">
       <div class="rr-brand">REVIVERELAY<small>VOIDsMITH INDUSTRIES · v${escapeHtml(VERSION)}</small></div>
       <div class="rr-spacer"></div>
@@ -1928,13 +2003,13 @@
     state.identity = storage.get(KEYS.publicIdentity, null) || null;
     state.preset = storage.get(KEYS.requestPreset, null) || null;
     state.minimized = Boolean(storage.get(KEYS.minimized, false));
-    state.panelPosition = platform.runtime.isTornPda ? null : (storage.get(KEYS.panelPosition, null) || null);
+    state.panelPosition = isTornPdaNow() ? null : (storage.get(KEYS.panelPosition, null) || null);
     state.panelTab = Core.normalizePanelTab(storage.get(KEYS.panelTab, 'request'));
   }
 
   let resumeRefreshInFlight = null;
   function refreshAfterResume() {
-    if (!platform.runtime.isTornPda || resumeRefreshInFlight) return resumeRefreshInFlight;
+    if (!isTornPdaNow() || resumeRefreshInFlight) return resumeRefreshInFlight;
     resumeRefreshInFlight = Promise.resolve()
       .then(async () => {
         refreshSidebarState();
@@ -1951,7 +2026,7 @@
     await platform.initialize();
     hydratePersistentState();
     createPanel();
-    if (platform.runtime.isTornPda && storage.mode() !== 'pda') {
+    if (isTornPdaNow() && storage.mode() !== 'pda') {
       setStatus('TornPDA durable storage is unavailable. ReviveRelay is using compatibility storage for this session.', true);
     }
     installSidebar();
@@ -1965,10 +2040,17 @@
   }
 
   function start() {
-    init().catch(error => {
+    installPdaReadinessHook();
+    syncPdaLauncher({ forceVisible: isRecoveryLauncherContext() });
+    startPdaLauncherWatch();
+    if (initPromise) return initPromise;
+    initPromise = init().catch(error => {
       console.error('[ReviveRelay] Initialization failed.', error);
-      if (panel) setStatus('ReviveRelay could not finish initialization. Reload Torn to retry.', true);
-    });
+      syncPdaLauncher({ forceVisible: true });
+      if (pdaLauncher) pdaLauncher.setAttribute('title', 'ReviveRelay failed to initialize. Tap to retry.');
+      if (panel) setStatus('ReviveRelay could not finish initialization. Tap RR or reload Torn to retry.', true);
+    }).finally(() => { initPromise = null; });
+    return initPromise;
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });

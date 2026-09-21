@@ -1,0 +1,79 @@
+name: ReviveRelay 0.7.3 source gate
+
+on:
+  push:
+    branches:
+      - fix/rev-006-tornpda-bootstrap-launcher
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: rev006-test-only
+          POSTGRES_DB: reviverelay_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d reviverelay_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      TEST_DATABASE_URL: postgres://postgres:rev006-test-only@127.0.0.1:5432/reviverelay_test
+    steps:
+      - name: Checkout candidate
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Set up Node 20
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '20'
+          package-manager-cache: false
+
+      - name: Candidate identity
+        run: |
+          git rev-parse HEAD
+          node --version
+          node -p "require('./package.json').version"
+
+      - name: Install server dependencies
+        run: npm --prefix server install --ignore-scripts --no-audit --no-fund
+
+      - name: Build unpinned 0.7.3 candidate
+        run: npm run build
+
+      - name: Client regression suite before manifest pin
+        run: |
+          find test -maxdepth 1 -type f -name '*.test.js' ! -name 'review-artifact-verifier.test.js' -print0 |
+            xargs -0 node --test
+
+      - name: Server and database suite
+        run: npm run test:server
+
+      - name: Release smoke and dependency provenance
+        run: node --test test/review-release-smoke.test.js test/release-dependency-verification.test.js
+
+      - name: Syntax and static audit
+        run: |
+          node --check torn-revive-chat-collector.user.js
+          node --check dist/review/ReviveRelay-0.7.3.user.js
+          npm run audit:review
+
+      - name: Candidate artifact identity
+        run: |
+          sha256sum dist/review/ReviveRelay-0.7.3.user.js
+          wc -c dist/review/ReviveRelay-0.7.3.user.js
+          grep -m1 '^// @version' dist/review/ReviveRelay-0.7.3.user.js
+          grep -m1 '^// ReviveRelay-Build-Commit:' dist/review/ReviveRelay-0.7.3.user.js
+          grep -m1 '^// ReviveRelay-Build-Timestamp:' dist/review/ReviveRelay-0.7.3.user.js

@@ -60,6 +60,6 @@ test('current review bundle contains direct support exactly once and zero legacy
 });
 
 
-test('current direct-only review implementation is versioned as 0.7.2', () => {
-  assert.equal(require('../package.json').version, '0.7.2');
+test('current direct-only review implementation is versioned as 0.7.3', () => {
+  assert.equal(require('../package.json').version, '0.7.3');
 });

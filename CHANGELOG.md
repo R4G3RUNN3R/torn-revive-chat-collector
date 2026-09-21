@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.7.3 - TornPDA bootstrap launcher hardening
+
+### Fixed
+
+- The TornPDA/mobile `RR` recovery launcher no longer depends on the one-time startup runtime classification succeeding first.
+- ReviveRelay now recognizes TornPDA's `__PDA_platformReadyPromise` as an early runtime signal, matching TornPDA's own helper bootstrap behavior.
+- The recovery launcher is mounted before full ReviveRelay initialization on TornPDA/mobile contexts and remains visible independently of persisted minimized state.
+- A failed initialization leaves the RR recovery launcher available; tapping it retries initialization instead of leaving the userscript invisible.
+- TornPDA platform-ready events and the platform-ready promise reconcile the mobile panel/launcher after delayed bridge injection.
+- Critical launcher positioning/visibility styles are applied inline with `!important` so Torn/mobile page CSS cannot trivially hide the recovery control.
+
+### Comparative evidence
+
+- The fix adopts the robust UI-recovery pattern observed in MoDuL's Pythagoras userscript: mount an independent launcher/root under `document.body` and synchronize it separately from the main application panel.
+- Desktop behavior remains unchanged; the recovery launcher is targeted at detected TornPDA and coarse/narrow mobile contexts.
+
+### Release status
+
+0.7.3 is a Beta/Review candidate. Stable remains 0.4.4 and TornPDA compatibility remains Unknown until genuine Android/iOS device acceptance.
+
 ## 0.7.2 - One-click safe update handoff
 
 ### Changed
