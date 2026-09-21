@@ -150,7 +150,7 @@ test('openUpdate opens only a validated newer dist userscript for the current ch
     getState: () => state,
     saveState: value => { state = value; },
     now: () => UPDATE_CHECK_MS + 1,
-    openUrl: url => opened.push(url)
+    openUrl: url => { opened.push(url); return true; }
   });
 
   await manager.check({ force: true });
