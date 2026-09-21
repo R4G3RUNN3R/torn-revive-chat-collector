@@ -17,10 +17,13 @@ function pdaGlobals(overrides = {}) {
   };
 }
 
-test('detectRuntime tolerates TornPDA bridge/helper injection timing without accepting partial helper pairs', () => {
+test('detectRuntime tolerates TornPDA platform/bridge/helper injection timing without accepting partial helper pairs', () => {
   assert.equal(Platform.detectRuntime({}).isTornPda,false);
   assert.equal(Platform.detectRuntime({PDA_storage:{loadAll(){},set(){}}}).isTornPda,false);
   assert.equal(Platform.detectRuntime({PDA_httpGet(){},PDA_httpPost(){}}).isTornPda,false);
+  const early = Platform.detectRuntime({__PDA_platformReadyPromise:Promise.resolve()});
+  assert.equal(early.isTornPda,true);
+  assert.equal(early.hasPdaReadyPromise,true);
   assert.equal(Platform.detectRuntime({...pdaGlobals(),flutter_inappwebview:null}).isTornPda,true);
   assert.equal(Platform.detectRuntime({flutter_inappwebview:{callHandler(){}}}).isTornPda,true);
   assert.equal(Platform.detectRuntime(pdaGlobals()).isTornPda,true);
