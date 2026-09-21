@@ -155,7 +155,7 @@ test('openUpdate opens only a validated newer dist userscript for the current ch
 
   await manager.check({ force: true });
   assert.equal(manager.openUpdate(), true);
-  assert.deepEqual(opened, ['https://reviverelay.voidsmithindustries.com/dist/review/ReviveRelay.user.js']);
+  assert.deepEqual(opened, ['https://voidsmithindustries.com/torn/install/reviverelay.user.js']);
 
   state.lastManifest.install.installUrl = 'https://evil.example/ReviveRelay.user.js';
   assert.equal(manager.openUpdate(), false);
