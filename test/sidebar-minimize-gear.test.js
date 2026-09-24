@@ -71,10 +71,13 @@ test('restorePanelFromMinimized un-minimizes the panel, persists it, shows the e
   assert.equal(calls.refresh, 1, 'the sidebar controller must reconcile so the gear disappears promptly');
 });
 
-test('TornPDA launcher can retry bootstrap before a panel exists and restore after creation', () => {
+test('TornPDA launcher retries only after failed initialization is torn down, then restores a completed panel', () => {
   const fn = functionSlice('restorePanelFromPdaLauncher', 'syncPdaLauncher');
   assert.ok(fn.length > 0);
-  assert.match(fn, /if \(!panel\) \{\s*start\(\);\s*return;/);
+  assert.match(fn, /if \(!initialized\)/);
+  assert.match(fn, /if \(!initPromise\)/);
+  assert.match(fn, /cleanupPartialInitialization\(\)/);
+  assert.match(fn, /start\(\)/);
   assert.match(fn, /state\.minimized\s*=\s*false/);
   assert.match(fn, /panel\.style\.display\s*=\s*''/);
   assert.match(fn, /renderAll\(\)/);

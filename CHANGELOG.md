@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.7.4 - Review-integrity and TornPDA recovery remediation
+
+### Fixed
+
+- Update discovery now accepts only the known review metadata authorities, then binds the mutable distribution executable to the versioned immutable review artifact by matching version, build provenance, exact executable body and SHA-256 before offering installation.
+- Update handoff opens only the verified immutable versioned ReviveRelay artifact. The unrelated apex website wrapper is no longer the updater's execution/install authority.
+- Browser navigation is restricted to the exact Torn API-key URL and version-matched immutable ReviveRelay installer paths instead of an allowlist of entire trusted hosts.
+- Desktop update handoff now reports popup blocking truthfully instead of returning success when `window.open()` returned no window.
+- Failed initialization now tears down timers, sidebar state, resume hooks and partial panel state before a TornPDA launcher retry starts initialization again.
+- Recovery-launcher presentation is limited to dynamically detected TornPDA rather than changing desktop/coarse/narrow layouts.
+
+### Verification status
+
+This is an engineering remediation candidate created from the exact released 0.7.3 merge. Focused update, navigation and TornPDA recovery regression tests pass. Full release verification, fresh independent review and any publication step remain separate gates.
+
+### Release status
+
+0.7.4 is **not published**. Published Beta/Review remains 0.7.3. Stable remains 0.4.4. Genuine Android/iOS TornPDA acceptance remains required before claiming TornPDA compatibility.
+
 ## 0.7.3 - TornPDA bootstrap launcher hardening
 
 ### Fixed

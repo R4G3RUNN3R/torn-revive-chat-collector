@@ -392,6 +392,15 @@
       return style;
     }
 
+    function isApprovedNavigation(target) {
+      if (!target || target.protocol !== 'https:' || target.username || target.password || target.search) return false;
+      const apiKeyUrl = 'https://www.torn.com/preferences.php#tab=api?step=addNewKey&title=ReviveRelay&user=basic,profile,revives,log,perks&logIds=14,15,16,17';
+      if (target.href === apiKeyUrl) return true;
+      if (target.hostname !== 'reviverelay.voidsmithindustries.com' || target.hash) return false;
+      const match = target.pathname.match(/^\/releases\/(review|stable)\/([0-9]\.[0-9]\.[0-9])\/ReviveRelay-([0-9]\.[0-9]\.[0-9])\.user\.js$/);
+      return Boolean(match && match[2] === match[3]);
+    }
+
     function openUrl(url) {
       if (!window) return false;
       let target;
@@ -400,9 +409,7 @@
       } catch (_) {
         return false;
       }
-      if (target.protocol !== 'https:') return false;
-      const allowedHosts = new Set(['torn.com', 'www.torn.com', 'reviverelay.voidsmithindustries.com', 'voidsmithindustries.com']);
-      if (!allowedHosts.has(target.hostname)) return false;
+      if (!isApprovedNavigation(target)) return false;
       if (runtime.isTornPda) {
         if (window.location && typeof window.location.assign === 'function') {
           window.location.assign(target.href);
@@ -410,7 +417,9 @@
         }
         return false;
       }
-      window.open(target.href, '_blank', 'noopener,noreferrer');
+      const opened = window.open(target.href, '_blank');
+      if (!opened) return false;
+      try { opened.opener = null; } catch (_) {}
       return true;
     }
 

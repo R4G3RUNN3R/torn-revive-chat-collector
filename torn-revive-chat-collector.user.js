@@ -149,6 +149,11 @@
   let telemetryTimer = null;
   let clockTimer = null;
   let updateTimer = null;
+  let initialized = false;
+  let globalErrorHooksInstalled = false;
+  let sidebarNavigationHooksInstalled = false;
+  let panelResizeHookInstalled = false;
+  let removeResumeHooks = null;
   const pollFlights = new Map();
   const mutationFlights = new Set();
   const authoritativeStateRevisions = new Map();
@@ -1700,11 +1705,7 @@
   }
 
   function isRecoveryLauncherContext() {
-    if (isTornPdaNow()) return true;
-    let coarsePointer = false;
-    try { coarsePointer = Boolean(window.matchMedia && window.matchMedia('(pointer: coarse)').matches); } catch (_) {}
-    const viewportWidth = Number(window.innerWidth) || 0;
-    return coarsePointer || (viewportWidth > 0 && viewportWidth <= 900);
+    return isTornPdaNow();
   }
 
   function applyRecoveryLauncherCriticalStyle(button) {
@@ -1735,8 +1736,11 @@
   }
 
   function restorePanelFromPdaLauncher() {
-    if (!panel) {
-      start();
+    if (!initialized) {
+      if (!initPromise) {
+        cleanupPartialInitialization();
+        start();
+      }
       return;
     }
     state.minimized = false;
@@ -1750,6 +1754,14 @@
 
   function syncPdaLauncher(options = {}) {
     if (!document.body) return null;
+    const recoveryContext = isRecoveryLauncherContext();
+    if (!recoveryContext) {
+      if (pdaLauncher) {
+        pdaLauncher.style.setProperty('display', 'none', 'important');
+        pdaLauncher.setAttribute('aria-hidden', 'true');
+      }
+      return pdaLauncher;
+    }
     if (!pdaLauncher || !pdaLauncher.isConnected) {
       pdaLauncher = document.getElementById('rr-pda-launcher');
       if (!pdaLauncher) {
@@ -1764,7 +1776,7 @@
       }
     }
     applyRecoveryLauncherCriticalStyle(pdaLauncher);
-    const shouldShow = Boolean(options.forceVisible || state.minimized || isRecoveryLauncherContext());
+    const shouldShow = Boolean(options.forceVisible || state.minimized || !initialized);
     pdaLauncher.style.setProperty('display', shouldShow ? 'inline-flex' : 'none', 'important');
     pdaLauncher.setAttribute('aria-hidden', shouldShow ? 'false' : 'true');
     return pdaLauncher;
@@ -1923,15 +1935,20 @@
       }
     });
 
-    window.addEventListener('resize', () => {
-      applyPanelPosition(state.panelPosition);
-      persistPanelPosition();
-      refreshSidebarState();
-    });
+    if (!panelResizeHookInstalled) {
+      panelResizeHookInstalled = true;
+      window.addEventListener('resize', () => {
+        applyPanelPosition(state.panelPosition);
+        persistPanelPosition();
+        refreshSidebarState();
+      });
+    }
     renderAll();
   }
 
   function installGlobalErrorHooks() {
+    if (globalErrorHooksInstalled) return;
+    globalErrorHooksInstalled = true;
     window.addEventListener('error', event => {
       if (event?.error) captureClientError(event.error, 'window.error');
     });
@@ -1950,6 +1967,7 @@
   }
 
   function installSidebar() {
+    if (state.sidebarController) state.sidebarController.destroy();
     state.sidebarController = SidebarAction.createSidebarController({
       document,
       window,
@@ -1961,11 +1979,29 @@
       onRestore: restorePanelFromMinimized
     });
     state.sidebarController.reconcile();
-    window.addEventListener('popstate', () => setTimeout(refreshSidebarState, 150));
-    window.addEventListener('hashchange', () => setTimeout(refreshSidebarState, 150));
+    if (!sidebarNavigationHooksInstalled) {
+      sidebarNavigationHooksInstalled = true;
+      window.addEventListener('popstate', () => setTimeout(refreshSidebarState, 150));
+      window.addEventListener('hashchange', () => setTimeout(refreshSidebarState, 150));
+    }
+  }
+
+  function stopTimers() {
+    for (const timer of [requestTimer, proTimer, queueTimer, invoiceTimer, sidebarTimer, telemetryTimer, clockTimer, updateTimer]) {
+      if (timer != null) clearInterval(timer);
+    }
+    requestTimer = null;
+    proTimer = null;
+    queueTimer = null;
+    invoiceTimer = null;
+    sidebarTimer = null;
+    telemetryTimer = null;
+    clockTimer = null;
+    updateTimer = null;
   }
 
   function startTimers() {
+    stopTimers();
     requestTimer = setInterval(() => {
       if (!state.sessionToken || !runtimeCompatible()) return;
       refreshActiveRequest().then(renderLiveState).catch(error => handleApiFailure(error, 'poll.request'));
@@ -1996,6 +2032,25 @@
     updateTimer = setInterval(() => {
       checkUpdates(false).catch(error => captureClientError(error, 'update.scheduled'));
     }, UpdateManager.UPDATE_CHECK_MS);
+  }
+
+  function cleanupPartialInitialization() {
+    initialized = false;
+    stopTimers();
+    if (state.sidebarController) {
+      state.sidebarController.destroy();
+      state.sidebarController = null;
+    }
+    if (typeof removeResumeHooks === 'function') {
+      removeResumeHooks();
+      removeResumeHooks = null;
+    }
+    if (panel) {
+      try { panel.remove(); } catch (_) {}
+    }
+    panel = null;
+    body = null;
+    connectionPill = null;
   }
 
   function hydratePersistentState() {
@@ -2031,11 +2086,14 @@
     }
     installSidebar();
     installGlobalErrorHooks();
-    platform.onResume(refreshAfterResume);
+    if (typeof removeResumeHooks === 'function') removeResumeHooks();
+    removeResumeHooks = platform.onResume(refreshAfterResume);
     startTimers();
     refreshSidebarState();
     await restoreSession();
     renderAll();
+    initialized = true;
+    syncPdaLauncher();
     checkUpdates(false).catch(error => captureClientError(error, 'update.initial'));
   }
 
@@ -2046,9 +2104,9 @@
     if (initPromise) return initPromise;
     initPromise = init().catch(error => {
       console.error('[ReviveRelay] Initialization failed.', error);
-      syncPdaLauncher({ forceVisible: true });
+      cleanupPartialInitialization();
+      syncPdaLauncher({ forceVisible: isRecoveryLauncherContext() });
       if (pdaLauncher) pdaLauncher.setAttribute('title', 'ReviveRelay failed to initialize. Tap to retry.');
-      if (panel) setStatus('ReviveRelay could not finish initialization. Tap RR or reload Torn to retry.', true);
     }).finally(() => { initPromise = null; });
     return initPromise;
   }

@@ -21,14 +21,34 @@ test('late TornPDA platform readiness reconciles launcher and panel', () => {
   assert.match(source, /panel\.classList\.add\('rr-tornpda'\)/);
 });
 
-test('failed initialization keeps an RR retry surface available', () => {
+test('failed initialization tears down partial state and keeps a TornPDA retry surface available', () => {
   const start = source.indexOf('function start() {');
   const end = source.indexOf("if (document.readyState === 'loading')", start);
   const block = source.slice(start, end);
-  assert.match(block, /syncPdaLauncher\(\{ forceVisible: true \}\)/);
+  assert.match(block, /cleanupPartialInitialization\(\)/);
+  assert.match(block, /syncPdaLauncher\(\{ forceVisible: isRecoveryLauncherContext\(\) \}\)/);
   assert.match(block, /failed to initialize\. Tap to retry/);
-  assert.match(block, /Tap RR or reload Torn to retry/);
   assert.match(block, /initPromise = null/);
+  assert.match(source, /function cleanupPartialInitialization\(\) \{/);
+  assert.match(source, /state\.sidebarController\.destroy\(\)/);
+  assert.match(source, /panel\.remove\(\)/);
+  assert.match(source, /stopTimers\(\)/);
+});
+
+test('launcher retry restarts initialization when the previous attempt did not fully initialize', () => {
+  const start = source.indexOf('function restorePanelFromPdaLauncher() {');
+  const end = source.indexOf('function createPdaLauncher()', start);
+  const block = source.slice(start, end);
+  assert.match(block, /if \(!initialized\)/);
+  assert.match(block, /if \(!initPromise\)/);
+  assert.match(block, /cleanupPartialInitialization\(\)/);
+  assert.match(block, /start\(\)/);
+});
+
+test('recovery launcher is scoped to dynamically detected TornPDA rather than viewport width', () => {
+  assert.match(source, /function isRecoveryLauncherContext\(\) \{\s*return isTornPdaNow\(\);\s*\}/);
+  assert.doesNotMatch(source, /viewportWidth <= 900/);
+  assert.doesNotMatch(source, /pointer: coarse/);
 });
 
 test('recovery launcher critical style is not dependent on injected stylesheet success', () => {

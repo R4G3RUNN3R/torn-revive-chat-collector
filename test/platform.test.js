@@ -289,47 +289,51 @@ test('PDA notifier stacks multiple notifications instead of overlapping fixed to
 });
 
 
-test('TornPDA navigation uses current WebView for approved HTTPS update and Torn links', () => {
+test('TornPDA navigation allows only the exact API-key URL and immutable ReviveRelay installers', () => {
   const assigned=[];
   const window={
     location:{href:'https://www.torn.com/index.php',assign:url=>assigned.push(url)},
     open(){throw new Error('TornPDA must not use popup navigation');}
   };
   const globals=pdaGlobals();
-  const platform=Platform.createPlatform({
-    globalObject:globals,
-    window,
-    document:{},
-    gm:{}
-  });
+  const platform=Platform.createPlatform({ globalObject:globals, window, document:{}, gm:{} });
+  const apiKey='https://www.torn.com/preferences.php#tab=api?step=addNewKey&title=ReviveRelay&user=basic,profile,revives,log,perks&logIds=14,15,16,17';
+  const installer='https://reviverelay.voidsmithindustries.com/releases/review/0.7.4/ReviveRelay-0.7.4.user.js';
   assert.equal(platform.runtime.isTornPda,true);
-  assert.equal(platform.openUrl('https://voidsmithindustries.com/torn/install/reviverelay.user.js'),true);
-  assert.equal(platform.openUrl('https://www.torn.com/preferences.php#tab=api'),true);
+  assert.equal(platform.openUrl(installer),true);
+  assert.equal(platform.openUrl(apiKey),true);
+  assert.equal(platform.openUrl('https://voidsmithindustries.com/torn/install/reviverelay.user.js'),false);
+  assert.equal(platform.openUrl('https://reviverelay.voidsmithindustries.com/dist/review/ReviveRelay.user.js'),false);
+  assert.equal(platform.openUrl('https://www.torn.com/profiles.php?XID=1'),false);
   assert.equal(platform.openUrl('http://www.torn.com/'),false);
   assert.equal(platform.openUrl('https://evil.example/steal'),false);
-  assert.deepEqual(assigned,[
-    'https://voidsmithindustries.com/torn/install/reviverelay.user.js',
-    'https://www.torn.com/preferences.php#tab=api'
-  ]);
+  assert.deepEqual(assigned,[installer,apiKey]);
 });
 
-test('desktop navigation preserves new-tab behavior only for approved HTTPS hosts', () => {
-  const opened=[];
-  const window={
-    location:{href:'https://www.torn.com/index.php'},
-    open:(...args)=>{opened.push(args); return null;}
-  };
-  const platform=Platform.createPlatform({
+test('desktop navigation reports popup blocking truthfully and clears opener after success', () => {
+  const installer='https://reviverelay.voidsmithindustries.com/releases/review/0.7.4/ReviveRelay-0.7.4.user.js';
+  const blocked=Platform.createPlatform({
     globalObject:{},
-    window,
+    window:{location:{href:'https://www.torn.com/index.php'},open:()=>null},
     document:{},
     gm:{xmlHttpRequest(){}}
   });
-  assert.equal(platform.runtime.isTornPda,false);
-  assert.equal(platform.openUrl('https://reviverelay.voidsmithindustries.com/dist/review/ReviveRelay.user.js'),true);
-  assert.equal(platform.openUrl('javascript:alert(1)'),false);
+  assert.equal(blocked.runtime.isTornPda,false);
+  assert.equal(blocked.openUrl(installer),false);
+
+  const child={opener:{unsafe:true}};
+  const opened=[];
+  const success=Platform.createPlatform({
+    globalObject:{},
+    window:{location:{href:'https://www.torn.com/index.php'},open:(...args)=>{opened.push(args);return child;}},
+    document:{},
+    gm:{xmlHttpRequest(){}}
+  });
+  assert.equal(success.openUrl(installer),true);
+  assert.equal(child.opener,null);
   assert.equal(opened.length,1);
   assert.equal(opened[0][1],'_blank');
+  assert.equal(success.openUrl('javascript:alert(1)'),false);
 });
 
 
