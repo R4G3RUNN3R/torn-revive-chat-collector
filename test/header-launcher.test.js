@@ -8,7 +8,9 @@ const src = fs.readFileSync(path.join(__dirname,'..','torn-revive-chat-collector
 test('desktop revive launcher is a distinct icon in Torn status bar with bounded discovery',()=>{
   assert.match(src, /function installTornHeaderLauncher\(\)/);
   assert.match(src, /ul\[class\*="status-icons"\],ul\[class\*="statusIcons"\]/);
-  assert.match(src, /button\.textContent = '🇨🇭'/);
+  assert.match(src, /button\.innerHTML = '<svg viewBox/);
+  assert.match(src, /fill=\"#d52b1e\"/);
+  assert.match(src, /fill=\"#fff\"/);
   assert.match(src, /icon\.parentElement !== icons/);
   assert.match(src, /tries >= 16/);
   assert.match(src, /if \(isTornPdaNow\(\)\) return/);
