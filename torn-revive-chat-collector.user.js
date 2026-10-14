@@ -1796,6 +1796,45 @@
     }
   }
 
+  function installTornHeaderLauncher() {
+    if (isTornPdaNow()) return; // Existing PDA-specific recovery flow is separate.
+    const attach = () => {
+      const icons = document.querySelector('ul[class*="status-icons"],ul[class*="statusIcons"]');
+      if (!icons) return false;
+      let icon = document.getElementById('rr-header-launcher');
+      if (!icon) {
+        icon = document.createElement('li');
+        icon.id = 'rr-header-launcher';
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.title = 'Toggle ReviveRelay';
+        button.setAttribute('aria-label', 'Toggle ReviveRelay');
+        button.textContent = '💉';
+        button.style.cssText = 'cursor:pointer;background:transparent;border:0;min-width:24px;height:24px;padding:0 3px;font-size:19px;line-height:24px';
+        button.addEventListener('click', () => {
+          state.minimized = !state.minimized;
+          storage.set(KEYS.minimized, state.minimized);
+          if (panel) panel.style.display = state.minimized ? 'none' : '';
+          if (!state.minimized) applyPanelPosition(state.panelPosition);
+          button.setAttribute('aria-expanded', String(!state.minimized));
+          refreshSidebarState();
+        });
+        icon.appendChild(button);
+      }
+      if (icon.parentElement !== icons) icons.prepend(icon);
+      icon.querySelector('button')?.setAttribute('aria-expanded', String(!state.minimized));
+      return true;
+    };
+    if (!attach()) {
+      let tries = 0;
+      const attempt = () => {
+        if (attach() || ++tries >= 16) return;
+        window.setTimeout(attempt, 500);
+      };
+      window.setTimeout(attempt, 500);
+    }
+  }
+
   function createPanel() {
     platform.addStyle(`
       #rr-panel{position:fixed;z-index:999999;width:min(420px,calc(100vw - 16px));max-height:calc(100vh - 16px);background:#11161b;color:#d9e0e6;border:1px solid #3e4851;border-radius:9px;box-shadow:0 14px 40px rgba(0,0,0,.45);font:12px/1.45 Arial,sans-serif;overflow:hidden}
@@ -1848,6 +1887,7 @@
       <div id="rr-status" class="rr-status"></div>
     </div>`;
     document.body.appendChild(panel);
+    installTornHeaderLauncher();
     body = panel.querySelector('#rr-body');
     connectionPill = panel.querySelector('#rr-connection-pill');
     panel.style.display = state.minimized ? 'none' : '';
@@ -1889,6 +1929,7 @@
         state.minimized = !state.minimized;
         storage.set(KEYS.minimized, state.minimized);
         panel.style.display = state.minimized ? 'none' : '';
+        document.querySelector('#rr-header-launcher button')?.setAttribute('aria-expanded', String(!state.minimized));
         applyPanelPosition(state.panelPosition);
         refreshSidebarState();
       }
