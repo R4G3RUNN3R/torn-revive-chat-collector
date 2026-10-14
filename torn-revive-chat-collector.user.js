@@ -1809,7 +1809,7 @@
         button.type = 'button';
         button.title = 'Toggle ReviveRelay';
         button.setAttribute('aria-label', 'Toggle ReviveRelay');
-        button.textContent = '💉';
+        button.textContent = '🇨🇭';
         button.style.cssText = 'cursor:pointer;background:transparent;border:0;min-width:24px;height:24px;padding:0 3px;font-size:19px;line-height:24px';
         button.addEventListener('click', () => {
           state.minimized = !state.minimized;
