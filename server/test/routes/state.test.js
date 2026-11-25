@@ -193,3 +193,36 @@ test('verification changes produce a different state version', async t => {
   const vb = (await b.app.inject({ method: 'GET', url: '/v1/state' })).json().stateVersion;
   assert.notEqual(va, vb);
 });
+
+test('weak If-None-Match form of the current tag returns 304', async t => {
+  const { app } = await makeApp();
+  t.after(() => app.close());
+  const first = await app.inject({ method: 'GET', url: '/v1/state' });
+  const second = await app.inject({ method: 'GET', url: '/v1/state', headers: { 'if-none-match': `W/${first.headers.etag}` } });
+  assert.equal(second.statusCode, 304);
+  assert.equal(second.body, '');
+});
+
+test('If-None-Match list containing the current tag returns 304', async t => {
+  const { app } = await makeApp();
+  t.after(() => app.close());
+  const first = await app.inject({ method: 'GET', url: '/v1/state' });
+  const header = `"0000000000000000",  W/"1111111111111111" ,${first.headers.etag}`;
+  const second = await app.inject({ method: 'GET', url: '/v1/state', headers: { 'if-none-match': header } });
+  assert.equal(second.statusCode, 304);
+});
+
+test('If-None-Match * returns 304', async t => {
+  const { app } = await makeApp();
+  t.after(() => app.close());
+  const response = await app.inject({ method: 'GET', url: '/v1/state', headers: { 'if-none-match': '*' } });
+  assert.equal(response.statusCode, 304);
+});
+
+test('non-matching If-None-Match list returns 200 with the state body', async t => {
+  const { app } = await makeApp();
+  t.after(() => app.close());
+  const response = await app.inject({ method: 'GET', url: '/v1/state', headers: { 'if-none-match': '"0000000000000000", W/"1111111111111111"' } });
+  assert.equal(response.statusCode, 200);
+  assert.match(response.json().stateVersion, /^[0-9a-f]{16}$/);
+});

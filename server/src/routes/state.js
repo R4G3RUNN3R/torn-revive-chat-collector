@@ -51,6 +51,15 @@ function compareByNearestDeadline(a, b) {
   return 0;
 }
 
+function ifNoneMatchMatches(header, etag) {
+  if (typeof header !== 'string') return false;
+  if (header.trim() === '*') return true;
+  return header.split(',').some(entry => {
+    const tag = entry.trim().replace(/^W\//, '');
+    return tag === etag;
+  });
+}
+
 function hasCredentialCapability(status, role) {
   return Boolean(status && status.usable && status.capabilities && status.capabilities[role] === true);
 }
@@ -138,7 +147,7 @@ async function registerStateRoute(app, {
 
     reply.header('ETag', etag);
     reply.header('Cache-Control', 'no-store');
-    if (request.headers['if-none-match'] === etag) {
+    if (ifNoneMatchMatches(request.headers['if-none-match'], etag)) {
       return reply.code(304).send();
     }
     return reply.code(200).send({ stateVersion, nextPollMs, ...serialized });
