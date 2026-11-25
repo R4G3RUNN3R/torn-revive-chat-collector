@@ -1,5 +1,5 @@
 const crypto = require('node:crypto');
-const { RATE_LIMITS } = require('../security/rate-limits');
+const { RATE_LIMITS, createSessionRateLimitHook } = require('../security/rate-limits');
 const { publicProPlans } = require('../domain/pro-plans');
 const { publicSubscriptionState, subscriptionRequiresEntitlement } = require('../domain/subscription-mode');
 const { resolvePublicProStatus, hasActivePro } = require('../security/pro-access');
@@ -99,9 +99,11 @@ async function registerStateRoute(app, {
   const requireEntitlement = subscriptionRequiresEntitlement(config.SUBSCRIPTION_MODE);
   const ownerTornId = Number(config.PRO_RECEIVER_TORN_ID) || null;
 
+  const sessionRateLimit = createSessionRateLimitHook(app, RATE_LIMITS.STATE);
+
   app.get('/v1/state', {
-    preHandler: app.authenticate,
-    config: { rateLimit: RATE_LIMITS.STATE }
+    config: { rateLimit: RATE_LIMITS.STATE_IP },
+    preHandler: [app.authenticate, sessionRateLimit]
   }, async (request, reply) => {
     const user = request.reviveRelayUser;
     const now = clock();

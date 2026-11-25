@@ -1,5 +1,5 @@
 const { z } = require('zod');
-const { RATE_LIMITS } = require('../security/rate-limits');
+const { RATE_LIMITS, createSessionRateLimitHook } = require('../security/rate-limits');
 
 const tornIdSchema = z.string().regex(/^[1-9][0-9]{0,11}$/).transform(Number);
 
@@ -9,9 +9,11 @@ async function registerPlayerBadgeRoute(app, { presenceRepository }) {
     throw new Error('presenceRepository.getPlayerBadge is required');
   }
 
+  const sessionRateLimit = createSessionRateLimitHook(app, RATE_LIMITS.PLAYER_BADGE);
+
   app.get('/v1/players/:tornId/badge', {
-    preHandler: app.authenticate,
-    config: { rateLimit: RATE_LIMITS.PLAYER_BADGE }
+    config: { rateLimit: RATE_LIMITS.PLAYER_BADGE_IP },
+    preHandler: [app.authenticate, sessionRateLimit]
   }, async (request, reply) => {
     const parsed = tornIdSchema.safeParse(request.params.tornId);
     if (!parsed.success) return reply.code(422).send({ error: 'INVALID_TORN_ID' });
