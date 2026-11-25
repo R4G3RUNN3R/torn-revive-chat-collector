@@ -71,6 +71,24 @@
     return at === null ? null : { kind: 'elapsed', at };
   }
 
+  // Shared COMPLETED fade: returns null once the transaction has faded (or when it
+  // carries no timestamp at all, so "Revived" can never linger), else the refresh time.
+  function completedFade(transaction, now) {
+    const closedAt = toMs(transaction && (transaction.closedAt || transaction.updatedAt));
+    if (closedAt === null || now - closedAt >= COMPLETED_FADE_MS) return null;
+    return { refreshAt: closedAt + COMPLETED_FADE_MS };
+  }
+
+  function unknownCount(value) {
+    if (value == null || value === '') return null;
+    const n = Number(value);
+    return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : null;
+  }
+
+  function updatingMapping() {
+    return { label: 'Updating', tone: 'neutral', icon: 'clock', sheet: 'loading', timer: null };
+  }
+
   function requesterMapping(state, source, now) {
     const reviver = personName(source && source.reviver, 'reviver');
     switch (state) {
@@ -83,9 +101,9 @@
       case 'WAITING_FOR_REVIVE':
         return { label: `${reviver} is reviving`, tone: 'progress', icon: 'heartbeat', sheet: 'request-reviving', timer: null };
       case 'COMPLETED': {
-        const closedAt = toMs(source && (source.closedAt || source.updatedAt));
-        if (closedAt !== null && now - closedAt >= COMPLETED_FADE_MS) return null;
-        return { label: 'Revived', tone: 'success', icon: 'check', sheet: 'request-summary', timer: null, refreshAt: closedAt === null ? null : closedAt + COMPLETED_FADE_MS };
+        const fade = completedFade(source, now);
+        if (!fade) return null;
+        return { label: 'Revived', tone: 'success', icon: 'check', sheet: 'request-summary', timer: null, refreshAt: fade.refreshAt };
       }
       case 'FAILED_ATTEMPT_CHOICE':
         return { label: 'Revive failed · choose', tone: 'action', icon: 'alert', sheet: 'request-failed-choice', timer: null };
@@ -104,27 +122,27 @@
     }
   }
 
-  function reviverMapping(state, transaction, now) {
-    const requester = personName(transaction && transaction.requester, 'requester');
+  function reviverMapping(state, source, now) {
+    const requester = personName(source && source.requester, 'requester');
     switch (state) {
       case 'WAITING_FOR_PAYMENT':
-        return { label: 'Awaiting payment', tone: 'waiting', icon: 'cash', sheet: 'reviver-awaiting-payment', timer: countdown(transaction.paymentDeadline) };
+        return { label: 'Awaiting payment', tone: 'waiting', icon: 'cash', sheet: 'reviver-awaiting-payment', timer: countdown(source && source.paymentDeadline) };
       case 'PAYMENT_RECONCILING':
         return { label: 'Checking payment', tone: 'waiting', icon: 'clock', sheet: 'reviver-payment-check', timer: null };
       case 'WAITING_FOR_REVIVE':
-        return { label: `Revive ${requester} now`, tone: 'action', icon: 'bolt', sheet: 'reviver-revive-now', timer: countdown(transaction.reviveDeadline) };
+        return { label: `Revive ${requester} now`, tone: 'action', icon: 'bolt', sheet: 'reviver-revive-now', timer: countdown(source && source.reviveDeadline) };
       case 'FAILED_ATTEMPT_CHOICE':
         return { label: 'Requester deciding', tone: 'waiting', icon: 'clock', sheet: 'reviver-failed-choice', timer: null };
       case 'RETRY_OFFERED':
-        return { label: 'Retry? Accept or decline', tone: 'action', icon: 'heartbeat', sheet: 'reviver-retry', timer: countdown(transaction.retryResponseDeadline) };
+        return { label: 'Retry? Accept or decline', tone: 'action', icon: 'heartbeat', sheet: 'reviver-retry', timer: countdown(source && source.retryResponseDeadline) };
       case 'REFUND_REQUIRED':
-        return { label: `Refund owed to ${requester}`, tone: 'action', icon: 'refund', sheet: 'reviver-refund', timer: countdown(transaction.refundDeadline) };
+        return { label: `Refund owed to ${requester}`, tone: 'action', icon: 'refund', sheet: 'reviver-refund', timer: countdown(source && source.refundDeadline) };
       case 'REFUND_RECONCILING':
         return { label: 'Checking refund', tone: 'waiting', icon: 'refund', sheet: 'reviver-refund', timer: null };
       case 'COMPLETED': {
-        const closedAt = toMs(transaction.closedAt || transaction.updatedAt);
-        if (closedAt !== null && now - closedAt >= COMPLETED_FADE_MS) return null;
-        return { label: 'Revive complete', tone: 'success', icon: 'check', sheet: 'reviver-summary', timer: null, refreshAt: closedAt === null ? null : closedAt + COMPLETED_FADE_MS };
+        const fade = completedFade(source, now);
+        if (!fade) return null;
+        return { label: 'Revive complete', tone: 'success', icon: 'check', sheet: 'reviver-summary', timer: null, refreshAt: fade.refreshAt };
       }
       case 'REFUNDED':
         return { label: 'Refund verified', tone: 'success', icon: 'check', sheet: 'reviver-summary', timer: null };
@@ -153,7 +171,8 @@
   function firstMapped(transactions, role, now) {
     const mapper = role === 'requester' ? requesterMapping : reviverMapping;
     for (const transaction of sortedByDeadline(transactions.filter(tx => tx && tx.participantRole === role))) {
-      const mapped = mapper(transaction.state, transaction, now);
+      const known = TRANSACTION_STATES.includes(transaction.state);
+      const mapped = known ? mapper(transaction.state, transaction, now) : updatingMapping();
       if (mapped) return { mapped, transaction };
     }
     return null;
@@ -166,8 +185,9 @@
   function idleMapping(snapshot) {
     const me = snapshot.me || {};
     if (hasRole(me, 'reviver')) {
-      if (snapshot.queue && Number.isFinite(Number(snapshot.queue.count))) {
-        return { role: 'reviver', label: 'Queue', detail: String(Math.max(0, Math.floor(Number(snapshot.queue.count)))), tone: 'neutral', icon: 'heartbeat', sheet: 'reviver-queue' };
+      if (snapshot.queue) {
+        const count = unknownCount(snapshot.queue.count);
+        return { role: 'reviver', label: 'Queue', detail: count === null ? '' : String(count), tone: 'neutral', icon: 'heartbeat', sheet: 'reviver-queue' };
       }
       const proState = snapshot.pro && snapshot.pro.state;
       if (proState === 'EXPIRED' || proState === 'REVOKED') {

@@ -261,3 +261,83 @@ test('unknown freshness is treated as syncing (never authoritative)', () => {
 test('view models are frozen', () => {
   assert.equal(Object.isFrozen(derivePill(snapshot(), 'live', NOW)), true);
 });
+
+test('reviver COMPLETED fades 5 s after closing and reports refreshAt', () => {
+  const reviver = me({ roles: ['reviver'] });
+  const recent = transaction('COMPLETED', 'reviver', { closedAt: iso(-4000) });
+  const old = transaction('COMPLETED', 'reviver', { closedAt: iso(-5000) });
+  const recentView = derivePill(snapshot({ me: reviver, activeTransactions: [recent] }), 'live', NOW);
+  assert.equal(recentView.text, 'Revive complete');
+  assert.equal(recentView.refreshAt, NOW + 1000);
+  const oldView = derivePill(snapshot({ me: reviver, queue: { count: 2 }, activeTransactions: [old] }), 'live', NOW);
+  assert.equal(oldView.text, 'Queue · 2');
+  assert.equal(oldView.refreshAt, null);
+});
+
+test('COMPLETED falls back to updatedAt when closedAt is missing', () => {
+  for (const role of ['requester', 'reviver']) {
+    const reviver = me({ roles: ['reviver'] });
+    const tx = transaction('COMPLETED', role, { closedAt: null, updatedAt: iso(-2000) });
+    const view = derivePill(snapshot({ me: reviver, activeTransactions: [tx] }), 'live', NOW);
+    assert.equal(view.refreshAt, NOW + 3000, role);
+    assert.equal(view.tone, 'success', role);
+  }
+});
+
+test('COMPLETED with neither closedAt nor updatedAt is treated as already faded', () => {
+  for (const role of ['requester', 'reviver']) {
+    const tx = transaction('COMPLETED', role, { closedAt: null, updatedAt: null });
+    const view = derivePill(snapshot({ me: me({ roles: ['requester'] }), activeTransactions: [tx] }), 'live', NOW);
+    assert.equal(view.text, 'Revive me · 3 online', role);
+    assert.equal(view.refreshAt, null, role);
+  }
+});
+
+test('idle reviver with an unknown queue count shows no number', () => {
+  const reviver = me({ roles: ['requester', 'reviver'], verification: { usable: true, requester: true, reviver: true } });
+  for (const count of [null, undefined, '', NaN, Infinity, 'abc']) {
+    const view = derivePill(snapshot({ me: reviver, queue: { count } }), 'live', NOW);
+    assert.equal(view.text, 'Queue', String(count));
+    assert.equal(view.sheet, 'reviver-queue', String(count));
+  }
+});
+
+test('an open transaction in an unrecognised state shows a neutral "Updating" pill', () => {
+  for (const role of ['requester', 'reviver']) {
+    const tx = transaction('SOME_FUTURE_STATE', role, { id: `future-${role}` });
+    const view = derivePill(snapshot({
+      me: me({ roles: ['requester', 'reviver'] }),
+      queue: { count: 5 },
+      activeTransactions: [tx]
+    }), 'live', NOW);
+    assert.equal(view.label, 'Updating', role);
+    assert.equal(view.tone, 'neutral', role);
+    assert.equal(view.role, role);
+    assert.equal(view.transactionId, `future-${role}`);
+    assert.equal(view.state, 'SOME_FUTURE_STATE');
+    assert.equal(view.sheet, 'loading');
+    assert.equal(view.timer, null);
+  }
+});
+
+test('an unrecognised-state transaction takes the priority slot it would have had', () => {
+  const view = derivePill(snapshot({
+    me: me({ roles: ['requester', 'reviver'] }),
+    activeTransactions: [
+      transaction('WAITING_FOR_REVIVE', 'reviver', { id: 'known-reviver', paymentDeadline: null, reviveDeadline: iso(10000) }),
+      transaction('SOME_FUTURE_STATE', 'requester', { id: 'future-requester' })
+    ]
+  }), 'live', NOW);
+  assert.equal(view.transactionId, 'future-requester');
+  assert.equal(view.label, 'Updating');
+
+  const reviverSide = derivePill(snapshot({
+    me: me({ roles: ['reviver'] }),
+    activeTransactions: [
+      transaction('WAITING_FOR_PAYMENT', 'reviver', { id: 'later', paymentDeadline: iso(90000) }),
+      transaction('SOME_FUTURE_STATE', 'reviver', { id: 'future-reviver', paymentDeadline: iso(10000) })
+    ]
+  }), 'live', NOW);
+  assert.equal(reviverSide.transactionId, 'future-reviver');
+  assert.equal(reviverSide.label, 'Updating');
+});
