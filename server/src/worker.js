@@ -22,6 +22,8 @@ const { createWorkerRunner } = require('./worker/runner');
 const { createGoogleSheetsClient } = require('./integrations/google-sheets');
 const { createSheetsMirrorHandler } = require('./worker/sheets-mirror');
 const { createTelemetryRetentionHandler } = require('./worker/telemetry-retention');
+const { createRequestStatusScanHandler } = require('./worker/request-status-scan');
+const { createRequestRepository } = require('./db/requests');
 
 function unimplementedHandler(stage, type) {
   return async () => {
@@ -66,7 +68,7 @@ async function configureSubscriptionScan({
   return subscriptionScanHandler;
 }
 
-function buildStageThreeHandlers({ paymentVerifyHandler, reviveVerifyHandler, refundVerifyHandler, sheetsMirrorHandler = null, telemetryRetentionHandler = null, subscriptionScanHandler = null }) {
+function buildStageThreeHandlers({ paymentVerifyHandler, reviveVerifyHandler, refundVerifyHandler, sheetsMirrorHandler = null, telemetryRetentionHandler = null, subscriptionScanHandler = null, requestStatusScanHandler = null }) {
   if (typeof paymentVerifyHandler !== 'function') throw new Error('paymentVerifyHandler is required');
   if (typeof reviveVerifyHandler !== 'function') throw new Error('reviveVerifyHandler is required');
   if (typeof refundVerifyHandler !== 'function') throw new Error('refundVerifyHandler is required');
@@ -82,6 +84,7 @@ function buildStageThreeHandlers({ paymentVerifyHandler, reviveVerifyHandler, re
     }
     if (type === 'sheets.mirror' && typeof sheetsMirrorHandler === 'function') return [type, sheetsMirrorHandler];
     if (type === 'telemetry.retention' && typeof telemetryRetentionHandler === 'function') return [type, telemetryRetentionHandler];
+    if (type === 'request.status-scan' && typeof requestStatusScanHandler === 'function') return [type, requestStatusScanHandler];
     return [type, unimplementedHandler('Stage 3', type)];
   }));
 }
@@ -164,6 +167,17 @@ async function start() {
     dedupeKey: 'telemetry.retention:reviverelay-errors',
     payload: {}
   });
+  const requestStatusScanHandler = createRequestStatusScanHandler({
+    requestRepository: createRequestRepository(pool),
+    verificationCredentialRepository,
+    tornClient
+  });
+  await jobRepository.enqueueUniqueJob({
+    type: 'request.status-scan',
+    runAt: new Date(),
+    dedupeKey: 'request.status-scan:available-requests',
+    payload: {}
+  });
   const runner = createWorkerRunner({
     workerId: process.env.REVIVERELAY_WORKER_ID || `worker-${process.pid}`,
     jobRepository,
@@ -173,7 +187,8 @@ async function start() {
       refundVerifyHandler,
       sheetsMirrorHandler,
       telemetryRetentionHandler,
-      subscriptionScanHandler
+      subscriptionScanHandler,
+      requestStatusScanHandler
     }),
     logger: console,
     telemetryReporter
