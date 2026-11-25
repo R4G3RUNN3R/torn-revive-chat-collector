@@ -339,7 +339,7 @@ async function recordRequesterStatus(pool, { requestId, status, checkedAt = new 
   const result = status
     ? await pool.query(`
         UPDATE revive_requests
-        SET hospital_until = $2, abroad = $3, status_checked_at = $4
+        SET hospital_until = $2, abroad = $3, status_checked_at = $4, status_refreshed_at = $4
         WHERE id = $1
       `, [requestId, status.hospitalUntil, status.abroad, checkedAt])
     : await pool.query(`

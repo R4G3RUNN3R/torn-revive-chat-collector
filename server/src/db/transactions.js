@@ -28,7 +28,17 @@ function rowToTransaction(row) {
   };
 }
 
-function rowToQueueRequest(row) {
+const REQUESTER_STATUS_STALE_MS = 180000;
+
+function isRequesterStatusFresh(refreshedAt, now) {
+  if (!refreshedAt) return false;
+  const refreshedMs = new Date(refreshedAt).getTime();
+  if (Number.isNaN(refreshedMs)) return false;
+  return now.getTime() - refreshedMs <= REQUESTER_STATUS_STALE_MS;
+}
+
+function rowToQueueRequest(row, now = new Date()) {
+  const fresh = isRequesterStatusFresh(row.status_refreshed_at, now);
   return {
     id: row.id,
     requesterTornId: row.requester_torn_id == null ? null : Number(row.requester_torn_id),
@@ -40,8 +50,8 @@ function rowToQueueRequest(row) {
     origin: row.origin,
     certified: row.origin === 'reviverelay_direct',
     createdAt: row.created_at,
-    hospitalUntil: row.hospital_until || null,
-    abroad: typeof row.abroad === 'boolean' ? row.abroad : null
+    hospitalUntil: fresh ? row.hospital_until || null : null,
+    abroad: fresh && typeof row.abroad === 'boolean' ? row.abroad : null
   };
 }
 
@@ -226,7 +236,10 @@ async function countAvailableRequests(pool) {
   return result.rows[0].count;
 }
 
-async function listAvailableRequests(pool, limit = 100) {
+async function listAvailableRequests(pool, limit = 100, now = new Date()) {
+  if (!(now instanceof Date) || Number.isNaN(now.getTime())) {
+    throw new Error('now must be a valid Date');
+  }
   const normalizedLimit = Math.max(1, Math.min(100, Number.isInteger(limit) ? limit : 100));
   const result = await pool.query(`
     SELECT
@@ -241,7 +254,8 @@ async function listAvailableRequests(pool, limit = 100) {
       r.origin,
       r.created_at,
       r.hospital_until,
-      r.abroad
+      r.abroad,
+      r.status_refreshed_at
     FROM revive_requests r
     JOIN users u ON u.id = r.requester_id
     WHERE r.state = 'AVAILABLE'
@@ -259,7 +273,7 @@ async function listAvailableRequests(pool, limit = 100) {
     LIMIT $1
   `, [normalizedLimit, TRANSACTION_CREDENTIAL_PURPOSE]);
 
-  return result.rows.map(rowToQueueRequest);
+  return result.rows.map(row => rowToQueueRequest(row, now));
 }
 
 async function getTransactionForUser(pool, { transactionId, userId }) {
@@ -330,6 +344,7 @@ function createTransactionRepository(pool) {
 }
 
 module.exports = {
+  REQUESTER_STATUS_STALE_MS,
   acceptRequest,
   listAvailableRequests,
   countAvailableRequests,

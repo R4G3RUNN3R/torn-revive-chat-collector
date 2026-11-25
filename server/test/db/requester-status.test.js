@@ -27,10 +27,11 @@ test('requests needing status are listed until checked, then again after 60 seco
     assert.equal((await repo.listRequestsNeedingStatus({ now: new Date('2026-11-25T12:01:01Z'), limit: 25 })).length, 1);
 
     assert.equal(await repo.recordRequesterStatus({ requestId, status: null, checkedAt: new Date('2026-11-25T12:01:01Z') }), true);
-    const row = (await pool.query('SELECT hospital_until, abroad, status_checked_at FROM revive_requests WHERE id=$1', [requestId])).rows[0];
+    const row = (await pool.query('SELECT hospital_until, abroad, status_checked_at, status_refreshed_at FROM revive_requests WHERE id=$1', [requestId])).rows[0];
     assert.equal(row.hospital_until.toISOString(), hospitalUntil.toISOString());
     assert.equal(row.abroad, true);
     assert.equal(row.status_checked_at.toISOString(), '2026-11-25T12:01:01.000Z');
+    assert.equal(row.status_refreshed_at.toISOString(), t0.toISOString());
   });
 });
 
@@ -56,5 +57,32 @@ test('queue rows expose hospitalUntil and abroad', async () => {
     rows = await listAvailableRequests(pool);
     assert.equal(rows[0].hospitalUntil.toISOString(), hospitalUntil.toISOString());
     assert.equal(rows[0].abroad, false);
+  });
+});
+
+test('queue status stays visible after a failed read and becomes unknown 3 minutes after the last success', async () => {
+  await withDisposableDatabase('requester_status_stale', async pool => {
+    const repo = createRequestRepository(pool);
+    const { requestId } = await seedRequest(pool, 860004);
+    const t0 = new Date('2026-11-25T12:00:00Z');
+    const at = seconds => new Date(t0.getTime() + seconds * 1000);
+    const hospitalUntil = new Date('2026-11-25T13:00:00Z');
+
+    await repo.recordRequesterStatus({ requestId, status: { hospitalUntil, abroad: true }, checkedAt: t0 });
+    let [row] = await listAvailableRequests(pool, 100, at(30));
+    assert.equal(row.hospitalUntil.toISOString(), hospitalUntil.toISOString());
+    assert.equal(row.abroad, true);
+    assert.equal('statusRefreshedAt' in row, false);
+    assert.equal('status_refreshed_at' in row, false);
+
+    await repo.recordRequesterStatus({ requestId, status: null, checkedAt: at(90) });
+    [row] = await listAvailableRequests(pool, 100, at(179));
+    assert.equal(row.hospitalUntil.toISOString(), hospitalUntil.toISOString());
+    assert.equal(row.abroad, true);
+
+    await repo.recordRequesterStatus({ requestId, status: null, checkedAt: at(160) });
+    [row] = await listAvailableRequests(pool, 100, at(181));
+    assert.equal(row.hospitalUntil, null);
+    assert.equal(row.abroad, null);
   });
 });
