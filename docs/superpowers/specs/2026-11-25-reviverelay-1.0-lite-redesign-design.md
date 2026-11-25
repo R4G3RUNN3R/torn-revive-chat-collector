@@ -1,6 +1,6 @@
 # ReviveRelay 1.0 "Lite" Redesign Design
 
-Status: draft for owner review · 2026-11-25
+Status: approved direction, open questions decided · 2026-11-25
 Owner: R4G3RUNN3R [3877028]
 Baseline: client 0.7.3 (published review), 0.7.4 (engineering candidate), server 0.6.1-paid-race-20261125
 
@@ -80,13 +80,13 @@ Everything in "Locked architecture and trust invariants", "Dormancy invariant", 
 
 ### Header pill (every Torn page)
 
-A single pill mounts in Torn's header button area (the slot other revive services use), falling back to the sidebar launcher position the 0.7.3 PDA work already handles. It shows an icon, a short label and, when relevant, a timer or progress ring.
+A single pill mounts in Torn's header button area (the slot other revive services use) on every platform, TornPDA included. If the header slot is missing or too narrow (checked on mount and on resize), it falls back to the launcher position the 0.7.3 PDA work already made reliable. It shows an icon, a short label and, when relevant, a timer or progress ring.
 
 The pill is a pure function of `(role, transaction state, freshness)`. Requester mapping:
 
 | Server state | Pill | Tone | Expanded sheet shows |
 | --- | --- | --- | --- |
-| none, eligible | Revive me · *n* online | neutral | Request button, revivers online, typical wait |
+| none, eligible | Revive me · *n* online (when *n* = 0: Revive me) | neutral | Request button; "*n* revivers online", or "Revivers are notified" when *n* = 0 |
 | none, not verified | Set up revives | warning | Verification setup (existing flow) |
 | `AVAILABLE` | Waiting · m:ss | waiting | Cancel; position hint |
 | `WAITING_FOR_PAYMENT` | Pay *reviver* · m:ss left | action | Exact amount, currency, deadline, **Open reviver's profile** (manual send in Torn), Cancel |
@@ -98,7 +98,7 @@ The pill is a pure function of `(role, transaction state, freshness)`. Requester
 | `REFUND_REQUIRED` / `REFUND_RECONCILING` | Refund in progress | waiting | Amount, reviver, deadline |
 | `REFUNDED` | Refunded | success | Summary |
 | `PAYMENT_EXPIRED`, `CANCELLED_BY_REQUESTER`, `CLOSED_*` | (idle) | neutral | Brief closing note in history |
-| `REPORTABLE_*` | Needs attention | danger | What happened and how to report it |
+| `REPORTABLE_*` | Needs attention | attention | What happened and how to report it |
 
 Freshness overrides: while cached state is unconfirmed, the pill shows the cached label with a "syncing" indicator; on transport failure it shows "Offline · retrying" and never a success or failure tone.
 
@@ -137,7 +137,8 @@ Badges are inserted once per node and marked with `data-rr-badge` so re-renders 
 
 - Requester: accepted, payment verified, revived, failed, refund resolved.
 - Reviver: new request (opt-in, rate-limited), payment received, refund owed.
-- Delivered once per event id across all tabs (single-actor invariant), via `GM_notification` with optional short sound; tab title badge as fallback on PDA.
+- Delivered once per event id across all tabs (single-actor invariant), via `GM_notification`; tab title badge as fallback on PDA.
+- Sound is on by default only for events that need the player to act or confirm an outcome: requester (accepted · time to pay, revived, refund resolved) and reviver (payment received · revive now, refund owed). New-queue-request notifications are silent by default. One short, soft bundled sound; one toggle turns all sound off.
 - Quiet hours and per-type toggles in settings.
 
 ### Settings and Pro
@@ -146,7 +147,7 @@ Settings, verification, Pro status, plans and invoices move into sheet tabs that
 
 ### Visual system
 
-- **Tokens:** CSS custom properties inside the shadow root: surfaces, text, border, one accent (ReviveRelay teal), and status tones (waiting amber, action purple, success green, danger red). Light and dark sets follow Torn's active theme (detected from Torn's body class, falling back to `prefers-color-scheme`).
+- **Tokens:** CSS custom properties inside the shadow root: surfaces, text, border, one accent (ReviveRelay red `#a4161a`, kept from 0.7.x), and status tones (waiting amber, action purple, success green, attention orange). Red is the brand only: error and "needs attention" states use orange plus an alert icon, so red never doubles as a danger signal. Dark-mode accent is a lightened red tuned for contrast on Torn's dark surfaces. Light and dark sets follow Torn's active theme (detected from Torn's body class, falling back to `prefers-color-scheme`).
 - **Type:** inherit Torn's font family and base size; two weights only.
 - **Icons:** a bundled set of about 16 inline SVG icons (heartbeat, clock, plane, user-check, check, alert, refund, settings, close, chevron, bell, bolt, shield, cash, pill, external), 16/20 px, `currentColor`.
 - **Motion:** 120–250 ms opacity/transform transitions only; progress rings animate with CSS; everything respects `prefers-reduced-motion`.
@@ -211,7 +212,9 @@ New server endpoint: `GET /v1/state` (review: `/review/v1/state`), authenticated
 - `nextPollMs`,
 - `stateVersion` with `ETag`; unchanged state returns `304` with no body.
 
-Existing endpoints stay for compatibility and for actions (`POST /v1/requests`, accept, cancel, check-payment, etc.). Live push (Server-Sent Events) is a phase-2 option; see Open questions.
+Existing endpoints stay for compatibility and for actions (`POST /v1/requests`, accept, cancel, check-payment, etc.).
+
+Live push is deliberately not in 1.0. 1.0 ships with the adaptive polling above; after the review alpha measures real latency and request volume, a 1.1 may add Server-Sent Events, with polling kept as the fallback for userscript managers or TornPDA builds that cannot stream.
 
 ### Rendering
 
@@ -242,8 +245,8 @@ Existing endpoints stay for compatibility and for actions (`POST /v1/requests`, 
 ## Server changes
 
 1. `GET /v1/state` aggregated endpoint with ETag/304 and `nextPollMs` (plus review-channel mount).
-2. `revivers.online` aggregate: revivers with an authenticated request in the last 5 minutes, eligible and entitled. Count only.
-3. Queue rows add `hospitalSecondsRemaining` and `abroad`. Today a request row carries only `offerAmount` and identity; the source for hospital time and location must be confirmed during planning, preferably the requester's existing verification credential within the already-disclosed Profile scope, refreshed at most once per minute per active request.
+2. `revivers.online` aggregate: revivers with an authenticated request in the last 5 minutes, eligible and entitled. Count only; the client hides the number when it is 0.
+3. Queue rows add `hospitalSecondsRemaining` and `abroad`. The server reads the requester's Torn profile status with the requester's existing verification credential (the requester key already includes `profile`, as disclosed in `TORN-API-DISCLOSURE.md`), at most once per minute per active request, and stores only the derived hospital-until time and abroad flag on the request. Failure to read leaves the fields absent (rendered as unknown), never guessed.
 4. Profile verification lookup `GET /v1/players/:tornId/badge` returning only `{requesterVerified, reviverVerified}`; rate-limited.
 5. No database migration expected; confirm during planning.
 
@@ -274,14 +277,18 @@ Settings migrate from 0.7.x GM keys on first boot; the API key binding and verif
 - **Real TornPDA:** the existing real-device acceptance list, plus bottom sheet, touch targets and notification fallback.
 - **Server:** `/v1/state` contract tests, ETag/304 behaviour, `nextPollMs` bounds, privacy of `revivers.online`.
 
-## Open questions
+## Decisions (owner, 2026-11-25)
 
-1. **Live push:** Server-Sent Events would make updates instant, but `EventSource` cannot send the bearer token and `GM_xmlhttpRequest` streaming support differs between Tampermonkey, Violentmonkey and TornPDA. Phase 1 uses adaptive polling; decide on SSE after measuring.
-2. **Header slot on PDA:** TornPDA's header differs; confirm the pill fits or keep the existing PDA launcher position.
-3. **Revivers-online definition:** is "seen in last 5 minutes" the right signal, and should it be shown when the count is 0?
-4. **Accent colour:** teal is proposed; confirm against Torn's palette and the Voidsmith brand.
-5. **Sound:** ship a default notification sound or keep silent by default?
-6. **Hospital time and abroad data:** confirm the server-side source and refresh rate for queue rows (see Server changes, item 3).
+| # | Question | Decision |
+| --- | --- | --- |
+| 1 | Live push | Adaptive polling in 1.0. Consider Server-Sent Events in 1.1 after measuring; polling stays as fallback. (`EventSource` cannot send the bearer token, and `GM_xmlhttpRequest` streaming differs across Tampermonkey, Violentmonkey and TornPDA.) |
+| 2 | Pill on TornPDA | Torn's header on all platforms; fall back to the 0.7.3 PDA launcher position when the header slot is missing or too narrow. |
+| 3 | Revivers online | Eligible, entitled revivers seen in the last 5 minutes; hide the number at 0 and say "Revivers are notified". |
+| 4 | Accent colour | Keep ReviveRelay red `#a4161a`. Error/attention states move to orange plus an alert icon so red is brand-only. |
+| 5 | Sound | On by default for key action/outcome events only; new queue requests silent; one toggle for all sound. |
+| 6 | Hospital time and abroad | Server reads the requester's profile status with their existing credential (Profile scope already disclosed), at most once per minute per active request. |
+
+No open questions remain for the design; implementation details are settled in the plan.
 
 ## Future work (not 1.0)
 
