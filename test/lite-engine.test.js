@@ -492,3 +492,51 @@ test('start → stop → start: a response from the first session still in fligh
   assert.equal(storage.values[SNAPSHOT_KEY].data.revivers.online, 5);
   engine.stop();
 });
+
+test('a leader that regains leadership mid-poll polls again promptly, not a full cadence later', async () => {
+  const clock = createFakeTimers();
+  const hang = deferred();
+  const apiA = scriptedApi([hang, { notModified: false, snapshot: snapshot({ revivers: { online: 3 } }) }]);
+  const apiB = scriptedApi([{ notModified: false, snapshot: snapshot({ revivers: { online: 9 } }) }]);
+  const { tabs: [a, b] } = lockTabs({ clock, specs: [{ tabId: 'a', api: apiA }, { tabId: 'b', api: apiB }] });
+  a.engine.start();
+  b.engine.start();
+  await clock.advance(0);
+  assert.equal(a.engine.isLeader(), true);
+  assert.equal(apiA.calls, 1);
+
+  a.document.setVisibility('hidden');
+  await clock.advance(1000);
+  assert.equal(b.engine.isLeader(), true);
+  a.document.setVisibility('visible');
+  b.document.setVisibility('hidden');
+  await clock.advance(0);
+  assert.equal(a.engine.isLeader(), true);
+  assert.equal(apiA.calls, 1, 'the first poll is still in flight');
+
+  hang.resolve({ notModified: false, snapshot: snapshot({ revivers: { online: 2 } }) });
+  await clock.flush();
+  await clock.advance(3000);
+  assert.equal(apiA.calls, 2);
+  assert.equal(pillText(a.engine), 'Revive me · 3 online');
+  assert.equal(a.engine.viewModel().syncing, false);
+  a.engine.stop();
+  b.engine.stop();
+});
+
+test('refresh() during an in-flight poll is not lost', async () => {
+  const clock = createFakeTimers();
+  const hang = deferred();
+  const api = scriptedApi([hang, { notModified: false, snapshot: snapshot({ revivers: { online: 4 } }) }]);
+  const { engine } = makeEngine({ clock, api });
+  engine.start();
+  await clock.advance(0);
+  assert.equal(api.calls, 1);
+  engine.refresh();
+  hang.resolve({ notModified: false, snapshot: snapshot() });
+  await clock.flush();
+  await clock.advance(0);
+  assert.equal(api.calls, 2);
+  assert.equal(pillText(engine), 'Revive me · 4 online');
+  engine.stop();
+});

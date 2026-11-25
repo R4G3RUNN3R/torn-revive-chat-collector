@@ -182,7 +182,14 @@ test('a job never overlaps itself and the delay function sees the context', asyn
   assert.equal(clock.pending(), 0);
   release();
   await clock.flush();
+  // The trigger that arrived mid-run is kept: the job runs once more, then follows its delay.
   assert.equal(clock.pending(), 1);
+  assert.equal(clock.nextDelay(), 0);
+  await clock.advance(0);
+  release();
+  await clock.flush();
+  assert.equal(clock.pending(), 1);
+  assert.equal(clock.nextDelay(), 1000);
   const last = seen[seen.length - 1];
   assert.equal(last.hidden, false);
   assert.equal(last.failures, 0);
@@ -212,4 +219,45 @@ test('duplicate job names are rejected', () => {
   const { scheduler } = setup();
   scheduler.addJob('poll', { delay: () => null, run: () => {} });
   assert.throws(() => scheduler.addJob('poll', { delay: () => null, run: () => {} }), /already registered/);
+});
+
+test('a trigger while the job is running is kept and runs the job again as soon as it completes', async () => {
+  const { clock, scheduler } = setup();
+  let runs = 0;
+  let finish;
+  scheduler.addJob('poll', { delay: () => 60000, run: () => { runs += 1; return new Promise(resolve => { finish = resolve; }); }, runNow: true });
+  scheduler.start();
+  await clock.advance(0);
+  assert.equal(runs, 1);
+  scheduler.trigger('poll');
+  await clock.advance(1000);
+  assert.equal(runs, 1, 'never overlaps itself');
+  finish();
+  await clock.advance(0);
+  assert.equal(runs, 2);
+  finish();
+  await clock.advance(0);
+  assert.equal(runs, 2, 'the pending trigger is consumed once');
+  assert.equal(clock.nextDelay(), 60000);
+});
+
+test('a trigger pending when the job completes while hidden waits until visible', async () => {
+  const { clock, page, scheduler } = setup();
+  let runs = 0;
+  let finish;
+  scheduler.addJob('poll', { delay: () => 60000, run: () => { runs += 1; return new Promise(resolve => { finish = resolve; }); }, runNow: true });
+  scheduler.start();
+  await clock.advance(0);
+  scheduler.trigger('poll');
+  page.hidden = true;
+  scheduler.onVisibilityChange();
+  finish();
+  await clock.advance(2000);
+  assert.equal(runs, 1);
+  assert.equal(clock.pending(), 0);
+  page.hidden = false;
+  scheduler.onVisibilityChange();
+  assert.equal(clock.nextDelay(), 0);
+  await clock.advance(0);
+  assert.equal(runs, 2);
 });

@@ -58,6 +58,17 @@
       return base + Math.max(0, Number(delay));
     }
 
+    // A trigger that arrived while the job was running makes it due now, once visible.
+    function nextDueAt(job) {
+      if (job.pendingTrigger) {
+        job.pendingTrigger = false;
+        job.failures = 0;
+        job.backoff = 0;
+        return now();
+      }
+      return computeDueAt(job);
+    }
+
     function disarm() {
       if (timer !== null) {
         clearTimer(timer);
@@ -104,7 +115,7 @@
           if (jobs.get(job.name) !== job || job.generation !== generation) return;
           job.running = false;
           job.lastRunAt = now();
-          if (!isHidden()) job.dueAt = computeDueAt(job);
+          if (!isHidden()) job.dueAt = nextDueAt(job);
           arm();
         });
     }
@@ -112,7 +123,7 @@
     function addJob(name, { delay, run, runNow = false } = {}) {
       if (typeof delay !== 'function' || typeof run !== 'function') throw new Error('delay and run are required');
       if (jobs.has(name)) throw new Error(`job already registered: ${name}`);
-      const job = { name, delay, run, dueAt: null, addedAt: now(), lastRunAt: null, failures: 0, backoff: 0, running: false, generation: 0 };
+      const job = { name, delay, run, dueAt: null, addedAt: now(), lastRunAt: null, failures: 0, backoff: 0, running: false, pendingTrigger: false, generation: 0 };
       jobs.set(name, job);
       if (!isHidden()) job.dueAt = runNow ? now() : computeDueAt(job);
       arm();
@@ -130,14 +141,18 @@
       const targets = name === undefined ? [...jobs.values()] : [jobs.get(name)].filter(Boolean);
       for (const job of targets) {
         if (job.running) continue;
-        job.dueAt = isHidden() ? null : computeDueAt(job);
+        job.dueAt = isHidden() ? null : nextDueAt(job);
       }
       arm();
     }
 
     function trigger(name) {
       const job = jobs.get(name);
-      if (!job || job.running) return;
+      if (!job) return;
+      if (job.running) {
+        job.pendingTrigger = true;
+        return;
+      }
       job.failures = 0;
       job.backoff = 0;
       job.dueAt = isHidden() ? null : now();
@@ -158,7 +173,7 @@
       started = true;
       if (!isHidden()) {
         for (const job of jobs.values()) {
-          if (!job.running && job.dueAt === null) job.dueAt = computeDueAt(job);
+          if (!job.running && job.dueAt === null) job.dueAt = nextDueAt(job);
         }
       }
       arm();
