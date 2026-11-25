@@ -12,6 +12,8 @@ const { registerTelemetryRoutes } = require("./routes/telemetry");
 const { registerClientVersionRoute } = require('./routes/client-version');
 const { registerAdminProRoutes } = require('./routes/admin-pro');
 const { registerAccountRoutes } = require('./routes/account');
+const { registerStateRoute } = require('./routes/state');
+const { registerPlayerBadgeRoute } = require('./routes/player-badge');
 const { installAuthentication } = require('./security/authenticate');
 const { createClientVersionPreHandler } = require('./security/client-version');
 
@@ -33,6 +35,7 @@ function buildApp({
   errorTelemetryRepository = null,
   releaseRegistry = null,
   accountDeletionService = null,
+  presenceRepository = null,
   logger = false
 }) {
   if (!config) throw new Error('config is required');
@@ -167,6 +170,24 @@ function buildApp({
     if (!sessionRepository) throw new Error("transaction action routes require a sessionRepository");
     app.register(async instance => {
       await registerTransactionRoutes(instance,{transactionRepository,transactionService,jobRepository});
+    });
+  }
+
+  if (sessionRepository && requestRepository && transactionRepository) {
+    app.register(async instance => {
+      await registerStateRoute(instance, {
+        requestRepository,
+        transactionRepository,
+        entitlementRepository,
+        presenceRepository,
+        config
+      });
+    });
+  }
+
+  if (sessionRepository && presenceRepository) {
+    app.register(async instance => {
+      await registerPlayerBadgeRoute(instance, { presenceRepository });
     });
   }
 

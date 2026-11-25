@@ -13,6 +13,7 @@ const { createProEntitlementRepository } = require('./db/pro-entitlements');
 const { createProInvoiceRepository } = require('./db/pro-invoices');
 const { createErrorTelemetryRepository } = require('./db/error-telemetry');
 const { createAccountDeletionService } = require('./db/account-deletion');
+const { createPresenceRepository } = require('./db/presence');
 const { createTelemetryReporter } = require('./telemetry/reporter');
 const { loadReleaseRegistry } = require('./release/registry');
 const { createTornClient } = require('./torn/client');
@@ -43,6 +44,7 @@ async function start() {
   const proInvoiceRepository = createProInvoiceRepository(pool);
   const errorTelemetryRepository = createErrorTelemetryRepository(pool);
   const accountDeletionService = createAccountDeletionService(pool);
+  const presenceRepository = createPresenceRepository(pool);
   const telemetryReporter = createTelemetryReporter({
     repository: errorTelemetryRepository,
     product: 'reviverelay',
@@ -70,6 +72,7 @@ async function start() {
     reviverRepository,
     errorTelemetryRepository,
     accountDeletionService,
+    presenceRepository,
     releaseRegistry,
     logMetadataResolver,
     logger: true
