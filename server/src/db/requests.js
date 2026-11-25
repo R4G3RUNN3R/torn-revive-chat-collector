@@ -321,6 +321,35 @@ async function cancelRequest(pool, { requestId, requesterId, now = new Date() })
   }
 }
 
+async function listRequestsNeedingStatus(pool, { now = new Date(), limit = 25 } = {}) {
+  const normalizedLimit = Math.max(1, Math.min(100, Number.isInteger(limit) ? limit : 25));
+  const result = await pool.query(`
+    SELECT r.id, r.requester_id
+    FROM revive_requests r
+    WHERE r.state = 'AVAILABLE'
+      AND r.closed_at IS NULL
+      AND (r.status_checked_at IS NULL OR r.status_checked_at < $1::timestamptz - interval '60 seconds')
+    ORDER BY r.status_checked_at ASC NULLS FIRST, r.created_at ASC, r.id ASC
+    LIMIT $2
+  `, [now, normalizedLimit]);
+  return result.rows.map(row => ({ id: row.id, requesterId: row.requester_id }));
+}
+
+async function recordRequesterStatus(pool, { requestId, status, checkedAt = new Date() }) {
+  const result = status
+    ? await pool.query(`
+        UPDATE revive_requests
+        SET hospital_until = $2, abroad = $3, status_checked_at = $4
+        WHERE id = $1
+      `, [requestId, status.hospitalUntil, status.abroad, checkedAt])
+    : await pool.query(`
+        UPDATE revive_requests
+        SET status_checked_at = $2
+        WHERE id = $1
+      `, [requestId, checkedAt]);
+  return result.rowCount === 1;
+}
+
 function createRequestRepository(pool) {
   return {
     createRequest(input) {
@@ -331,6 +360,12 @@ function createRequestRepository(pool) {
     },
     cancelRequest(input) {
       return cancelRequest(pool, input);
+    },
+    listRequestsNeedingStatus(input) {
+      return listRequestsNeedingStatus(pool, input);
+    },
+    recordRequesterStatus(input) {
+      return recordRequesterStatus(pool, input);
     }
   };
 }
@@ -339,5 +374,7 @@ module.exports = {
   createRequest,
   getActiveRequest,
   cancelRequest,
+  listRequestsNeedingStatus,
+  recordRequesterStatus,
   createRequestRepository
 };

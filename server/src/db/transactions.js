@@ -39,7 +39,9 @@ function rowToQueueRequest(row) {
     state: row.state,
     origin: row.origin,
     certified: row.origin === 'reviverelay_direct',
-    createdAt: row.created_at
+    createdAt: row.created_at,
+    hospitalUntil: row.hospital_until || null,
+    abroad: typeof row.abroad === 'boolean' ? row.abroad : null
   };
 }
 
@@ -218,7 +220,9 @@ async function listAvailableRequests(pool, limit = 100) {
       r.comment,
       r.state,
       r.origin,
-      r.created_at
+      r.created_at,
+      r.hospital_until,
+      r.abroad
     FROM revive_requests r
     JOIN users u ON u.id = r.requester_id
     WHERE r.state = 'AVAILABLE'
