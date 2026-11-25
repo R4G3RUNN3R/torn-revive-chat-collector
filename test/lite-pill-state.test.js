@@ -1,0 +1,263 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const {
+  TONES,
+  FRESHNESS,
+  TRANSACTION_STATES,
+  derivePill,
+  formatDuration
+} = require('../src/lite/pill-state');
+
+const NOW = Date.parse('2026-11-25T12:00:00.000Z');
+const iso = offsetMs => new Date(NOW + offsetMs).toISOString();
+
+function me(overrides = {}) {
+  return {
+    tornId: 1001,
+    name: 'Patient',
+    roles: ['requester'],
+    verification: { usable: true, requester: true, reviver: false },
+    ...overrides
+  };
+}
+
+function snapshot(overrides = {}) {
+  return {
+    stateVersion: '0123456789abcdef',
+    nextPollMs: 60000,
+    me: me(),
+    pro: { state: 'NONE', trialEligible: true, trialStartedAt: null, validUntil: null },
+    activeRequest: null,
+    activeTransactions: [],
+    revivers: { online: 3 },
+    queue: null,
+    ...overrides
+  };
+}
+
+function transaction(state, participantRole, overrides = {}) {
+  return {
+    id: `tx-${participantRole}-${state}`,
+    state,
+    participantRole,
+    createdAt: iso(-120000),
+    updatedAt: iso(-1000),
+    closedAt: null,
+    paymentDeadline: iso(90000),
+    reviveDeadline: null,
+    retryResponseDeadline: null,
+    refundDeadline: null,
+    requester: { tornId: 1001, name: 'Patient' },
+    reviver: { tornId: 2002, name: 'Medic' },
+    ...overrides
+  };
+}
+
+// Expected live (authoritative) pill per state and role. null = this transaction does
+// not drive the pill, so the idle pill ("Revive me · 3 online") shows instead.
+const EXPECTED = {
+  requester: {
+    AVAILABLE: { label: 'Waiting', detail: '2:00', tone: 'waiting' },
+    WAITING_FOR_PAYMENT: { label: 'Pay Medic', detail: '1:30 left', tone: 'action' },
+    PAYMENT_RECONCILING: { label: 'Checking payment', detail: '', tone: 'waiting' },
+    WAITING_FOR_REVIVE: { label: 'Medic is reviving', detail: '', tone: 'progress' },
+    COMPLETED: { label: 'Revived', detail: '', tone: 'success' },
+    FAILED_ATTEMPT_CHOICE: { label: 'Revive failed · choose', detail: '', tone: 'action' },
+    RETRY_OFFERED: { label: 'Retry requested', detail: '', tone: 'waiting' },
+    REFUND_REQUIRED: { label: 'Refund in progress', detail: '', tone: 'waiting' },
+    REFUND_RECONCILING: { label: 'Refund in progress', detail: '', tone: 'waiting' },
+    REFUNDED: { label: 'Refunded', detail: '', tone: 'success' },
+    CANCELLED_BY_REQUESTER: null,
+    PAYMENT_EXPIRED: null,
+    CLOSED_REQUESTER_EXIT: null,
+    CLOSED_NATURAL_EXPIRY: null,
+    REPORTABLE_NO_ATTEMPT: { label: 'Needs attention', detail: '', tone: 'attention' },
+    REPORTABLE_MISSING_REFUND: { label: 'Needs attention', detail: '', tone: 'attention' }
+  },
+  reviver: {
+    AVAILABLE: null,
+    WAITING_FOR_PAYMENT: { label: 'Awaiting payment', detail: '1:30 left', tone: 'waiting' },
+    PAYMENT_RECONCILING: { label: 'Checking payment', detail: '', tone: 'waiting' },
+    WAITING_FOR_REVIVE: { label: 'Revive Patient now', detail: '1:30 left', tone: 'action' },
+    COMPLETED: { label: 'Revive complete', detail: '', tone: 'success' },
+    FAILED_ATTEMPT_CHOICE: { label: 'Requester deciding', detail: '', tone: 'waiting' },
+    RETRY_OFFERED: { label: 'Retry? Accept or decline', detail: '1:30 left', tone: 'action' },
+    REFUND_REQUIRED: { label: 'Refund owed to Patient', detail: '1:30 left', tone: 'action' },
+    REFUND_RECONCILING: { label: 'Checking refund', detail: '', tone: 'waiting' },
+    REFUNDED: { label: 'Refund verified', detail: '', tone: 'success' },
+    CANCELLED_BY_REQUESTER: null,
+    PAYMENT_EXPIRED: null,
+    CLOSED_REQUESTER_EXIT: null,
+    CLOSED_NATURAL_EXPIRY: null,
+    REPORTABLE_NO_ATTEMPT: { label: 'Needs attention', detail: '', tone: 'attention' },
+    REPORTABLE_MISSING_REFUND: { label: 'Needs attention', detail: '', tone: 'attention' }
+  }
+};
+
+const IDLE = { label: 'Revive me', detail: '3 online', tone: 'neutral' };
+
+function deadlinesFor(state) {
+  // Each state carries the one deadline the server sets for it, 90 s ahead.
+  if (state === 'WAITING_FOR_REVIVE') return { paymentDeadline: null, reviveDeadline: iso(90000) };
+  if (state === 'RETRY_OFFERED') return { paymentDeadline: null, retryResponseDeadline: iso(90000) };
+  if (state === 'REFUND_REQUIRED') return { paymentDeadline: null, refundDeadline: iso(90000) };
+  return {};
+}
+
+test('the state table covers all 16 server transaction states for both roles', () => {
+  assert.equal(TRANSACTION_STATES.length, 16);
+  for (const role of ['requester', 'reviver']) {
+    assert.deepEqual(Object.keys(EXPECTED[role]).sort(), [...TRANSACTION_STATES].sort());
+  }
+});
+
+for (const role of ['requester', 'reviver']) {
+  for (const state of TRANSACTION_STATES) {
+    for (const freshness of FRESHNESS) {
+      test(`pill: ${role} × ${state} × ${freshness}`, () => {
+        const snap = snapshot({
+          me: role === 'reviver' ? me({ verification: { usable: true, requester: true, reviver: true } }) : me(),
+          activeTransactions: [transaction(state, role, deadlinesFor(state))]
+        });
+        const view = derivePill(snap, freshness, NOW);
+        const expected = EXPECTED[role][state] || IDLE;
+
+        assert.ok(TONES.includes(view.tone), `tone ${view.tone}`);
+        assert.equal(typeof view.text, 'string');
+        assert.ok(view.text.length > 0);
+        assert.equal(view.syncing, freshness === 'syncing');
+        assert.equal(view.offline, freshness === 'offline');
+
+        if (freshness === 'offline') {
+          assert.equal(view.text, 'Offline · retrying');
+          assert.equal(view.tone === 'success' || view.tone === 'attention', false);
+          assert.equal(view.timer, null);
+          return;
+        }
+
+        assert.equal(view.label, expected.label);
+        assert.equal(view.detail, expected.detail);
+        if (freshness === 'live') {
+          assert.equal(view.tone, expected.tone);
+        } else {
+          const tone = expected.tone === 'success' || expected.tone === 'attention' ? 'neutral' : expected.tone;
+          assert.equal(view.tone, tone);
+        }
+        if (EXPECTED[role][state]) {
+          assert.equal(view.role, role);
+          assert.equal(view.state, state);
+          assert.equal(view.transactionId, `tx-${role}-${state}`);
+        } else {
+          assert.equal(view.state, null);
+        }
+      });
+    }
+  }
+}
+
+test('requester without an open transaction follows activeRequest (AVAILABLE counts up from createdAt)', () => {
+  const view = derivePill(snapshot({
+    activeRequest: { id: 'req-1', state: 'AVAILABLE', paymentMethod: 'cash', offerAmount: 1000000, createdAt: iso(-65000), transactionId: null }
+  }), 'live', NOW);
+  assert.equal(view.text, 'Waiting · 1:05');
+  assert.equal(view.tone, 'waiting');
+  assert.deepEqual(view.timer, { kind: 'elapsed', at: NOW - 65000 });
+});
+
+test('idle requester: "Revive me · n online", and n is hidden at 0 or unknown', () => {
+  assert.equal(derivePill(snapshot(), 'live', NOW).text, 'Revive me · 3 online');
+  assert.equal(derivePill(snapshot({ revivers: { online: 0 } }), 'live', NOW).text, 'Revive me');
+  assert.equal(derivePill(snapshot({ revivers: { online: null } }), 'live', NOW).text, 'Revive me');
+  assert.equal(derivePill(snapshot({ revivers: { online: 0 } }), 'live', NOW).sheet, 'request');
+});
+
+test('idle requester without a usable requester credential gets "Set up revives"', () => {
+  for (const verification of [null, { usable: false, requester: true, reviver: false }, { usable: true, requester: false, reviver: false }]) {
+    const view = derivePill(snapshot({ me: me({ verification }) }), 'live', NOW);
+    assert.equal(view.text, 'Set up revives');
+    assert.equal(view.tone, 'attention');
+    assert.equal(view.sheet, 'requester-setup');
+  }
+});
+
+test('idle reviver shows the queue count only when queue is non-null', () => {
+  const reviver = me({ roles: ['requester', 'reviver'], verification: { usable: true, requester: true, reviver: true } });
+  assert.equal(derivePill(snapshot({ me: reviver, queue: { count: 4 } }), 'live', NOW).text, 'Queue · 4');
+  assert.equal(derivePill(snapshot({ me: reviver, queue: { count: 0 } }), 'live', NOW).text, 'Queue · 0');
+  assert.equal(derivePill(snapshot({ me: reviver, queue: null }), 'live', NOW).text, 'Reviver setup');
+  const expired = derivePill(snapshot({ me: reviver, queue: null, pro: { state: 'EXPIRED' } }), 'live', NOW);
+  assert.equal(expired.text, 'Pro expired');
+  assert.equal(expired.sheet, 'reviver-pro');
+});
+
+test('reviver holding several transactions: the nearest deadline drives the pill', () => {
+  const view = derivePill(snapshot({
+    me: me({ roles: ['reviver'] }),
+    queue: { count: 9 },
+    activeTransactions: [
+      transaction('WAITING_FOR_PAYMENT', 'reviver', { id: 'late', paymentDeadline: iso(240000) }),
+      transaction('WAITING_FOR_REVIVE', 'reviver', { id: 'soon', paymentDeadline: null, reviveDeadline: iso(30000) }),
+      transaction('REFUND_RECONCILING', 'reviver', { id: 'none', paymentDeadline: null })
+    ]
+  }), 'live', NOW);
+  assert.equal(view.transactionId, 'soon');
+  assert.equal(view.text, 'Revive Patient now · 0:30 left');
+});
+
+test('a closed reviver transaction never hides the next open one', () => {
+  const view = derivePill(snapshot({
+    me: me({ roles: ['reviver'] }),
+    activeTransactions: [
+      transaction('PAYMENT_EXPIRED', 'reviver', { id: 'closed', paymentDeadline: iso(1000) }),
+      transaction('WAITING_FOR_PAYMENT', 'reviver', { id: 'open', paymentDeadline: iso(61000) })
+    ]
+  }), 'live', NOW);
+  assert.equal(view.transactionId, 'open');
+  assert.equal(view.text, 'Awaiting payment · 1:01 left');
+});
+
+test('requester-side transactions take priority over reviver-side ones', () => {
+  const view = derivePill(snapshot({
+    me: me({ roles: ['requester', 'reviver'] }),
+    activeTransactions: [
+      transaction('WAITING_FOR_REVIVE', 'reviver', { id: 'as-reviver', paymentDeadline: null, reviveDeadline: iso(10000) }),
+      transaction('WAITING_FOR_PAYMENT', 'requester', { id: 'as-requester', paymentDeadline: iso(80000) })
+    ]
+  }), 'live', NOW);
+  assert.equal(view.transactionId, 'as-requester');
+  assert.equal(view.role, 'requester');
+});
+
+test('COMPLETED fades back to idle 5 s after closing', () => {
+  const recent = transaction('COMPLETED', 'requester', { closedAt: iso(-4000) });
+  const old = transaction('COMPLETED', 'requester', { closedAt: iso(-5000) });
+  const recentView = derivePill(snapshot({ activeTransactions: [recent] }), 'live', NOW);
+  assert.equal(recentView.text, 'Revived');
+  assert.equal(recentView.refreshAt, NOW + 1000);
+  assert.equal(derivePill(snapshot({ activeTransactions: [old] }), 'live', NOW).text, 'Revive me · 3 online');
+});
+
+test('countdowns clamp at 0:00 and long durations show hours', () => {
+  const view = derivePill(snapshot({ activeTransactions: [transaction('WAITING_FOR_PAYMENT', 'requester', { paymentDeadline: iso(-5000) })] }), 'live', NOW);
+  assert.equal(view.detail, '0:00 left');
+  assert.equal(formatDuration(3723000), '1:02:03');
+  assert.equal(formatDuration(59999), '0:59');
+});
+
+test('no snapshot yet: neutral placeholder while syncing, "Offline · retrying" on failure', () => {
+  const syncing = derivePill(null, 'syncing', NOW);
+  assert.equal(syncing.text, 'ReviveRelay');
+  assert.equal(syncing.syncing, true);
+  assert.equal(syncing.sheet, 'loading');
+  assert.equal(derivePill(null, 'offline', NOW).text, 'Offline · retrying');
+});
+
+test('unknown freshness is treated as syncing (never authoritative)', () => {
+  const view = derivePill(snapshot({ activeTransactions: [transaction('REFUNDED', 'requester')] }), 'bogus', NOW);
+  assert.equal(view.syncing, true);
+  assert.equal(view.tone, 'neutral');
+});
+
+test('view models are frozen', () => {
+  assert.equal(Object.isFrozen(derivePill(snapshot(), 'live', NOW)), true);
+});
