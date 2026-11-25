@@ -38,6 +38,15 @@ function createSessionRepository(pool) {
         reviverStanding: row.reviver_standing,
         activeBan: row.active_ban
       };
+    },
+    async touch({ sessionId, now = new Date() }) {
+      const result = await pool.query(`
+        UPDATE sessions
+        SET last_seen_at = $2
+        WHERE id = $1
+          AND (last_seen_at IS NULL OR last_seen_at < $2::timestamptz - interval '60 seconds')
+      `, [sessionId, now]);
+      return result.rowCount === 1;
     }
   };
 }

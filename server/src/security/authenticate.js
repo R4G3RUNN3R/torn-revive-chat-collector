@@ -38,6 +38,14 @@ function createAuthenticateRequest({ sessionRepository, pepper, now = () => new 
       roles.push('reviver');
     }
 
+    if (typeof sessionRepository.touch === 'function') {
+      try {
+        await sessionRepository.touch({ sessionId: record.sessionId, now: now() });
+      } catch (error) {
+        // Presence is best-effort and must never block authentication.
+      }
+    }
+
     return {
       sessionId: record.sessionId,
       userId: record.userId,
