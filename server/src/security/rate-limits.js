@@ -6,6 +6,8 @@ const RATE_LIMITS = Object.freeze({
   ACCEPT: Object.freeze({ max: 60, timeWindow: '1 minute' }),
   PRO_INVOICE_WRITE: Object.freeze({ max: 10, timeWindow: '10 minutes' }),
   PRO_INVOICE_READ: Object.freeze({ max: 60, timeWindow: '1 minute' }),
+  STATE: Object.freeze({ max: 30, timeWindow: '1 minute' }),
+  PLAYER_BADGE: Object.freeze({ max: 60, timeWindow: '1 minute' }),
   ACCOUNT_DELETE: Object.freeze({ max: 3, timeWindow: '1 hour' })
 });
 
