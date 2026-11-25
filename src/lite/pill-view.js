@@ -18,9 +18,9 @@
   const PILL_CSS = [
     ':host{all:initial;display:inline-flex;align-items:center;vertical-align:middle;margin:0 4px;font-family:inherit;font-size:inherit;line-height:1;color:var(--rr-text)}',
     ':host([data-rr-placement="launcher"]){position:fixed;z-index:2147483646;right:calc(10px + env(safe-area-inset-right, 0px));bottom:calc(10px + env(safe-area-inset-bottom, 0px));margin:0}',
-    '.rr-pill{display:inline-flex;align-items:center;gap:6px;min-height:28px;max-width:280px;padding:0 10px;border:1px solid var(--rr-border);border-radius:999px;background:var(--rr-surface);color:var(--rr-text);font:inherit;font-weight:var(--rr-weight-regular);cursor:pointer;transition:border-color var(--rr-motion-fast) ease,background-color var(--rr-motion-fast) ease,opacity var(--rr-motion-slow) ease}',
+    '.rr-pill{display:inline-flex;align-items:center;gap:6px;min-height:28px;max-width:280px;padding:0 10px;border:1px solid var(--rr-border);border-radius:999px;background:var(--rr-surface);color:var(--rr-text);font:inherit;font-weight:var(--rr-weight-regular);cursor:pointer;transition:opacity var(--rr-motion-slow) ease,transform var(--rr-motion-fast) ease}',
     ':host([data-rr-placement="launcher"]) .rr-pill{min-height:44px;padding:0 14px;box-shadow:var(--rr-elevation)}',
-    '@media (pointer: coarse){.rr-pill{min-height:44px}}',
+    '@media (pointer: coarse){:host([data-rr-placement="launcher"]) .rr-pill{min-height:44px}}',
     '.rr-pill:focus-visible{outline:2px solid var(--rr-accent);outline-offset:2px}',
     '.rr-pill[data-tone="neutral"]{--rr-tone:var(--rr-accent)}',
     '.rr-pill[data-tone="waiting"]{--rr-tone:var(--rr-tone-waiting);border-color:var(--rr-tone-waiting)}',
@@ -33,13 +33,15 @@
     '.rr-detail{color:var(--rr-text-muted);white-space:nowrap}',
     '.rr-detail:empty{display:none}',
     '.rr-detail::before{content:"\\00B7\\00A0"}',
-    '.rr-sync{display:none;width:6px;height:6px;border-radius:50%;background:var(--rr-text-muted);animation:rr-pulse 1.2s ease-in-out infinite}',
+    '.rr-sync{display:none;width:6px;height:6px;border-radius:50%;background:var(--rr-text-muted);animation:rr-sync-in var(--rr-motion-slow) ease-out both}',
     '.rr-pill[data-syncing="true"] .rr-sync{display:inline-block}',
     '.rr-pill[data-offline="true"]{border-style:dashed;opacity:.85}',
-    '@keyframes rr-pulse{0%,100%{opacity:.35}50%{opacity:1}}',
+    '@keyframes rr-sync-in{from{opacity:0}to{opacity:1}}',
     '@media (prefers-reduced-motion: reduce){.rr-pill,.rr-sync{transition:none;animation:none}}',
     ':host([data-motion="reduce"]) .rr-pill,:host([data-motion="reduce"]) .rr-sync{transition:none;animation:none}'
   ].join('\n');
+
+  let current = null;
 
   function dependency(globalName, path) {
     if (typeof globalThis !== 'undefined' && globalThis[globalName]) return globalThis[globalName];
@@ -69,6 +71,8 @@
     const { createIcon } = dependency('ReviveRelayLiteIcons', './icons');
     const { TOKENS_CSS } = dependency('ReviveRelayLiteTokens', './tokens');
 
+    if (current) current.destroy();
+    current = null;
     const stale = typeof document.getElementById === 'function' ? document.getElementById(HOST_ID) : null;
     if (stale) stale.remove();
 
@@ -81,6 +85,7 @@
     const button = document.createElement('button');
     button.setAttribute('type', 'button');
     button.setAttribute('class', 'rr-pill');
+    button.setAttribute('aria-label', 'ReviveRelay');
     button.setAttribute('part', 'pill');
     const iconSlot = document.createElement('span');
     iconSlot.setAttribute('class', 'rr-icon');
@@ -143,6 +148,7 @@
 
     function onClick(event) {
       if (event && typeof event.preventDefault === 'function') event.preventDefault();
+      if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
       try { onActivate(); } catch (_) { /* activation errors stay with the caller */ }
     }
 
@@ -174,6 +180,7 @@
       button.removeEventListener('click', onClick);
       if (window && typeof window.removeEventListener === 'function') window.removeEventListener('resize', onResize);
       host.remove();
+      if (current === instance) current = null;
     }
 
     button.addEventListener('click', onClick);
@@ -181,7 +188,7 @@
     refreshTheme();
     place();
 
-    return Object.freeze({
+    const instance = Object.freeze({
       update,
       destroy,
       place,
@@ -190,6 +197,8 @@
       shadow,
       placement: () => last.placement || null
     });
+    current = instance;
+    return instance;
   }
 
   return Object.freeze({ HOST_ID, HEADER_SLOT_SELECTORS, MIN_SLOT_WIDTH, PILL_CSS, detectTheme, mountPill });

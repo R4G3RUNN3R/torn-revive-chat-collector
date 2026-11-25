@@ -155,3 +155,57 @@ test('the lite UI source never uses innerHTML', () => {
     assert.doesNotMatch(source, /innerHTML|outerHTML|insertAdjacentHTML/, file);
   }
 });
+
+test('remounting without destroy tears down the previous instance', () => {
+  const { document, window, view: first } = setup();
+  const second = mountPill({ document, window, headerSelectors: ['#rr-test-header'] });
+  window.dispatch('resize');
+  assert.equal(document.querySelectorAll(`#${HOST_ID}`).length, 1);
+  assert.equal(window.listenerCount('resize'), 1);
+  assert.equal(first.host.parentNode, null);
+  const before = document.mutations;
+  first.update(derivePill(idleSnapshot(), 'live', NOW));
+  assert.equal(document.mutations, before);
+  assert.equal(second.host.parentNode.getAttribute('id'), 'rr-test-header');
+});
+
+test('motion CSS: only opacity/transform transitions, token durations, no infinite animation', () => {
+  assert.doesNotMatch(PILL_CSS, /infinite/);
+  assert.doesNotMatch(PILL_CSS, /rr-pulse/);
+  const transitions = [...PILL_CSS.matchAll(/transition:([^;}]*)/g)].map(m => m[1]).filter(v => v !== 'none');
+  assert.ok(transitions.length > 0);
+  for (const value of transitions) {
+    for (const part of value.split(',')) {
+      assert.match(part.trim(), /^(opacity|transform)\s/, part);
+    }
+  }
+  const durations = [...PILL_CSS.matchAll(/(?:transition|animation)(?:-duration)?:[^;}]*/g)].join(' ').match(/\b\d+(?:\.\d+)?m?s\b/g) || [];
+  for (const d of durations) {
+    const ms = d.endsWith('ms') ? parseFloat(d) : parseFloat(d) * 1000;
+    assert.ok(ms === 0 || (ms >= 120 && ms <= 250), d);
+  }
+  assert.match(PILL_CSS, /prefers-reduced-motion: reduce/);
+  assert.match(PILL_CSS, /data-motion="reduce"/);
+});
+
+test('button has a default aria-label before the first update', () => {
+  const { button } = setup();
+  assert.equal(button.getAttribute('aria-label'), 'ReviveRelay');
+});
+
+test('coarse-pointer 44px target applies to the launcher placement only', () => {
+  const match = PILL_CSS.match(/@media \(pointer: coarse\)\{([^@]*)\}/);
+  assert.ok(match, 'coarse-pointer rule present');
+  assert.match(match[1], /:host\(\[data-rr-placement="launcher"\]\) \.rr-pill\{min-height:44px\}/);
+  assert.doesNotMatch(match[1].replace(/:host\(\[data-rr-placement="launcher"\]\) \.rr-pill/, ''), /\.rr-pill\{min-height/);
+});
+
+test('click stops propagation so Torn header handlers do not react', () => {
+  const { button, activations } = setup();
+  let stopped = false;
+  let prevented = false;
+  button.dispatchEvent({ type: 'click', target: button, preventDefault() { prevented = true; }, stopPropagation() { stopped = true; } });
+  assert.equal(prevented, true);
+  assert.equal(stopped, true);
+  assert.equal(activations.length, 1);
+});
