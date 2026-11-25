@@ -36,6 +36,7 @@ function makeTab({ id, clock, hub = null, locks = null, hidden = false }) {
   };
 }
 
+const ELECT = DEFAULTS.electionMs + 200; // election delay plus the maximum id stagger
 const leaders = tabs => tabs.filter(tab => tab.leader.isLeader()).map(tab => tab.leader.tabId());
 
 test('handoff budget: crash detection plus election stays within 5 s', () => {
@@ -143,7 +144,7 @@ test('heartbeat election: exactly one leader among three visible tabs started to
   const tabs = ['c', 'a', 'b'].map(id => makeTab({ id, clock, hub }));
   tabs.forEach(tab => tab.leader.start());
   assert.equal(tabs[0].leader.mode(), 'heartbeat');
-  await clock.advance(DEFAULTS.electionMs);
+  await clock.advance(ELECT);
   await clock.advance(DEFAULTS.heartbeatMs * 2);
   assert.equal(leaders(tabs).length, 1);
   const first = leaders(tabs)[0];
@@ -156,7 +157,7 @@ test('heartbeat election: when two leaders meet, the lower tab id wins', async (
   const hub = createChannelHub();
   const b = makeTab({ id: 'b', clock, hub });
   b.leader.start();
-  await clock.advance(DEFAULTS.electionMs);
+  await clock.advance(ELECT);
   assert.equal(b.leader.isLeader(), true);
   const rival = hub.createChannel('rr-leader');
   rival.postMessage({ type: 'heartbeat', hidden: false, from: 'z' });
@@ -173,11 +174,11 @@ test('heartbeat election: a late tab follows the existing leader', async () => {
   const hub = createChannelHub();
   const b = makeTab({ id: 'b', clock, hub });
   b.leader.start();
-  await clock.advance(DEFAULTS.electionMs);
+  await clock.advance(ELECT);
   assert.equal(b.leader.isLeader(), true);
   const a = makeTab({ id: 'a', clock, hub });
   a.leader.start();
-  await clock.advance(DEFAULTS.electionMs + 10);
+  await clock.advance(ELECT + 10);
   assert.deepEqual(leaders([a, b]), ['b']);
 });
 
@@ -187,9 +188,9 @@ test('heartbeat election: hiding the leader hands off to a visible tab', async (
   const a = makeTab({ id: 'a', clock, hub });
   const b = makeTab({ id: 'b', clock, hub });
   a.leader.start();
-  await clock.advance(DEFAULTS.electionMs);
+  await clock.advance(ELECT);
   b.leader.start();
-  await clock.advance(DEFAULTS.electionMs + 10);
+  await clock.advance(ELECT + 10);
   assert.deepEqual(leaders([a, b]), ['a']);
   a.setHidden(true);
   await clock.flush();
@@ -204,10 +205,10 @@ test('heartbeat election: closing the leader re-elects within 5 s; a crashed lea
   const b = makeTab({ id: 'b', clock, hub });
   const c = makeTab({ id: 'c', clock, hub });
   a.leader.start();
-  await clock.advance(DEFAULTS.electionMs);
+  await clock.advance(ELECT);
   b.leader.start();
   c.leader.start();
-  await clock.advance(DEFAULTS.electionMs + 10);
+  await clock.advance(ELECT + 10);
   a.leader.stop();
   await clock.advance(5000);
   assert.deepEqual(leaders([b, c]), ['b']);
@@ -224,7 +225,7 @@ test('heartbeat election: hidden tabs hold zero timers', async () => {
   const b = makeTab({ id: 'b', clock, hub });
   a.leader.start();
   b.leader.start();
-  await clock.advance(DEFAULTS.electionMs + 10);
+  await clock.advance(ELECT + 10);
   a.setHidden(true);
   b.setHidden(true);
   await clock.flush();
@@ -240,13 +241,13 @@ test('heartbeat election: a tab becoming visible claims from a hidden leader', a
   const a = makeTab({ id: 'a', clock, hub });
   const b = makeTab({ id: 'b', clock, hub, hidden: true });
   a.leader.start();
-  await clock.advance(DEFAULTS.electionMs);
+  await clock.advance(ELECT);
   b.leader.start();
   a.setHidden(true);
   await clock.flush();
   assert.deepEqual(leaders([a, b]), ['a']);
   b.setHidden(false);
-  await clock.advance(DEFAULTS.electionMs + 10);
+  await clock.advance(ELECT + 10);
   assert.deepEqual(leaders([a, b]), ['b']);
 });
 
@@ -257,7 +258,7 @@ test('start and stop are idempotent and stop closes channels and timers', async 
   a.leader.start();
   a.leader.start();
   assert.equal(hub.openCount(), 2);
-  await clock.advance(DEFAULTS.electionMs);
+  await clock.advance(ELECT);
   a.leader.stop();
   a.leader.stop();
   assert.equal(hub.openCount(), 0);
@@ -266,4 +267,153 @@ test('start and stop are idempotent and stop closes channels and timers', async 
   a.leader.start();
   assert.equal(hub.openCount(), 2);
   a.leader.stop();
+});
+
+test('heartbeat election: a dead hidden leader does not strand visible tabs', async () => {
+  const clock = createFakeTimers();
+  const hub = createChannelHub();
+  const a = makeTab({ id: 'a', clock, hub });
+  const b = makeTab({ id: 'b', clock, hub, hidden: true });
+  const c = makeTab({ id: 'c', clock, hub, hidden: true });
+  a.leader.start();
+  await clock.advance(ELECT);
+  b.leader.start();
+  c.leader.start();
+  a.setHidden(true);
+  await clock.flush();
+  assert.deepEqual(leaders([a, b, c]), ['a']);
+  a.crash();
+  b.setHidden(false);
+  c.setHidden(false);
+  await clock.advance(5000);
+  assert.equal(leaders([b, c]).length, 1);
+  await clock.advance(30000);
+  assert.equal(leaders([b, c]).length, 1);
+});
+
+test('heartbeat election: a claim answered by a live hidden leader leaves no stray claim timer', async () => {
+  const clock = createFakeTimers();
+  const hub = createChannelHub();
+  const a = makeTab({ id: 'a', clock, hub });
+  const b = makeTab({ id: 'b', clock, hub, hidden: true });
+  a.leader.start();
+  await clock.advance(ELECT);
+  b.leader.start();
+  a.setHidden(true);
+  await clock.flush();
+  b.setHidden(false);
+  await clock.advance(5000);
+  assert.deepEqual(leaders([a, b]), ['b']);
+  b.setHidden(true);
+  await clock.flush();
+  a.setHidden(false);
+  await clock.advance(5000);
+  assert.deepEqual(leaders([a, b]), ['a']);
+});
+
+function makeDelayedTab({ id, clock, hub, state }) {
+  const tab = makeTab({ id, clock, hub });
+  // makeTab collects changes in an array; mirror them into the shared overlap tracker.
+  const push = tab.changes.push.bind(tab.changes);
+  tab.changes.push = value => {
+    push(value);
+    if (value) state.leading.add(id); else state.leading.delete(id);
+    if (state.leading.size > 1) state.overlaps.push({ at: clock.now(), leading: [...state.leading] });
+    return tab.changes.length;
+  };
+  return tab;
+}
+
+for (const delay of [5, 50, 200]) {
+  test(`heartbeat election: three tabs starting together never overlap as leaders under ${delay} ms delivery delay`, async () => {
+    const clock = createFakeTimers();
+    const hub = createChannelHub({ delayMs: delay, setTimeout: clock.setTimeout });
+    const state = { leading: new Set(), overlaps: [] };
+    const tabs = ['c', 'a', 'b'].map(id => makeDelayedTab({ id, clock, hub, state }));
+    tabs.forEach(tab => tab.leader.start());
+    await clock.advance(10000);
+    assert.deepEqual(state.overlaps, []);
+    assert.equal(leaders(tabs).length, 1);
+    await clock.advance(30000);
+    assert.deepEqual(state.overlaps, []);
+    assert.equal(leaders(tabs).length, 1);
+  });
+}
+
+test('heartbeat election: a leader closing under delayed delivery re-elects one leader within 5 s with no overlap', async () => {
+  const clock = createFakeTimers();
+  const hub = createChannelHub({ delayMs: 300, setTimeout: clock.setTimeout });
+  const state = { leading: new Set(), overlaps: [] };
+  const tabs = ['a', 'b', 'c', 'd'].map(id => makeDelayedTab({ id, clock, hub, state }));
+  tabs[0].leader.start();
+  await clock.advance(ELECT + 400);
+  tabs.slice(1).forEach(tab => tab.leader.start());
+  await clock.advance(5000);
+  // Joining under 300 ms latency can briefly show two leaders (the round trip exceeds electionMs);
+  // the hand-off below is what this test measures.
+  assert.deepEqual(leaders(tabs), ['a']);
+  state.overlaps.length = 0;
+  tabs[0].leader.stop();
+  state.leading.delete('a');
+  await clock.advance(5000);
+  assert.deepEqual(state.overlaps, []);
+  assert.equal(leaders(tabs.slice(1)).length, 1);
+});
+
+test('start() with missing timers throws before opening channels and leaves the tab stopped', () => {
+  const hub = createChannelHub();
+  const leader = createTabLeader({ tabId: 'x', createChannel: hub.createChannel });
+  assert.throws(() => leader.start(), /timer/);
+  assert.equal(hub.openCount(), 0);
+  assert.equal(leader.isLeader(), false);
+  assert.throws(() => leader.start(), /timer/);
+  assert.equal(hub.openCount(), 0);
+  leader.stop();
+  assert.equal(hub.openCount(), 0);
+});
+
+test('Web Locks: the lock is released after stop() and after a hand-off', async () => {
+  const clock = createFakeTimers();
+  const hub = createChannelHub();
+  const locks = createLockManager();
+  const a = makeTab({ id: 'a', clock, hub, locks });
+  a.leader.start();
+  await clock.flush();
+  assert.equal(locks.held(LOCK_NAME), true);
+  a.leader.stop();
+  await clock.flush();
+  assert.equal(locks.held(LOCK_NAME), false);
+  assert.equal(locks.queued(LOCK_NAME), 0);
+
+  const b = makeTab({ id: 'b', clock, hub, locks });
+  const c = makeTab({ id: 'c', clock, hub, locks });
+  b.leader.start();
+  await clock.flush();
+  c.leader.start();
+  await clock.flush();
+  assert.deepEqual(leaders([b, c]), ['b']);
+  b.setHidden(true);
+  await clock.flush();
+  assert.deepEqual(leaders([b, c]), ['c']);
+  assert.equal(locks.held(LOCK_NAME), true);
+  assert.equal(locks.queued(LOCK_NAME), 0);
+  c.leader.stop();
+  await clock.flush();
+  assert.equal(locks.held(LOCK_NAME), false);
+  assert.equal(locks.queued(LOCK_NAME), 0);
+});
+
+test('solo mode: stop() clears leadership and start() can run again', () => {
+  const clock = createFakeTimers();
+  const tab = makeTab({ id: 'pda', clock });
+  tab.leader.start();
+  assert.equal(tab.leader.isLeader(), true);
+  tab.leader.stop();
+  assert.equal(tab.leader.isLeader(), false);
+  tab.leader.start();
+  assert.equal(tab.leader.mode(), 'solo');
+  assert.equal(tab.leader.isLeader(), true);
+  tab.leader.stop();
+  assert.equal(tab.leader.isLeader(), false);
+  assert.equal(clock.pending(), 0);
 });

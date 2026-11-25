@@ -1,7 +1,9 @@
 'use strict';
 
 // In-memory BroadcastChannel hub and Web Locks manager shared by several fake "tabs".
-function createChannelHub() {
+// Options: { delayMs, setTimeout } delivers each message on a (fake-clock) macrotask after delayMs.
+function createChannelHub({ delayMs = 0, setTimeout: setTimer = null } = {}) {
+  if (delayMs > 0 && typeof setTimer !== 'function') throw new Error('delayMs requires setTimeout');
   const channels = new Set();
   const log = [];
 
@@ -16,9 +18,11 @@ function createChannelHub() {
         log.push({ name, data: copy });
         for (const other of channels) {
           if (other === channel || other.closed || other.name !== name) continue;
-          queueMicrotask(() => {
+          const deliver = () => {
             if (!other.closed) for (const listener of [...other.listeners]) listener({ data: copy });
-          });
+          };
+          if (delayMs > 0) setTimer(deliver, delayMs);
+          else queueMicrotask(deliver);
         }
       },
       addEventListener(type, listener) { if (type === 'message') listeners.add(listener); },

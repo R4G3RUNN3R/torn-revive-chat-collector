@@ -9,6 +9,15 @@
   const LEADER_CHANNEL = 'rr-leader';
   const STATE_CHANNEL = 'rr-state';
   const DEFAULTS = Object.freeze({ heartbeatMs: 2000, leaderTimeoutMs: 4000, electionMs: 500 });
+  // Candidates promote at electionMs + (hash(id) % STAGGER_MS), so simultaneous elections rarely tie.
+  // Worst-case hand-off after a crash: leaderTimeoutMs + electionMs + STAGGER_MS < 5 s.
+  const STAGGER_MS = 200;
+
+  function hashId(value) {
+    let hash = 5381;
+    for (let i = 0; i < value.length; i += 1) hash = ((hash * 33) ^ value.charCodeAt(i)) >>> 0;
+    return hash;
+  }
 
   function defaultTabId() {
     return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
@@ -45,6 +54,8 @@
     let heartbeatTimer = null;
     let watchdogTimer = null;
     let electionTimer = null;
+    let claimTimer = null;
+    let yieldedTo = null;
 
     function setLeader(value) {
       if (leader === value) return;
@@ -177,6 +188,7 @@
       heartbeatTimer = cancel(heartbeatTimer);
       watchdogTimer = cancel(watchdogTimer);
       electionTimer = cancel(electionTimer);
+      claimTimer = cancel(claimTimer);
     }
 
     function scheduleHeartbeat() {
@@ -203,17 +215,47 @@
       if (leader || isHidden() || !started || electionTimer !== null) return;
       knownLeader = null;
       leaderHidden = false;
+      claimTimer = cancel(claimTimer);
+      yieldedTo = new Set();
       post(control, { type: 'hello' });
+      armElectionTimer(electionMs + (hashId(id) % STAGGER_MS));
+    }
+
+    function armElectionTimer(delay) {
+      electionTimer = cancel(electionTimer);
       electionTimer = setTimer(() => {
         electionTimer = null;
+        yieldedTo = null;
         if (!leader && knownLeader === null && !isHidden() && started) becomeLeader();
         else armWatchdog();
+      }, delay);
+    }
+
+    // Another candidate is electing. A lower-id one is given time to promote and announce itself first.
+    // A higher-id one may have started after our own hello went out, so answer it once with a hello of
+    // our own: it then learns of us and yields.
+    function onCandidateHello(from) {
+      if (electionTimer === null || yieldedTo === null || yieldedTo.has(from)) return;
+      yieldedTo.add(from);
+      if (String(from) < id) armElectionTimer(electionMs + STAGGER_MS);
+      else post(control, { type: 'hello' });
+    }
+
+    function armClaimTimer() {
+      claimTimer = cancel(claimTimer);
+      claimTimer = setTimer(() => {
+        claimTimer = null;
+        if (leader || isHidden() || !started || !leaderHidden) return;
+        // The hidden leader never answered: it is gone, so elect among the visible tabs.
+        startElection();
       }, electionMs);
     }
 
     function becomeLeader() {
       watchdogTimer = cancel(watchdogTimer);
       electionTimer = cancel(electionTimer);
+      claimTimer = cancel(claimTimer);
+      yieldedTo = null;
       knownLeader = id;
       leaderHidden = false;
       setLeader(true);
@@ -231,11 +273,14 @@
 
     function followLeader(from, hidden) {
       electionTimer = cancel(electionTimer);
+      claimTimer = cancel(claimTimer);
+      yieldedTo = null;
       knownLeader = from;
       leaderHidden = Boolean(hidden);
       if (leaderHidden && !isHidden()) {
         watchdogTimer = cancel(watchdogTimer);
         post(control, { type: 'claim', to: from });
+        armClaimTimer();
         return;
       }
       armWatchdog();
@@ -244,6 +289,7 @@
     function onHeartbeatMessage(message) {
       switch (message.type) {
         case 'hello':
+          if (!leader) onCandidateHello(message.from);
           if (leader) post(control, { type: 'heartbeat', hidden: isHidden() });
           break;
         case 'heartbeat':
@@ -265,6 +311,7 @@
           }
           break;
         case 'resign':
+          claimTimer = cancel(claimTimer);
           if (message.to === id) {
             if (!isHidden()) becomeLeader();
             break;
@@ -290,6 +337,7 @@
       if (isHidden()) {
         watchdogTimer = cancel(watchdogTimer);
         electionTimer = cancel(electionTimer);
+        claimTimer = cancel(claimTimer);
         if (leader) {
           heartbeatTimer = cancel(heartbeatTimer);
           post(control, { type: 'leader-hidden' });
@@ -303,6 +351,7 @@
         startElection();
       } else if (leaderHidden) {
         post(control, { type: 'claim', to: knownLeader });
+        armClaimTimer();
       } else {
         armWatchdog();
       }
@@ -312,13 +361,18 @@
 
     function start() {
       if (started) return;
+      const lockApi = locks && typeof locks.request === 'function';
+      if (typeof createChannel === 'function' && !lockApi
+        && (typeof setTimer !== 'function' || typeof clearTimer !== 'function')) {
+        throw new Error('timer functions are required for heartbeat election');
+      }
       started = true;
       if (!openChannels()) {
         mode = 'solo';
         setLeader(true);
         return;
       }
-      if (locks && typeof locks.request === 'function') {
+      if (lockApi) {
         mode = 'locks';
         if (!isHidden()) {
           requestLock();
@@ -326,7 +380,6 @@
         }
         return;
       }
-      if (typeof setTimer !== 'function' || typeof clearTimer !== 'function') throw new Error('timer functions are required for heartbeat election');
       mode = 'heartbeat';
       if (!isHidden()) startElection();
     }
@@ -338,6 +391,7 @@
         clearHeartbeatTimers();
         knownLeader = null;
         leaderHidden = false;
+        yieldedTo = null;
       }
       started = false;
       if (mode === 'locks') {
