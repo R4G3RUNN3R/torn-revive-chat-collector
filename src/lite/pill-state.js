@@ -79,10 +79,12 @@
     return { refreshAt: closedAt + COMPLETED_FADE_MS };
   }
 
+  // Only finite numbers or numeric strings count; anything else (false, [], ' ', null) is unknown, never 0.
   function unknownCount(value) {
-    if (value == null || value === '') return null;
-    const n = Number(value);
-    return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : null;
+    let n = null;
+    if (typeof value === 'number') n = value;
+    else if (typeof value === 'string' && value.trim() !== '') n = Number(value);
+    return n !== null && Number.isFinite(n) ? Math.max(0, Math.floor(n)) : null;
   }
 
   function updatingMapping() {
@@ -219,7 +221,9 @@
 
     const request = snapshot.activeRequest;
     if (request && typeof request === 'object') {
-      const mapped = requesterMapping(request.state, request, now);
+      // An open request in a state this client does not know is "Updating", never idle "Revive me".
+      const known = TRANSACTION_STATES.includes(request.state);
+      const mapped = known ? requesterMapping(request.state, request, now) : updatingMapping();
       if (mapped) return fromMapped('requester', mapped, request.state, request.transactionId || null, now);
     }
 

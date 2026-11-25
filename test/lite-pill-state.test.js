@@ -341,3 +341,46 @@ test('an unrecognised-state transaction takes the priority slot it would have ha
   assert.equal(reviverSide.transactionId, 'future-reviver');
   assert.equal(reviverSide.label, 'Updating');
 });
+
+test('an open activeRequest in an unrecognised state shows "Updating", never "Revive me"', () => {
+  const request = { id: 'req-9', state: 'SOME_FUTURE_STATE', createdAt: iso(-5000), transactionId: 'tx-9' };
+  const live = derivePill(snapshot({ activeRequest: request }), 'live', NOW);
+  assert.equal(live.label, 'Updating');
+  assert.equal(live.tone, 'neutral');
+  assert.equal(live.role, 'requester');
+  assert.equal(live.state, 'SOME_FUTURE_STATE');
+  assert.equal(live.transactionId, 'tx-9');
+  assert.equal(live.sheet, 'loading');
+  assert.equal(live.timer, null);
+  for (const state of [undefined, null, '', 42]) {
+    const view = derivePill(snapshot({ activeRequest: { ...request, state } }), 'live', NOW);
+    assert.equal(view.label, 'Updating', String(state));
+    assert.notEqual(view.sheet, 'request', String(state));
+  }
+  const syncing = derivePill(snapshot({ activeRequest: request }), 'syncing', NOW);
+  assert.equal(syncing.text, 'Updating');
+  assert.equal(syncing.syncing, true);
+  assert.equal(syncing.sheet, 'loading');
+  const offline = derivePill(snapshot({ activeRequest: request }), 'offline', NOW);
+  assert.equal(offline.text, 'Offline · retrying');
+  assert.equal(offline.offline, true);
+  assert.equal(offline.sheet, 'loading');
+  assert.equal(offline.role, 'requester');
+});
+
+test('a faded COMPLETED activeRequest still falls through to idle', () => {
+  const view = derivePill(snapshot({ activeRequest: { id: 'req-1', state: 'COMPLETED', closedAt: iso(-60000), transactionId: 'tx-1' } }), 'live', NOW);
+  assert.equal(view.text, 'Revive me · 3 online');
+  assert.equal(view.sheet, 'request');
+});
+
+test('queue count accepts only finite numbers or numeric strings', () => {
+  const reviver = me({ roles: ['requester', 'reviver'], verification: { usable: true, requester: true, reviver: true } });
+  for (const count of [false, true, [], [3], ' ', {}, null]) {
+    const view = derivePill(snapshot({ me: reviver, queue: { count } }), 'live', NOW);
+    assert.equal(view.text, 'Queue', JSON.stringify(count));
+  }
+  assert.equal(derivePill(snapshot({ me: reviver, queue: { count: '7' } }), 'live', NOW).text, 'Queue · 7');
+  assert.equal(derivePill(snapshot({ me: reviver, queue: { count: ' 2 ' } }), 'live', NOW).text, 'Queue · 2');
+  assert.equal(derivePill(snapshot({ me: reviver, queue: { count: 0 } }), 'live', NOW).text, 'Queue · 0');
+});
