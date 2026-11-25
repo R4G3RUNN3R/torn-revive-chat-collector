@@ -8,7 +8,7 @@ const NOW = new Date('2026-11-25T12:00:00Z');
 const REQUESTER = { sessionId: 's1', userId: 'user-1', tornId: 111, name: 'Req', roles: ['requester'] };
 const REVIVER = { sessionId: 's2', userId: 'user-2', tornId: 222, name: 'Rev', roles: ['requester', 'reviver'] };
 
-async function makeApp({ user = REQUESTER, activeRequest = null, openTransactionId = null, transaction = null, queue = [], online = 3, presence = true, proState = 'NONE', mode = 'review' } = {}) {
+async function makeApp({ user = REQUESTER, activeRequest = null, openTransactionIds = [], transactions = {}, queue = [], online = 3, presence = true, proState = 'NONE', mode = 'review' } = {}) {
   const app = Fastify();
   await app.register(fastifyRateLimit, { global: false });
   app.decorateRequest('reviveRelayUser', null);
@@ -17,8 +17,8 @@ async function makeApp({ user = REQUESTER, activeRequest = null, openTransaction
   await registerStateRoute(app, {
     requestRepository: { async getActiveRequest(userId) { assert.equal(userId, user.userId); return activeRequest; } },
     transactionRepository: {
-      async findOpenTransactionIdForUser() { return openTransactionId; },
-      async getTransactionForUser(input) { assert.deepEqual(input, { transactionId: openTransactionId, userId: user.userId }); return transaction; },
+      async listOpenTransactionIdsForUser(userId) { assert.equal(userId, user.userId); return openTransactionIds; },
+      async getTransactionForUser({ transactionId, userId }) { assert.equal(userId, user.userId); return transactions[transactionId] || null; },
       async countAvailableRequests() { calls.count += 1; return queue.length; }
     },
     entitlementRepository: { async getStatus() { return { state: proState, trialEligible: true, trialStartedAt: null, validUntil: null }; } },
@@ -38,7 +38,7 @@ test('idle requester gets a 60s poll, online count and no queue', async t => {
   assert.equal(body.nextPollMs, STATE_POLL_MS.IDLE);
   assert.deepEqual(body.me, { tornId: 111, name: 'Req', roles: ['requester'] });
   assert.equal(body.activeRequest, null);
-  assert.equal(body.activeTransaction, null);
+  assert.deepEqual(body.activeTransactions, []);
   assert.deepEqual(body.revivers, { online: 3 });
   assert.equal(body.queue, null);
   assert.match(body.stateVersion, /^[0-9a-f]{16}$/);
@@ -51,12 +51,13 @@ test('idle requester gets a 60s poll, online count and no queue', async t => {
 test('active request or transaction polls every 5s and includes both', async t => {
   const activeRequest = { id: 'r-1', requesterId: 'user-1', state: 'AVAILABLE', paymentMethod: 'cash', offerAmount: 1000000, createdAt: new Date('2026-11-25T11:59:00Z'), transactionId: 'tx-1', comment: null };
   const transaction = { id: 'tx-1', state: 'WAITING_FOR_PAYMENT', participantRole: 'requester' };
-  const { app } = await makeApp({ activeRequest, openTransactionId: 'tx-1', transaction });
+  const { app } = await makeApp({ activeRequest, openTransactionIds: ['tx-1'], transactions: { 'tx-1': transaction } });
   t.after(() => app.close());
   const body = (await app.inject({ method: 'GET', url: '/v1/state' })).json();
   assert.equal(body.nextPollMs, STATE_POLL_MS.ACTIVE);
   assert.deepEqual(body.activeRequest, { id: 'r-1', state: 'AVAILABLE', paymentMethod: 'cash', offerAmount: 1000000, createdAt: '2026-11-25T11:59:00.000Z', transactionId: 'tx-1' });
-  assert.deepEqual(body.activeTransaction, transaction);
+  assert.deepEqual(body.activeTransactions, [transaction]);
+  assert.equal('activeTransaction' in body, false);
 });
 
 test('reviver without a transaction gets queue count and a 20s poll', async t => {
@@ -105,4 +106,44 @@ test('without a presence repository the online count is null', async t => {
   const { app } = await makeApp({ presence: false });
   t.after(() => app.close());
   assert.deepEqual((await app.inject({ method: 'GET', url: '/v1/state' })).json().revivers, { online: null });
+});
+
+test('all open transactions are returned, nearest deadline first', async t => {
+  const asReviver = { id: 'tx-b', state: 'WAITING_FOR_REVIVE', participantRole: 'reviver', paymentDeadline: null, reviveDeadline: '2026-11-25T12:20:00.000Z', retryResponseDeadline: null, refundDeadline: null };
+  const asRequester = { id: 'tx-a', state: 'WAITING_FOR_PAYMENT', participantRole: 'requester', paymentDeadline: '2026-11-25T12:10:00.000Z', reviveDeadline: '2026-11-25T12:30:00.000Z', retryResponseDeadline: null, refundDeadline: null };
+  const noDeadline = { id: 'tx-0', state: 'VERIFICATION_HOLD', participantRole: 'reviver', paymentDeadline: null, reviveDeadline: null, retryResponseDeadline: null, refundDeadline: null };
+  const { app } = await makeApp({
+    user: REVIVER,
+    proState: 'ACTIVE',
+    openTransactionIds: ['tx-0', 'tx-b', 'tx-a'],
+    transactions: { 'tx-0': noDeadline, 'tx-b': asReviver, 'tx-a': asRequester }
+  });
+  t.after(() => app.close());
+  const body = (await app.inject({ method: 'GET', url: '/v1/state' })).json();
+  assert.deepEqual(body.activeTransactions.map(entry => entry.id), ['tx-a', 'tx-b', 'tx-0']);
+  assert.equal(body.nextPollMs, STATE_POLL_MS.ACTIVE);
+});
+
+test('deadline ties are broken by transaction id', async t => {
+  const deadline = '2026-11-25T12:10:00.000Z';
+  const { app } = await makeApp({
+    openTransactionIds: ['tx-2', 'tx-1'],
+    transactions: {
+      'tx-2': { id: 'tx-2', paymentDeadline: deadline, reviveDeadline: null, retryResponseDeadline: null, refundDeadline: null },
+      'tx-1': { id: 'tx-1', paymentDeadline: null, reviveDeadline: null, retryResponseDeadline: null, refundDeadline: deadline }
+    }
+  });
+  t.after(() => app.close());
+  const body = (await app.inject({ method: 'GET', url: '/v1/state' })).json();
+  assert.deepEqual(body.activeTransactions.map(entry => entry.id), ['tx-1', 'tx-2']);
+});
+
+test('a reviver with an open transaction polls every 5s', async t => {
+  const transaction = { id: 'tx-r', state: 'WAITING_FOR_REVIVE', participantRole: 'reviver', paymentDeadline: null, reviveDeadline: '2026-11-25T12:15:00.000Z', retryResponseDeadline: null, refundDeadline: null };
+  const { app } = await makeApp({ user: REVIVER, proState: 'ACTIVE', openTransactionIds: ['tx-r'], transactions: { 'tx-r': transaction } });
+  t.after(() => app.close());
+  const body = (await app.inject({ method: 'GET', url: '/v1/state' })).json();
+  assert.equal(body.activeRequest, null);
+  assert.deepEqual(body.activeTransactions, [transaction]);
+  assert.equal(body.nextPollMs, STATE_POLL_MS.ACTIVE);
 });

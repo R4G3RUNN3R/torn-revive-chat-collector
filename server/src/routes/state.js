@@ -22,6 +22,35 @@ function publicActiveRequest(request) {
   };
 }
 
+const TRANSACTION_DEADLINE_FIELDS = Object.freeze(['paymentDeadline', 'reviveDeadline', 'retryResponseDeadline', 'refundDeadline']);
+
+function nearestDeadlineMs(transaction) {
+  let nearest = null;
+  for (const field of TRANSACTION_DEADLINE_FIELDS) {
+    const value = transaction[field];
+    if (value == null) continue;
+    const ms = new Date(value).getTime();
+    if (Number.isNaN(ms)) continue;
+    if (nearest === null || ms < nearest) nearest = ms;
+  }
+  return nearest;
+}
+
+function compareByNearestDeadline(a, b) {
+  const da = nearestDeadlineMs(a);
+  const db = nearestDeadlineMs(b);
+  if (da !== db) {
+    if (da === null) return 1;
+    if (db === null) return -1;
+    return da - db;
+  }
+  const ia = String(a.id);
+  const ib = String(b.id);
+  if (ia < ib) return -1;
+  if (ia > ib) return 1;
+  return 0;
+}
+
 async function registerStateRoute(app, {
   requestRepository,
   transactionRepository,
@@ -33,7 +62,7 @@ async function registerStateRoute(app, {
   if (typeof app.authenticate !== 'function') throw new Error('state route requires session authentication');
   if (!requestRepository || typeof requestRepository.getActiveRequest !== 'function') throw new Error('requestRepository is required');
   if (!transactionRepository ||
-      typeof transactionRepository.findOpenTransactionIdForUser !== 'function' ||
+      typeof transactionRepository.listOpenTransactionIdsForUser !== 'function' ||
       typeof transactionRepository.getTransactionForUser !== 'function' ||
       typeof transactionRepository.countAvailableRequests !== 'function') {
     throw new Error('transactionRepository is required');
@@ -55,9 +84,9 @@ async function registerStateRoute(app, {
     const now = clock();
     const isReviver = Array.isArray(user.roles) && user.roles.includes('reviver');
 
-    const [activeRequest, openTransactionId, status, online] = await Promise.all([
+    const [activeRequest, openTransactionIds, status, online] = await Promise.all([
       requestRepository.getActiveRequest(user.userId),
-      transactionRepository.findOpenTransactionIdForUser(user.userId),
+      transactionRepository.listOpenTransactionIdsForUser(user.userId),
       entitlementRepository && typeof entitlementRepository.getStatus === 'function'
         ? entitlementRepository.getStatus(user.userId, now)
         : { state: 'NONE', trialEligible: true, trialStartedAt: null, validUntil: null },
@@ -65,9 +94,10 @@ async function registerStateRoute(app, {
         ? presenceRepository.countOnlineRevivers({ now, requireEntitlement, ownerTornId })
         : null
     ]);
-    const activeTransaction = openTransactionId
-      ? await transactionRepository.getTransactionForUser({ transactionId: openTransactionId, userId: user.userId })
-      : null;
+    const openTransactions = await Promise.all((openTransactionIds || []).map(transactionId =>
+      transactionRepository.getTransactionForUser({ transactionId, userId: user.userId })
+    ));
+    const activeTransactions = openTransactions.filter(Boolean).sort(compareByNearestDeadline);
 
     const pro = resolvePublicProStatus({ status, tornId: user.tornId, subscription });
     const hasQueueAccess = isReviver && (!requireEntitlement || hasActivePro(pro));
@@ -77,7 +107,7 @@ async function registerStateRoute(app, {
       me: { tornId: user.tornId, name: user.name, roles: user.roles },
       pro,
       activeRequest: publicActiveRequest(activeRequest),
-      activeTransaction: activeTransaction || null,
+      activeTransactions,
       revivers: { online: typeof online === 'number' ? online : null },
       queue: hasQueueAccess ? { count: queueCount } : null
     };
@@ -86,7 +116,7 @@ async function registerStateRoute(app, {
     const etag = `"${stateVersion}"`;
 
     let nextPollMs = STATE_POLL_MS.IDLE;
-    if (serialized.activeRequest || serialized.activeTransaction) nextPollMs = STATE_POLL_MS.ACTIVE;
+    if (serialized.activeRequest || serialized.activeTransactions.length > 0) nextPollMs = STATE_POLL_MS.ACTIVE;
     else if (isReviver) nextPollMs = STATE_POLL_MS.REVIVER;
 
     reply.header('ETag', etag);

@@ -21,7 +21,7 @@ function makeApp({ presenceRepository = null } = {}) {
     },
     requestRepository: { async getActiveRequest() { return null; }, async createRequest() {}, async cancelRequest() {} },
     transactionRepository: {
-      async findOpenTransactionIdForUser() { return null; },
+      async listOpenTransactionIdsForUser() { return []; },
       async getTransactionForUser() { return null; },
       async listAvailableRequests() { return []; },
       async countAvailableRequests() { return 0; },
