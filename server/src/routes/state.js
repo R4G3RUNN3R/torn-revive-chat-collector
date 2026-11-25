@@ -2,7 +2,7 @@ const crypto = require('node:crypto');
 const { RATE_LIMITS } = require('../security/rate-limits');
 const { publicProPlans } = require('../domain/pro-plans');
 const { publicSubscriptionState, subscriptionRequiresEntitlement } = require('../domain/subscription-mode');
-const { resolvePublicProStatus } = require('../security/pro-access');
+const { resolvePublicProStatus, hasActivePro } = require('../security/pro-access');
 
 const STATE_POLL_MS = Object.freeze({ ACTIVE: 5000, REVIVER: 20000, IDLE: 60000 });
 
@@ -35,7 +35,7 @@ async function registerStateRoute(app, {
   if (!transactionRepository ||
       typeof transactionRepository.findOpenTransactionIdForUser !== 'function' ||
       typeof transactionRepository.getTransactionForUser !== 'function' ||
-      typeof transactionRepository.listAvailableRequests !== 'function') {
+      typeof transactionRepository.countAvailableRequests !== 'function') {
     throw new Error('transactionRepository is required');
   }
 
@@ -55,7 +55,7 @@ async function registerStateRoute(app, {
     const now = clock();
     const isReviver = Array.isArray(user.roles) && user.roles.includes('reviver');
 
-    const [activeRequest, openTransactionId, status, online, queueRows] = await Promise.all([
+    const [activeRequest, openTransactionId, status, online] = await Promise.all([
       requestRepository.getActiveRequest(user.userId),
       transactionRepository.findOpenTransactionIdForUser(user.userId),
       entitlementRepository && typeof entitlementRepository.getStatus === 'function'
@@ -63,20 +63,23 @@ async function registerStateRoute(app, {
         : { state: 'NONE', trialEligible: true, trialStartedAt: null, validUntil: null },
       presenceRepository && typeof presenceRepository.countOnlineRevivers === 'function'
         ? presenceRepository.countOnlineRevivers({ now, requireEntitlement, ownerTornId })
-        : null,
-      isReviver ? transactionRepository.listAvailableRequests() : null
+        : null
     ]);
     const activeTransaction = openTransactionId
       ? await transactionRepository.getTransactionForUser({ transactionId: openTransactionId, userId: user.userId })
       : null;
 
+    const pro = resolvePublicProStatus({ status, tornId: user.tornId, subscription });
+    const hasQueueAccess = isReviver && (!requireEntitlement || hasActivePro(pro));
+    const queueCount = hasQueueAccess ? await transactionRepository.countAvailableRequests() : null;
+
     const payload = {
       me: { tornId: user.tornId, name: user.name, roles: user.roles },
-      pro: resolvePublicProStatus({ status, tornId: user.tornId, subscription }),
+      pro,
       activeRequest: publicActiveRequest(activeRequest),
       activeTransaction: activeTransaction || null,
       revivers: { online: typeof online === 'number' ? online : null },
-      queue: isReviver ? { count: Array.isArray(queueRows) ? queueRows.length : 0 } : null
+      queue: hasQueueAccess ? { count: queueCount } : null
     };
     const serialized = JSON.parse(JSON.stringify(payload));
     const stateVersion = computeStateVersion(serialized);

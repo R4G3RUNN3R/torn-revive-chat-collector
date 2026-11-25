@@ -8,22 +8,22 @@ const NOW = new Date('2026-11-25T12:00:00Z');
 const REQUESTER = { sessionId: 's1', userId: 'user-1', tornId: 111, name: 'Req', roles: ['requester'] };
 const REVIVER = { sessionId: 's2', userId: 'user-2', tornId: 222, name: 'Rev', roles: ['requester', 'reviver'] };
 
-async function makeApp({ user = REQUESTER, activeRequest = null, openTransactionId = null, transaction = null, queue = [], online = 3, presence = true } = {}) {
+async function makeApp({ user = REQUESTER, activeRequest = null, openTransactionId = null, transaction = null, queue = [], online = 3, presence = true, proState = 'NONE', mode = 'review' } = {}) {
   const app = Fastify();
   await app.register(fastifyRateLimit, { global: false });
   app.decorateRequest('reviveRelayUser', null);
   app.decorate('authenticate', async request => { request.reviveRelayUser = user; });
-  const calls = { online: [] };
+  const calls = { online: [], count: 0 };
   await registerStateRoute(app, {
     requestRepository: { async getActiveRequest(userId) { assert.equal(userId, user.userId); return activeRequest; } },
     transactionRepository: {
       async findOpenTransactionIdForUser() { return openTransactionId; },
       async getTransactionForUser(input) { assert.deepEqual(input, { transactionId: openTransactionId, userId: user.userId }); return transaction; },
-      async listAvailableRequests() { return queue; }
+      async countAvailableRequests() { calls.count += 1; return queue.length; }
     },
-    entitlementRepository: { async getStatus() { return { state: 'NONE', trialEligible: true, trialStartedAt: null, validUntil: null }; } },
+    entitlementRepository: { async getStatus() { return { state: proState, trialEligible: true, trialStartedAt: null, validUntil: null }; } },
     presenceRepository: presence ? { async countOnlineRevivers(input) { calls.online.push(input); return online; } } : null,
-    config: { SUBSCRIPTION_MODE: 'review', PRO_RECEIVER_TORN_ID: 3877028 },
+    config: { SUBSCRIPTION_MODE: mode, PRO_RECEIVER_TORN_ID: 3877028 },
     clock: () => NOW
   });
   return { app, calls };
@@ -60,11 +60,27 @@ test('active request or transaction polls every 5s and includes both', async t =
 });
 
 test('reviver without a transaction gets queue count and a 20s poll', async t => {
-  const { app } = await makeApp({ user: REVIVER, queue: [{ id: 'a' }, { id: 'b' }] });
+  const { app } = await makeApp({ user: REVIVER, queue: [{ id: 'a' }, { id: 'b' }], proState: 'ACTIVE' });
   t.after(() => app.close());
   const body = (await app.inject({ method: 'GET', url: '/v1/state' })).json();
   assert.deepEqual(body.queue, { count: 2 });
   assert.equal(body.nextPollMs, STATE_POLL_MS.REVIVER);
+});
+
+test('reviver without Pro gets no queue count', async t => {
+  const { app, calls } = await makeApp({ user: REVIVER, queue: [{ id: 'a' }], proState: 'NONE', mode: 'review' });
+  t.after(() => app.close());
+  const body = (await app.inject({ method: 'GET', url: '/v1/state' })).json();
+  assert.equal(body.queue, null);
+  assert.equal(calls.count, 0);
+  assert.equal(body.nextPollMs, STATE_POLL_MS.REVIVER);
+});
+
+test('free mode shows the queue count without Pro', async t => {
+  const { app } = await makeApp({ user: REVIVER, queue: [{ id: 'a' }, { id: 'b' }, { id: 'c' }], proState: 'NONE', mode: 'free' });
+  t.after(() => app.close());
+  const body = (await app.inject({ method: 'GET', url: '/v1/state' })).json();
+  assert.deepEqual(body.queue, { count: 3 });
 });
 
 test('matching If-None-Match returns 304 with no body', async t => {

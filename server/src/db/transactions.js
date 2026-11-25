@@ -207,6 +207,25 @@ async function acceptRequest(pool, { requestId, reviverId, now = new Date() }) {
   }
 }
 
+async function countAvailableRequests(pool) {
+  const result = await pool.query(`
+    SELECT count(*)::int AS count
+    FROM revive_requests r
+    WHERE r.state = 'AVAILABLE'
+      AND r.closed_at IS NULL
+      AND EXISTS (
+        SELECT 1
+        FROM api_credentials credential
+        WHERE credential.user_id = r.requester_id
+          AND credential.purpose = $1
+          AND credential.revoked_at IS NULL
+          AND credential.unusable_at IS NULL
+          AND credential.capability @> '{"requester":true}'::jsonb
+      )
+  `, [TRANSACTION_CREDENTIAL_PURPOSE]);
+  return result.rows[0].count;
+}
+
 async function listAvailableRequests(pool, limit = 100) {
   const normalizedLimit = Math.max(1, Math.min(100, Number.isInteger(limit) ? limit : 100));
   const result = await pool.query(`
@@ -299,6 +318,9 @@ function createTransactionRepository(pool) {
     listAvailableRequests(limit) {
       return listAvailableRequests(pool, limit);
     },
+    countAvailableRequests() {
+      return countAvailableRequests(pool);
+    },
     getTransactionForUser(input) {
       return getTransactionForUser(pool, input);
     },
@@ -311,6 +333,7 @@ function createTransactionRepository(pool) {
 module.exports = {
   acceptRequest,
   listAvailableRequests,
+  countAvailableRequests,
   getTransactionForUser,
   findOpenTransactionIdForUser,
   createTransactionRepository
