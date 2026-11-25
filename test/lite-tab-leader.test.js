@@ -417,3 +417,42 @@ test('solo mode: stop() clears leadership and start() can run again', () => {
   assert.equal(tab.leader.isLeader(), false);
   assert.equal(clock.pending(), 0);
 });
+
+test('heartbeat election: a visible leader stepping down to a hidden leader claims from it (delayed delivery)', async () => {
+  const clock = createFakeTimers();
+  const hub = createChannelHub({ delayMs: 50, setTimeout: clock.setTimeout });
+  const b = makeTab({ id: 'b', clock, hub });
+  b.leader.start();
+  await clock.advance(ELECT + 100);
+  assert.equal(b.leader.isLeader(), true);
+
+  // A lower-id rival announces itself as a hidden leader: b yields, but must not be left unled.
+  const rival = hub.createChannel('rr-leader');
+  const received = [];
+  rival.addEventListener('message', event => received.push(event.data));
+  rival.postMessage({ type: 'leader-hidden', from: 'a' });
+  await clock.advance(50);
+  assert.equal(b.leader.isLeader(), false);
+  await clock.advance(50);
+  assert.ok(received.some(m => m.type === 'claim' && m.to === 'a' && m.from === 'b'), 'b claims from the hidden leader');
+
+  rival.postMessage({ type: 'resign', to: 'b', from: 'a' });
+  await clock.advance(50);
+  assert.equal(b.leader.isLeader(), true);
+  rival.close();
+});
+
+test('heartbeat election: stepping down to a hidden leader that never answers re-elects a visible tab', async () => {
+  const clock = createFakeTimers();
+  const hub = createChannelHub({ delayMs: 50, setTimeout: clock.setTimeout });
+  const b = makeTab({ id: 'b', clock, hub });
+  b.leader.start();
+  await clock.advance(ELECT + 100);
+  const rival = hub.createChannel('rr-leader');
+  rival.postMessage({ type: 'heartbeat', hidden: true, from: 'a' });
+  await clock.advance(50);
+  assert.equal(b.leader.isLeader(), false);
+  await clock.advance(5000);
+  assert.equal(b.leader.isLeader(), true);
+  rival.close();
+});

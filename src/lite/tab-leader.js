@@ -268,6 +268,13 @@
       knownLeader = newLeader;
       leaderHidden = Boolean(newLeaderHidden);
       setLeader(false);
+      if (leaderHidden && !isHidden()) {
+        // A hidden leader never polls: claim from it rather than sit unled (armWatchdog skips hidden leaders).
+        watchdogTimer = cancel(watchdogTimer);
+        post(control, { type: 'claim', to: newLeader });
+        armClaimTimer();
+        return;
+      }
       armWatchdog();
     }
 
