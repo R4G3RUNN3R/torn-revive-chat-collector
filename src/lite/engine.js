@@ -58,6 +58,8 @@
     let current = { snapshot: null, freshness: 'syncing' };
     let lastView = null;
     let sheetOpen = false;
+    let lastFetchedAt = null;
+    let resyncSoon = false;
 
     function isHidden() {
       return document.visibilityState === 'hidden' || document.hidden === true;
@@ -77,11 +79,10 @@
       return Boolean(sheetOpen || (lastView && (lastView.timer || lastView.refreshAt !== null)));
     }
 
-    function pollDelay() {
-      if (!isLeader()) return null;
+    function cadenceMs(hidden) {
       const snapshot = current.snapshot || {};
       return Scheduler.pollDelayMs({
-        hidden: isHidden(),
+        hidden,
         nextPollMs: snapshot.nextPollMs,
         hasActive: Boolean(snapshot.activeRequest || (Array.isArray(snapshot.activeTransactions) && snapshot.activeTransactions.length)),
         isReviver: Boolean(snapshot.me && Array.isArray(snapshot.me.roles) && snapshot.me.roles.includes('reviver')),
@@ -89,8 +90,20 @@
       });
     }
 
+    function pollDelay() {
+      if (!isLeader()) return null;
+      if (resyncSoon && !isHidden()) return Scheduler.POLL_BOUNDS_MS.min;
+      return cadenceMs(isHidden());
+    }
+
+    // A response is only acted on while this engine session still leads the poll it started.
+    function stillCurrent(runEpoch) {
+      return started && runEpoch === epoch && isLeader();
+    }
+
     function apply(snapshot, freshness, fetchedAt) {
       current = { snapshot, freshness };
+      if (freshness === 'live' && fetchedAt !== null) lastFetchedAt = fetchedAt;
       if (snapshot && fetchedAt !== null) cache.write(snapshot, fetchedAt);
       if (isLeader()) leader.broadcast({ snapshot, freshness, fetchedAt });
       render();
@@ -100,20 +113,39 @@
     async function poll() {
       if (!isLeader()) return;
       const runEpoch = epoch;
+      const requestedAt = now();
       let result;
       try {
         result = await api.getState();
       } catch (error) {
-        if (started && runEpoch === epoch) apply(current.snapshot, 'offline', null);
+        // A stale session or a tab that lost leadership neither renders "Offline" nor backs off.
+        if (!stillCurrent(runEpoch)) return;
+        apply(current.snapshot, 'offline', null);
         throw error;
       }
-      if (!started || runEpoch !== epoch) return;
-      const snapshot = result && result.notModified ? current.snapshot : result && result.snapshot;
+      if (!stillCurrent(runEpoch)) return;
+      resyncSoon = false;
+      if (result && result.notModified) {
+        const shown = current.snapshot && current.snapshot.stateVersion;
+        if (!shown || result.stateVersion !== shown) {
+          // The 304 confirms a version we are not showing (e.g. a broadcast replaced it):
+          // drop the client's ETag and fetch a full body soon. Until then, the state is unknown.
+          if (typeof api.reset === 'function') api.reset();
+          resyncSoon = true;
+          apply(current.snapshot, 'syncing', null);
+          return;
+        }
+        apply(current.snapshot, 'live', requestedAt);
+        return;
+      }
+      const snapshot = result && result.snapshot;
       if (!snapshot) return;
-      apply(snapshot, 'live', now());
+      apply(snapshot, 'live', requestedAt);
     }
 
     function onLeaderChange(nowLeader) {
+      // Losing leadership invalidates any poll still in flight.
+      if (!nowLeader) epoch += 1;
       if (!scheduler) return;
       if (nowLeader) scheduler.trigger('poll');
       else scheduler.reschedule('poll');
@@ -123,6 +155,7 @@
       if (!started || isLeader() || !payload || typeof payload !== 'object') return;
       const freshness = PillState.FRESHNESS.includes(payload.freshness) ? payload.freshness : 'syncing';
       current = { snapshot: payload.snapshot || current.snapshot, freshness };
+      if (freshness === 'live' && Number.isFinite(payload.fetchedAt)) lastFetchedAt = payload.fetchedAt;
       render();
       if (scheduler) scheduler.reschedule('tick');
     }
@@ -131,13 +164,22 @@
       if (!started) return;
       leader.onVisibilityChange();
       scheduler.onVisibilityChange();
-      if (!isHidden()) render();
+      if (isHidden()) return;
+      // Coming back after longer than the poll cadence: what is shown may be out of date.
+      const cadence = cadenceMs(false);
+      if (current.freshness === 'live' && (lastFetchedAt === null || now() - lastFetchedAt > cadence)) {
+        current = { snapshot: current.snapshot, freshness: 'syncing' };
+      }
+      render();
+      scheduler.reschedule('tick');
     }
 
     function start() {
       if (started) return;
       started = true;
       epoch += 1;
+      lastFetchedAt = null;
+      resyncSoon = false;
       const cached = cache.read();
       current = { snapshot: cached ? cached.snapshot : null, freshness: 'syncing' };
       view = PillView.mountPill({ document, window, onActivate, headerSelectors });

@@ -284,3 +284,211 @@ test('a lone hidden leader never polls, even on refresh or in a shared-channel p
     engine.stop();
   }
 });
+
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
+  return { promise, resolve, reject };
+}
+
+// Scripted api: each entry is a result, an Error, or a deferred (hangs until resolved).
+function scriptedApi(script) {
+  const api = {
+    calls: 0,
+    resets: 0,
+    getState() {
+      api.calls += 1;
+      const next = script.length > 1 ? script.shift() : script[0];
+      if (next && next.promise) return next.promise;
+      if (next instanceof Error) return Promise.reject(next);
+      return Promise.resolve(next);
+    },
+    reset() { api.resets += 1; }
+  };
+  return api;
+}
+
+function lockTabs({ clock, specs, sharedStorage = null }) {
+  const hub = createChannelHub();
+  const locks = createLockManager();
+  function BroadcastChannel(name) { return hub.createChannel(name); }
+  const tabs = specs.map(({ tabId, api }) => {
+    const window = createFakeWindow({ BroadcastChannel, locks });
+    window.AbortController = function AbortController() { return createAbortController(); };
+    return { api, ...makeEngine({ clock, api, storage: sharedStorage || memoryStorage(), window, tabId }) };
+  });
+  return { hub, tabs };
+}
+
+test('an old leader\'s response landing after hand-off never overwrites the newer leader\'s state', async () => {
+  const clock = createFakeTimers();
+  const storage = memoryStorage();
+  const hang = deferred();
+  const apiA = scriptedApi([hang]);
+  const apiB = scriptedApi([{ notModified: false, snapshot: snapshot({ stateVersion: 'bbbbbbbbbbbbbbbb', revivers: { online: 9 } }) }]);
+  const { tabs: [a, b] } = lockTabs({ clock, sharedStorage: storage, specs: [{ tabId: 'a', api: apiA }, { tabId: 'b', api: apiB }] });
+  a.engine.start();
+  b.engine.start();
+  await clock.advance(0);
+  assert.equal(a.engine.isLeader(), true);
+  assert.equal(apiA.calls, 1);
+
+  a.document.setVisibility('hidden');
+  await clock.advance(1000);
+  assert.equal(b.engine.isLeader(), true);
+  assert.equal(a.engine.isLeader(), false);
+  assert.equal(apiB.calls, 1);
+  const newerFetchedAt = storage.values[SNAPSHOT_KEY].fetchedAt;
+  assert.equal(pillText(a.engine), 'Revive me · 9 online');
+
+  await clock.advance(1000);
+  hang.resolve({ notModified: false, snapshot: snapshot({ revivers: { online: 2 } }) });
+  await clock.flush();
+  assert.equal(storage.values[SNAPSHOT_KEY].data.revivers.online, 9);
+  assert.equal(storage.values[SNAPSHOT_KEY].fetchedAt, newerFetchedAt);
+  assert.equal(pillText(b.engine), 'Revive me · 9 online');
+  assert.equal(pillText(a.engine), 'Revive me · 9 online');
+  a.engine.stop();
+  b.engine.stop();
+});
+
+test('returning from a long hide shows the last snapshot as syncing until the next poll succeeds', async () => {
+  const createdAt = new Date(Date.parse('2026-11-25T12:00:00.000Z') - 10000).toISOString();
+  const active = snapshot({ nextPollMs: 5000, activeRequest: { id: 'r1', state: 'AVAILABLE', createdAt, transactionId: null } });
+  const clock = createFakeTimers();
+  const hang = deferred();
+  const api = scriptedApi([{ notModified: false, snapshot: active }, hang]);
+  const document = createFakeDocument();
+  const { engine } = makeEngine({ clock, api, document });
+  engine.start();
+  await clock.advance(0);
+  assert.equal(engine.viewModel().syncing, false);
+  document.setVisibility('hidden');
+  await clock.advance(3 * 60 * 60000);
+  assert.equal(api.calls, 1);
+  document.setVisibility('visible');
+  assert.equal(engine.viewModel().syncing, true);
+  await clock.advance(0);
+  assert.equal(api.calls, 2);
+  assert.equal(engine.viewModel().syncing, true);
+  assert.ok(!['success', 'attention'].includes(engine.viewModel().tone));
+  hang.resolve({ notModified: false, snapshot: active });
+  await clock.flush();
+  assert.equal(engine.viewModel().syncing, false);
+  engine.stop();
+});
+
+test('a 304 for a version other than the shown snapshot is not trusted: reset, syncing, quick re-poll', async () => {
+  const clock = createFakeTimers();
+  const storage = memoryStorage();
+  const V1 = '1111111111111111';
+  const V2 = '2222222222222222';
+  const apiA = scriptedApi([
+    { notModified: false, snapshot: snapshot({ stateVersion: V1, revivers: { online: 1 } }) },
+    { notModified: true, stateVersion: V1 },
+    { notModified: false, snapshot: snapshot({ stateVersion: V2, revivers: { online: 2 } }) }
+  ]);
+  const apiB = scriptedApi([{ notModified: false, snapshot: snapshot({ stateVersion: V2, revivers: { online: 2 } }) }]);
+  const { tabs: [a, b] } = lockTabs({ clock, sharedStorage: storage, specs: [{ tabId: 'a', api: apiA }, { tabId: 'b', api: apiB }] });
+  a.engine.start();
+  b.engine.start();
+  await clock.advance(0);
+  assert.equal(apiA.calls, 1);
+  assert.equal(pillText(a.engine), 'Revive me · 1 online');
+
+  a.document.setVisibility('hidden');
+  await clock.advance(0);
+  assert.equal(b.engine.isLeader(), true);
+  assert.equal(pillText(a.engine), 'Revive me · 2 online');
+  const bFetchedAt = storage.values[SNAPSHOT_KEY].fetchedAt;
+
+  await clock.advance(1000);
+  a.document.setVisibility('visible');
+  b.document.setVisibility('hidden');
+  await clock.advance(0);
+  assert.equal(a.engine.isLeader(), true);
+  assert.equal(apiA.calls, 2);
+  assert.equal(apiA.resets, 1);
+  assert.equal(a.engine.viewModel().syncing, true);
+  assert.equal(storage.values[SNAPSHOT_KEY].fetchedAt, bFetchedAt);
+  assert.ok(clock.nextDelay() <= 3000, `re-poll in ${clock.nextDelay()}`);
+  await clock.advance(3000);
+  assert.equal(apiA.calls, 3);
+  assert.equal(a.engine.viewModel().syncing, false);
+  assert.equal(storage.values[SNAPSHOT_KEY].data.stateVersion, V2);
+  a.engine.stop();
+  b.engine.stop();
+});
+
+test('a poll failure that lands after losing leadership does not render Offline', async () => {
+  const clock = createFakeTimers();
+  const hang = deferred();
+  const apiA = scriptedApi([hang]);
+  const apiB = scriptedApi([{ notModified: false, snapshot: snapshot({ revivers: { online: 9 } }) }]);
+  const { tabs: [a, b] } = lockTabs({ clock, specs: [{ tabId: 'a', api: apiA }, { tabId: 'b', api: apiB }] });
+  a.engine.start();
+  b.engine.start();
+  await clock.advance(0);
+  a.document.setVisibility('hidden');
+  await clock.advance(0);
+  assert.equal(a.engine.isLeader(), false);
+  hang.reject(new DirectApiClientError('NETWORK_ERROR', { retryable: true }));
+  await clock.flush();
+  assert.equal(a.engine.viewModel().offline, false);
+  assert.equal(pillText(a.engine), 'Revive me · 9 online');
+  a.engine.stop();
+  b.engine.stop();
+});
+
+test('server nextPollMs is honoured and bounded at engine level', async () => {
+  for (const [nextPollMs, expected] of [[30000, 30000], [1000, 3000]]) {
+    const clock = createFakeTimers();
+    const api = fakeApi([{ notModified: false, snapshot: snapshot({ nextPollMs }) }]);
+    const { engine } = makeEngine({ clock, api });
+    engine.start();
+    await clock.advance(0);
+    assert.equal(clock.nextDelay(), expected, `nextPollMs ${nextPollMs}`);
+    await clock.advance(expected);
+    assert.equal(api.calls, 2, `nextPollMs ${nextPollMs}`);
+    engine.stop();
+  }
+});
+
+test('a follower renders broadcasts but never writes the cache from them', async () => {
+  const clock = createFakeTimers();
+  const apiA = fakeApi([{ notModified: false, snapshot: snapshot({ revivers: { online: 6 } }) }]);
+  const apiB = fakeApi([{ notModified: false, snapshot: snapshot() }]);
+  const { tabs: [a, b] } = lockTabs({ clock, specs: [{ tabId: 'a', api: apiA }, { tabId: 'b', api: apiB }] });
+  a.engine.start();
+  b.engine.start();
+  await clock.advance(0);
+  await clock.advance(60000);
+  assert.equal(a.engine.isLeader(), true);
+  assert.equal(apiB.calls, 0);
+  assert.equal(pillText(b.engine), 'Revive me · 6 online');
+  assert.equal(a.storage.values[SNAPSHOT_KEY].data.revivers.online, 6);
+  assert.equal(b.storage.values[SNAPSHOT_KEY], undefined);
+  a.engine.stop();
+  b.engine.stop();
+});
+
+test('start → stop → start: a response from the first session still in flight is ignored', async () => {
+  const clock = createFakeTimers();
+  const storage = memoryStorage();
+  const hang = deferred();
+  const api = scriptedApi([hang, { notModified: false, snapshot: snapshot({ revivers: { online: 5 } }) }]);
+  const { engine } = makeEngine({ clock, api, storage });
+  engine.start();
+  await clock.advance(0);
+  engine.stop();
+  engine.start();
+  await clock.advance(0);
+  assert.equal(api.calls, 2);
+  assert.equal(pillText(engine), 'Revive me · 5 online');
+  hang.resolve({ notModified: false, snapshot: snapshot({ revivers: { online: 2 } }) });
+  await clock.flush();
+  assert.equal(pillText(engine), 'Revive me · 5 online');
+  assert.equal(storage.values[SNAPSHOT_KEY].data.revivers.online, 5);
+  engine.stop();
+});
