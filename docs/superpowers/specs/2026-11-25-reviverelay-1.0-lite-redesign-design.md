@@ -102,7 +102,7 @@ The pill is a pure function of `(role, transaction state, freshness)`. Requester
 
 Freshness overrides: while cached state is unconfirmed, the pill shows the cached label with a "syncing" indicator; on transport failure it shows "Offline · retrying" and never a success or failure tone.
 
-Reviver mapping: idle pill shows "Queue · *n*" (Pro/eligible) or "Reviver setup" / "Pro expired" with the matching sheet. When the reviver holds a transaction, the reviver-side state takes priority over the queue count: awaiting payment (`WAITING_FOR_PAYMENT`), paid → revive now (`WAITING_FOR_REVIVE`), retry requested → Accept or decline (`RETRY_OFFERED`), refund owed (`REFUND_REQUIRED`/`REFUND_RECONCILING`).
+Reviver mapping: idle pill shows "Queue · *n*" (Pro/eligible) or "Reviver setup" / "Pro expired" with the matching sheet. When the reviver holds a transaction, the reviver-side state takes priority over the queue count (when it holds several, the one with the nearest deadline drives the pill): awaiting payment (`WAITING_FOR_PAYMENT`), paid → revive now (`WAITING_FOR_REVIVE`), retry requested → Accept or decline (`RETRY_OFFERED`), refund owed (`REFUND_REQUIRED`/`REFUND_RECONCILING`).
 
 The full mapping lives in one table-driven module (`ui/pill-state.js`) with a unit test covering every state × role × freshness combination.
 
@@ -204,13 +204,16 @@ The server can always shorten or lengthen the next poll, so cadence can be tuned
 
 New server endpoint: `GET /v1/state` (review: `/review/v1/state`), authenticated as today, returning in one response:
 
-- `me` (identity, roles, verification status),
-- `activeTransaction` for the user (requester or reviver side),
-- `queue` count for revivers (rows stay behind the existing gated `GET /v1/reviver/queue`, which the client calls only while the queue sheet is open),
-- `pro` status,
-- `revivers.online` count (an aggregate only; no identities),
-- `nextPollMs`,
-- `stateVersion` with `ETag`; unchanged state returns `304` with no body.
+- `me`: `{ tornId, name, roles, verification }`, where `verification` is `{ usable, requester, reviver }` or `null` when the user has no stored credential,
+- `pro` status (resolved, so the owner reads `OWNER`),
+- `activeRequest`: the user's own open request `{ id, state, paymentMethod, offerAmount, createdAt, transactionId }` or `null`,
+- `activeTransactions`: **every** open transaction the user is part of (as requester or reviver), each in the existing `GET /v1/transactions/:id` shape with `participantRole`, sorted by nearest upcoming deadline (payment, revive, retry-response or refund; none last). Empty array when none. A user can be requester in one and reviver in others at the same time,
+- `queue`: `{ count }` (exact) only for revivers with queue access (free mode, or Pro state TRIAL/ACTIVE/OWNER); otherwise `null`. Rows stay behind the existing gated `GET /v1/reviver/queue`, which the client calls only while the queue sheet is open,
+- `revivers.online` count (an aggregate only; no identities; `null` if unavailable),
+- `nextPollMs`: 5000 with an active request or any open transaction, 20000 for revivers, 60000 otherwise,
+- `stateVersion` (16 hex chars) with `ETag` and `Cache-Control: no-store`; a matching `If-None-Match` (weak `W/` and comma-separated lists accepted) returns `304` with no body.
+
+Rate limits: 30 requests/minute per verified session (checked after authentication) plus a 120/minute per-IP ceiling (checked before authentication). The badge endpoint uses 60/minute per session and the same per-IP ceiling.
 
 Existing endpoints stay for compatibility and for actions (`POST /v1/requests`, accept, cancel, check-payment, etc.).
 
@@ -246,9 +249,9 @@ Live push is deliberately not in 1.0. 1.0 ships with the adaptive polling above;
 
 1. `GET /v1/state` aggregated endpoint with ETag/304 and `nextPollMs` (plus review-channel mount).
 2. `revivers.online` aggregate: revivers with an authenticated request in the last 5 minutes, eligible and entitled. Count only; the client hides the number when it is 0.
-3. Queue rows add `hospitalSecondsRemaining` and `abroad`. The server reads the requester's Torn profile status with the requester's existing verification credential (the requester key already includes `profile`, as disclosed in `TORN-API-DISCLOSURE.md`), at most once per minute per active request, and stores only the derived hospital-until time and abroad flag on the request. Failure to read leaves the fields absent (rendered as unknown), never guessed.
-4. Profile verification lookup `GET /v1/players/:tornId/badge` returning only `{requesterVerified, reviverVerified}`; rate-limited.
-5. One additive migration (confirmed during planning): `sessions.last_seen_at` for the online count, and `revive_requests.hospital_until`, `abroad`, `status_checked_at` for queue rows. Queue rows themselves stay behind the gated `GET /v1/reviver/queue`; `/v1/state` carries only the queue count. See `docs/superpowers/plans/2026-11-25-reviverelay-1.0-server-state.md`.
+3. Queue rows add `hospitalUntil` (absolute timestamp; the client corrects for clock skew using the response `Date` header) and `abroad`. A **separate process**, `server/src/request-status-worker.js` (`npm run status-worker`), reads each waiting requester's Torn profile status with the requester's existing verification credential (the requester key already includes `profile`, as disclosed in `TORN-API-DISCLOSURE.md`), at most once per minute per waiting request, with a 5-second timeout per call and a 15-second batch budget. It does not use the shared `jobs` table, so an older worker on the same database cannot interfere. Only the derived hospital-until time and abroad flag are stored. Values are returned as `null` (unknown) once the last successful read is more than 3 minutes old; they are never guessed. Abroad is recognised from Torn's "In a/an <Country> hospital…" status text; anything else is `null` (to be confirmed against a live profile).
+4. Profile verification lookup `GET /v1/players/:tornId/badge` returning only `{tornId, requesterVerified, reviverVerified}`; rate-limited; `Cache-Control: private, max-age=600`.
+5. One additive migration, `008_lite_state.sql` (`lock_timeout` 5 s): `sessions.last_seen_at` (written at most once a minute on authentication; a failed write is logged, never blocks login), and `revive_requests.hospital_until`, `abroad`, `status_checked_at`, `status_refreshed_at`. See `docs/superpowers/plans/2026-11-25-reviverelay-1.0-server-state.md` and PR #17.
 
 ## Torn policy and review
 
@@ -288,7 +291,19 @@ Settings migrate from 0.7.x GM keys on first boot; the API key binding and verif
 | 5 | Sound | On by default for key action/outcome events only; new queue requests silent; one toggle for all sound. |
 | 6 | Hospital time and abroad | Server reads the requester's profile status with their existing credential (Profile scope already disclosed), at most once per minute per active request. |
 
-No open questions remain for the design; implementation details are settled in the plan.
+Decisions taken while building the server (owner, 2026-11-25):
+
+| # | Question | Decision |
+| --- | --- | --- |
+| 7 | Presence write failures | Never block login; log a warning at most once a minute. |
+| 8 | Queue count | Exact `COUNT` query, shown only to revivers with queue access. |
+| 9 | Several open revives | Return all of them (`activeTransactions`), nearest deadline first. |
+| 10 | Status refresh process | Own small process, not the shared job queue. |
+| 11 | Failed status reads | Unknown once the last success is over 3 minutes old. |
+| 12 | Key status | Included in `me.verification`. |
+| 13 | Polling rate limits | Per verified session after authentication, plus a per-IP ceiling. |
+
+No open questions remain for the design.
 
 ## Future work (not 1.0)
 
