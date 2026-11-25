@@ -1,5 +1,8 @@
 const { hashSessionToken } = require('./sessions');
 
+// Session presence failures are logged at most once per this interval.
+const PRESENCE_WARN_INTERVAL_MS = 60000;
+
 class AuthError extends Error {
   constructor(code, statusCode = 401) {
     super(code);
@@ -16,9 +19,11 @@ function extractBearerToken(request) {
   return match && match[1] ? match[1] : null;
 }
 
-function createAuthenticateRequest({ sessionRepository, pepper, now = () => new Date() }) {
+function createAuthenticateRequest({ sessionRepository, pepper, now = () => new Date(), logger = console }) {
   if (!sessionRepository) throw new Error('sessionRepository is required');
   if (!pepper) throw new Error('session token pepper is required');
+
+  let lastPresenceWarnAt = null;
 
   return async function authenticateRequest(request) {
     const token = extractBearerToken(request);
@@ -43,6 +48,11 @@ function createAuthenticateRequest({ sessionRepository, pepper, now = () => new 
         await sessionRepository.touch({ sessionId: record.sessionId, now: now() });
       } catch (error) {
         // Presence is best-effort and must never block authentication.
+        const warnedAt = now().getTime();
+        if (lastPresenceWarnAt === null || warnedAt - lastPresenceWarnAt >= PRESENCE_WARN_INTERVAL_MS) {
+          lastPresenceWarnAt = warnedAt;
+          logger.warn(`ReviveRelay session presence update failed: ${error && error.message ? error.message : error}`);
+        }
       }
     }
 
@@ -58,7 +68,7 @@ function createAuthenticateRequest({ sessionRepository, pepper, now = () => new 
 }
 
 function installAuthentication(app, { sessionRepository, pepper, now }) {
-  const authenticateRequest = createAuthenticateRequest({ sessionRepository, pepper, now });
+  const authenticateRequest = createAuthenticateRequest({ sessionRepository, pepper, now, logger: app.log });
 
   app.decorateRequest('reviveRelayUser', null);
   app.decorate('authenticate', async function authenticate(request, reply) {

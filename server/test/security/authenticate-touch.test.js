@@ -22,13 +22,38 @@ test('successful authentication touches the session', async () => {
 });
 
 test('a failing touch never fails authentication', async () => {
+  const warnings = [];
   const authenticate = createAuthenticateRequest({
     sessionRepository: { async findByTokenHash() { return record; }, async touch() { throw new Error('db down'); } },
     pepper: 'pepper',
-    now: () => now
+    now: () => now,
+    logger: { warn(message) { warnings.push(message); } }
   });
   const user = await authenticate(request);
   assert.equal(user.sessionId, 'session-1');
+  assert.equal(warnings.length, 1);
+  assert.ok(warnings[0].includes('db down'));
+});
+
+test('presence failures warn at most once per minute', async () => {
+  let clock = new Date('2026-11-25T12:00:00Z');
+  const warnings = [];
+  let touchCalls = 0;
+  const authenticate = createAuthenticateRequest({
+    sessionRepository: { async findByTokenHash() { return record; }, async touch() { touchCalls += 1; throw new Error('db down'); } },
+    pepper: 'pepper',
+    now: () => clock,
+    logger: { warn(message) { warnings.push(message); } }
+  });
+
+  for (const at of ['2026-11-25T12:00:00Z', '2026-11-25T12:00:30Z', '2026-11-25T12:01:00Z']) {
+    clock = new Date(at);
+    const user = await authenticate(request);
+    assert.equal(user.userId, 'user-1');
+  }
+
+  assert.equal(touchCalls, 3);
+  assert.equal(warnings.length, 2);
 });
 
 test('repositories without touch still authenticate', async () => {
