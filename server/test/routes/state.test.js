@@ -226,3 +226,22 @@ test('non-matching If-None-Match list returns 200 with the state body', async t 
   assert.equal(response.statusCode, 200);
   assert.match(response.json().stateVersion, /^[0-9a-f]{16}$/);
 });
+
+test('canonical owner reviver sees the queue count in review mode without stored Pro', async t => {
+  const owner = { sessionId: 's3', userId: 'user-3', tornId: 3877028, name: 'Owner', roles: ['requester', 'reviver'] };
+  const { app, calls } = await makeApp({ user: owner, queue: [{ id: 'a' }, { id: 'b' }], proState: 'NONE', mode: 'review' });
+  t.after(() => app.close());
+  const body = (await app.inject({ method: 'GET', url: '/v1/state' })).json();
+  assert.equal(body.pro.state, 'OWNER');
+  assert.deepEqual(body.queue, { count: 2 });
+  assert.equal(calls.count, 1);
+});
+
+test('trial reviver sees the queue count in review mode', async t => {
+  const { app, calls } = await makeApp({ user: REVIVER, queue: [{ id: 'a' }], proState: 'TRIAL', mode: 'review' });
+  t.after(() => app.close());
+  const body = (await app.inject({ method: 'GET', url: '/v1/state' })).json();
+  assert.equal(body.pro.state, 'TRIAL');
+  assert.deepEqual(body.queue, { count: 1 });
+  assert.equal(calls.count, 1);
+});
