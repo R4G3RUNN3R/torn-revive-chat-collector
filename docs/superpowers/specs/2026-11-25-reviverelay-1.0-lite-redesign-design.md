@@ -206,7 +206,7 @@ New server endpoint: `GET /v1/state` (review: `/review/v1/state`), authenticated
 
 - `me` (identity, roles, verification status),
 - `activeTransaction` for the user (requester or reviver side),
-- `queue` summary for eligible revivers (rows only when `?queue=1`, sent while the sheet is open),
+- `queue` count for revivers (rows stay behind the existing gated `GET /v1/reviver/queue`, which the client calls only while the queue sheet is open),
 - `pro` status,
 - `revivers.online` count (an aggregate only; no identities),
 - `nextPollMs`,
@@ -248,7 +248,7 @@ Live push is deliberately not in 1.0. 1.0 ships with the adaptive polling above;
 2. `revivers.online` aggregate: revivers with an authenticated request in the last 5 minutes, eligible and entitled. Count only; the client hides the number when it is 0.
 3. Queue rows add `hospitalSecondsRemaining` and `abroad`. The server reads the requester's Torn profile status with the requester's existing verification credential (the requester key already includes `profile`, as disclosed in `TORN-API-DISCLOSURE.md`), at most once per minute per active request, and stores only the derived hospital-until time and abroad flag on the request. Failure to read leaves the fields absent (rendered as unknown), never guessed.
 4. Profile verification lookup `GET /v1/players/:tornId/badge` returning only `{requesterVerified, reviverVerified}`; rate-limited.
-5. No database migration expected; confirm during planning.
+5. One additive migration (confirmed during planning): `sessions.last_seen_at` for the online count, and `revive_requests.hospital_until`, `abroad`, `status_checked_at` for queue rows. Queue rows themselves stay behind the gated `GET /v1/reviver/queue`; `/v1/state` carries only the queue count. See `docs/superpowers/plans/2026-11-25-reviverelay-1.0-server-state.md`.
 
 ## Torn policy and review
 
