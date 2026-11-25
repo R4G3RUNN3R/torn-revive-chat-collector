@@ -4,6 +4,7 @@ const {
   SNAPSHOT_KEY,
   STALE_AFTER_MS,
   DISCARD_AFTER_MS,
+  FUTURE_TOLERANCE_MS,
   createSnapshotCache
 } = require('../src/lite/snapshot-cache');
 
@@ -70,6 +71,40 @@ test('corrupt or foreign values read as empty and are overwritten', () => {
     const cache = createSnapshotCache({ storage, now: () => T0 });
     assert.equal(cache.read(), null);
     assert.equal(cache.write(snap('aaaaaaaaaaaaaaaa'), T0), true);
+    assert.deepEqual(storage.values[SNAPSHOT_KEY], { stateVersion: 'aaaaaaaaaaaaaaaa', fetchedAt: T0, data: snap('aaaaaaaaaaaaaaaa') });
+  }
+});
+
+test('entry dated beyond the future tolerance is cleared by read()', () => {
+  const storage = memoryStorage({ [SNAPSHOT_KEY]: { stateVersion: 'aaaaaaaaaaaaaaaa', fetchedAt: T0 + FUTURE_TOLERANCE_MS + 1, data: snap('aaaaaaaaaaaaaaaa') } });
+  const cache = createSnapshotCache({ storage, now: () => T0 });
+  assert.equal(cache.read(), null);
+  assert.equal(storage.values[SNAPSHOT_KEY], null);
+});
+
+test('entry dated within the future tolerance is readable and not stale', () => {
+  const storage = memoryStorage({ [SNAPSHOT_KEY]: { stateVersion: 'aaaaaaaaaaaaaaaa', fetchedAt: T0 + FUTURE_TOLERANCE_MS, data: snap('aaaaaaaaaaaaaaaa') } });
+  const cache = createSnapshotCache({ storage, now: () => T0 });
+  const entry = cache.read();
+  assert.equal(entry.stateVersion, 'aaaaaaaaaaaaaaaa');
+  assert.equal(entry.fetchedAt, T0 + FUTURE_TOLERANCE_MS);
+  assert.equal(entry.stale, false);
+});
+
+test('write replaces an entry dated beyond the future tolerance', () => {
+  const storage = memoryStorage({ [SNAPSHOT_KEY]: { stateVersion: 'aaaaaaaaaaaaaaaa', fetchedAt: T0 + DISCARD_AFTER_MS, data: snap('aaaaaaaaaaaaaaaa') } });
+  const cache = createSnapshotCache({ storage, now: () => T0 });
+  assert.equal(cache.write(snap('bbbbbbbbbbbbbbbb'), T0), true);
+  assert.equal(cache.read().stateVersion, 'bbbbbbbbbbbbbbbb');
+});
+
+test('non-numeric fetchedAt is rejected and storage is left unchanged', () => {
+  const before = { stateVersion: 'aaaaaaaaaaaaaaaa', fetchedAt: T0, data: snap('aaaaaaaaaaaaaaaa') };
+  for (const bad of [null, undefined, 'x']) {
+    const storage = memoryStorage({ [SNAPSHOT_KEY]: before });
+    const cache = createSnapshotCache({ storage, now: () => T0 });
+    assert.equal(cache.write(snap('bbbbbbbbbbbbbbbb'), bad), false);
+    assert.deepEqual(storage.values[SNAPSHOT_KEY], before);
   }
 });
 
