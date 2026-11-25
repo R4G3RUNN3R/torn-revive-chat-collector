@@ -4,8 +4,7 @@ const JOB_TYPES = Object.freeze([
   'refund.verify',
   'subscription.scan',
   'sheets.mirror',
-  'telemetry.retention',
-  'request.status-scan'
+  'telemetry.retention'
 ]);
 
 const JOB_LOCK_TIMEOUT_MS = 5 * 60 * 1000;

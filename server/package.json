@@ -9,6 +9,7 @@
     "test": "node --test",
     "start": "node src/server.js",
     "worker": "node src/worker.js",
+    "status-worker": "node src/request-status-worker.js",
     "migrate": "node src/db/migrate.js"
   },
   "dependencies": {
