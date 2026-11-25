@@ -234,3 +234,38 @@ test('getUserPerks rejects malformed v2 perk responses', async () => {
     error => error instanceof TornApiError && error.code === 'TORN_UNAVAILABLE' && error.state === 'malformed'
   );
 });
+
+test('getUserProfile with timeoutMs aborts a slow request as a TornApiError timeout', async () => {
+  const signals = [];
+  const torn = createTornClient({
+    baseUrl: 'https://torn.test/v2',
+    fetchImpl: (url, options) => new Promise((resolve, reject) => {
+      signals.push(options.signal);
+      options.signal.addEventListener('abort', () => reject(options.signal.reason));
+    })
+  });
+  const started = Date.now();
+  // AbortSignal.timeout uses an unref'd timer; keep the loop alive while waiting for it.
+  const keepAlive = setTimeout(() => {}, 2000);
+  await assert.rejects(() => torn.getUserProfile('slow-key', { timeoutMs: 30 }), error => {
+    assert.ok(error instanceof TornApiError);
+    assert.equal(error.code, 'TORN_UNAVAILABLE');
+    assert.equal(error.state, 'timeout');
+    assert.match(error.message, /timed out/);
+    return true;
+  });
+  clearTimeout(keepAlive);
+  assert.ok(Date.now() - started < 2000);
+  assert.equal(signals.length, 1);
+  assert.ok(signals[0] instanceof AbortSignal);
+});
+
+test('getUserProfile without timeoutMs passes no abort signal', async () => {
+  const calls = [];
+  const torn = createTornClient({
+    baseUrl: 'https://torn.test/v2',
+    fetchImpl: async (url, options) => { calls.push(options); return jsonResponse(200, { profile: { id: 1 } }); }
+  });
+  await torn.getUserProfile('key');
+  assert.equal('signal' in calls[0], false);
+});

@@ -18,13 +18,24 @@ The implemented Torn API calls are:
 | --- | --- |
 | `/key/info` | Resolve API-key owner and granted selections/access. |
 | `/user/basic` | Resolve identity during one-time ReviveRelay account binding. |
-| `/user/profile` | Obtain requester hospital/profile state required for revive outcome evidence. |
+| `/user/profile` | Obtain requester hospital/profile state required for revive outcome evidence, and (ReviveRelay 1.0) refresh a waiting requester's hospital-until time and whether they are hospitalised abroad, at most once per minute per waiting request, so revivers can see how long the requester has left. |
 | `/user/revives` | Read incoming/outgoing revive evidence for requester/reviver verification. |
 | `/user/perks` | Confirm permanent `Ability to revive` before reviver access. |
 | `/user/log` | Read narrowly scoped Money/Items transaction evidence for revive payments/refunds and merchant subscription receipt verification. |
 | `/torn/logcategories` | Resolve current log category metadata where the key permits it; restricted-key permission failure uses the known bounded transaction categories rather than broadening access. |
 
 ReviveRelay 0.6.1 performs **no public chat collection** and does not scrape Torn chat or unfocused Torn pages.
+
+### Requester status refresh (ReviveRelay 1.0)
+
+While a certified request is waiting for a reviver, a separate server process reads that requester's own `/user/profile` with the requester's own stored ReviveRelay Verification credential (the Profile selection the requester already granted). It runs at most once per minute per waiting request, with a 5-second timeout per call, and stops as soon as the request is accepted, cancelled or closed. Only two derived values are stored on the request: the hospital-until time and whether the requester is hospitalised abroad. If reads fail, the values are shown as unknown once the last successful read is more than 3 minutes old; they are never guessed. No other player's profile is read, and no new Torn API scope is requested.
+
+### Data that is not from the Torn API
+
+ReviveRelay 1.0 also shows two values that come from ReviveRelay's own records, not from Torn:
+
+- **Revivers online:** a count of eligible revivers whose ReviveRelay client was active in the last 5 minutes. Only the number is shown; no reviver identities are disclosed.
+- **Verification badge:** a logged-in ReviveRelay user can see whether a given Torn ID is a verified ReviveRelay requester and/or reviver. No other account data is returned.
 
 ## Key Storage & Sharing
 

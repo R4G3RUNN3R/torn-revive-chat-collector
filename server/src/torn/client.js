@@ -52,21 +52,23 @@ function createTornClient({
     throw error;
   }
 
-  async function request(path, apiKey, query, operation = 'request') {
+  async function request(path, apiKey, query, operation = 'request', { signal } = {}) {
     if (typeof apiKey !== 'string' || apiKey.length === 0) {
       return fail('TORN_INVALID_KEY', 'Torn API key is required', operation, { state: 'invalid-key' });
     }
 
     let response;
     try {
-      response = await fetchImpl(`${normalizedBase}${path}${queryString(query)}`, {
+      const options = {
         method: 'GET',
         headers: {
           Authorization: `ApiKey ${apiKey}`,
           Accept: 'application/json',
           'User-Agent': 'ReviveRelay/0.3'
         }
-      });
+      };
+      if (signal) options.signal = signal;
+      response = await fetchImpl(`${normalizedBase}${path}${queryString(query)}`, options);
     } catch (error) {
       const timeout = /timeout|abort/i.test(String(error && error.name || ''));
       return fail(
@@ -165,8 +167,9 @@ function createTornClient({
     return body.revives;
   }
 
-  async function getUserProfile(apiKey) {
-    const body = await request('/user/profile', apiKey, undefined, 'user.profile');
+  async function getUserProfile(apiKey, { timeoutMs } = {}) {
+    const signal = Number.isFinite(timeoutMs) && timeoutMs > 0 ? AbortSignal.timeout(timeoutMs) : undefined;
+    const body = await request('/user/profile', apiKey, undefined, 'user.profile', { signal });
     const profile = body && (body.profile || body);
     if (!profile || typeof profile !== 'object') {
       return malformed('user.profile.validate', 'Torn profile response is incomplete');

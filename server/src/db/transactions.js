@@ -28,7 +28,17 @@ function rowToTransaction(row) {
   };
 }
 
-function rowToQueueRequest(row) {
+const REQUESTER_STATUS_STALE_MS = 180000;
+
+function isRequesterStatusFresh(refreshedAt, now) {
+  if (!refreshedAt) return false;
+  const refreshedMs = new Date(refreshedAt).getTime();
+  if (Number.isNaN(refreshedMs)) return false;
+  return now.getTime() - refreshedMs <= REQUESTER_STATUS_STALE_MS;
+}
+
+function rowToQueueRequest(row, now = new Date()) {
+  const fresh = isRequesterStatusFresh(row.status_refreshed_at, now);
   return {
     id: row.id,
     requesterTornId: row.requester_torn_id == null ? null : Number(row.requester_torn_id),
@@ -39,7 +49,9 @@ function rowToQueueRequest(row) {
     state: row.state,
     origin: row.origin,
     certified: row.origin === 'reviverelay_direct',
-    createdAt: row.created_at
+    createdAt: row.created_at,
+    hospitalUntil: fresh ? row.hospital_until || null : null,
+    abroad: fresh && typeof row.abroad === 'boolean' ? row.abroad : null
   };
 }
 
@@ -205,7 +217,29 @@ async function acceptRequest(pool, { requestId, reviverId, now = new Date() }) {
   }
 }
 
-async function listAvailableRequests(pool, limit = 100) {
+async function countAvailableRequests(pool) {
+  const result = await pool.query(`
+    SELECT count(*)::int AS count
+    FROM revive_requests r
+    WHERE r.state = 'AVAILABLE'
+      AND r.closed_at IS NULL
+      AND EXISTS (
+        SELECT 1
+        FROM api_credentials credential
+        WHERE credential.user_id = r.requester_id
+          AND credential.purpose = $1
+          AND credential.revoked_at IS NULL
+          AND credential.unusable_at IS NULL
+          AND credential.capability @> '{"requester":true}'::jsonb
+      )
+  `, [TRANSACTION_CREDENTIAL_PURPOSE]);
+  return result.rows[0].count;
+}
+
+async function listAvailableRequests(pool, limit = 100, now = new Date()) {
+  if (!(now instanceof Date) || Number.isNaN(now.getTime())) {
+    throw new Error('now must be a valid Date');
+  }
   const normalizedLimit = Math.max(1, Math.min(100, Number.isInteger(limit) ? limit : 100));
   const result = await pool.query(`
     SELECT
@@ -218,7 +252,10 @@ async function listAvailableRequests(pool, limit = 100) {
       r.comment,
       r.state,
       r.origin,
-      r.created_at
+      r.created_at,
+      r.hospital_until,
+      r.abroad,
+      r.status_refreshed_at
     FROM revive_requests r
     JOIN users u ON u.id = r.requester_id
     WHERE r.state = 'AVAILABLE'
@@ -236,7 +273,7 @@ async function listAvailableRequests(pool, limit = 100) {
     LIMIT $1
   `, [normalizedLimit, TRANSACTION_CREDENTIAL_PURPOSE]);
 
-  return result.rows.map(rowToQueueRequest);
+  return result.rows.map(row => rowToQueueRequest(row, now));
 }
 
 async function getTransactionForUser(pool, { transactionId, userId }) {
@@ -275,6 +312,17 @@ async function getTransactionForUser(pool, { transactionId, userId }) {
   };
 }
 
+async function listOpenTransactionIdsForUser(pool, userId) {
+  const result = await pool.query(`
+    SELECT id
+    FROM transactions
+    WHERE closed_at IS NULL
+      AND (requester_id = $1 OR reviver_id = $1)
+    ORDER BY accepted_at DESC, created_at DESC
+  `, [userId]);
+  return result.rows.map(row => row.id);
+}
+
 function createTransactionRepository(pool) {
   return {
     acceptRequest(input) {
@@ -283,15 +331,24 @@ function createTransactionRepository(pool) {
     listAvailableRequests(limit) {
       return listAvailableRequests(pool, limit);
     },
+    countAvailableRequests() {
+      return countAvailableRequests(pool);
+    },
     getTransactionForUser(input) {
       return getTransactionForUser(pool, input);
+    },
+    listOpenTransactionIdsForUser(userId) {
+      return listOpenTransactionIdsForUser(pool, userId);
     }
   };
 }
 
 module.exports = {
+  REQUESTER_STATUS_STALE_MS,
   acceptRequest,
   listAvailableRequests,
+  countAvailableRequests,
   getTransactionForUser,
+  listOpenTransactionIdsForUser,
   createTransactionRepository
 };
