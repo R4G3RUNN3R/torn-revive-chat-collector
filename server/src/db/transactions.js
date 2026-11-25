@@ -279,6 +279,18 @@ async function getTransactionForUser(pool, { transactionId, userId }) {
   };
 }
 
+async function findOpenTransactionIdForUser(pool, userId) {
+  const result = await pool.query(`
+    SELECT id
+    FROM transactions
+    WHERE closed_at IS NULL
+      AND (requester_id = $1 OR reviver_id = $1)
+    ORDER BY accepted_at DESC NULLS LAST, created_at DESC
+    LIMIT 1
+  `, [userId]);
+  return result.rowCount === 1 ? result.rows[0].id : null;
+}
+
 function createTransactionRepository(pool) {
   return {
     acceptRequest(input) {
@@ -289,6 +301,9 @@ function createTransactionRepository(pool) {
     },
     getTransactionForUser(input) {
       return getTransactionForUser(pool, input);
+    },
+    findOpenTransactionIdForUser(userId) {
+      return findOpenTransactionIdForUser(pool, userId);
     }
   };
 }
@@ -297,5 +312,6 @@ module.exports = {
   acceptRequest,
   listAvailableRequests,
   getTransactionForUser,
+  findOpenTransactionIdForUser,
   createTransactionRepository
 };
