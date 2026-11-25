@@ -180,6 +180,7 @@ function buildApp({
         transactionRepository,
         entitlementRepository,
         presenceRepository,
+        verificationCredentialRepository,
         config
       });
     });

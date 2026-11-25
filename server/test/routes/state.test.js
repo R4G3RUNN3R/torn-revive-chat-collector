@@ -8,7 +8,7 @@ const NOW = new Date('2026-11-25T12:00:00Z');
 const REQUESTER = { sessionId: 's1', userId: 'user-1', tornId: 111, name: 'Req', roles: ['requester'] };
 const REVIVER = { sessionId: 's2', userId: 'user-2', tornId: 222, name: 'Rev', roles: ['requester', 'reviver'] };
 
-async function makeApp({ user = REQUESTER, activeRequest = null, openTransactionIds = [], transactions = {}, queue = [], online = 3, presence = true, proState = 'NONE', mode = 'review' } = {}) {
+async function makeApp({ user = REQUESTER, activeRequest = null, openTransactionIds = [], transactions = {}, queue = [], online = 3, presence = true, proState = 'NONE', mode = 'review', verificationStatus, verificationRepository = verificationStatus !== undefined } = {}) {
   const app = Fastify();
   await app.register(fastifyRateLimit, { global: false });
   app.decorateRequest('reviveRelayUser', null);
@@ -23,6 +23,9 @@ async function makeApp({ user = REQUESTER, activeRequest = null, openTransaction
     },
     entitlementRepository: { async getStatus() { return { state: proState, trialEligible: true, trialStartedAt: null, validUntil: null }; } },
     presenceRepository: presence ? { async countOnlineRevivers(input) { calls.online.push(input); return online; } } : null,
+    verificationCredentialRepository: verificationRepository
+      ? { async getStatus(userId) { assert.equal(userId, user.userId); return verificationStatus === undefined ? null : verificationStatus; } }
+      : null,
     config: { SUBSCRIPTION_MODE: mode, PRO_RECEIVER_TORN_ID: 3877028 },
     clock: () => NOW
   });
@@ -36,7 +39,7 @@ test('idle requester gets a 60s poll, online count and no queue', async t => {
   assert.equal(response.statusCode, 200);
   const body = response.json();
   assert.equal(body.nextPollMs, STATE_POLL_MS.IDLE);
-  assert.deepEqual(body.me, { tornId: 111, name: 'Req', roles: ['requester'] });
+  assert.deepEqual(body.me, { tornId: 111, name: 'Req', roles: ['requester'], verification: null });
   assert.equal(body.activeRequest, null);
   assert.deepEqual(body.activeTransactions, []);
   assert.deepEqual(body.revivers, { online: 3 });
@@ -146,4 +149,47 @@ test('a reviver with an open transaction polls every 5s', async t => {
   assert.equal(body.activeRequest, null);
   assert.deepEqual(body.activeTransactions, [transaction]);
   assert.equal(body.nextPollMs, STATE_POLL_MS.ACTIVE);
+});
+
+function credentialStatus({ usable = true, requester = false, reviver = false } = {}) {
+  return {
+    id: 'cred-1',
+    purpose: 'transaction_verification',
+    capabilities: { requester, reviver },
+    accessScope: {},
+    lastValidatedAt: NOW,
+    usable,
+    unusableReason: usable ? null : 'TORN_INVALID_KEY'
+  };
+}
+
+test('me.verification reports usable credential capabilities', async t => {
+  const { app } = await makeApp({ user: REVIVER, verificationStatus: credentialStatus({ requester: true, reviver: true }) });
+  t.after(() => app.close());
+  const body = (await app.inject({ method: 'GET', url: '/v1/state' })).json();
+  assert.deepEqual(body.me.verification, { usable: true, requester: true, reviver: true });
+});
+
+test('me.verification reports no capability while the credential is unusable', async t => {
+  const { app } = await makeApp({ verificationStatus: credentialStatus({ usable: false, requester: true }) });
+  t.after(() => app.close());
+  const body = (await app.inject({ method: 'GET', url: '/v1/state' })).json();
+  assert.deepEqual(body.me.verification, { usable: false, requester: false, reviver: false });
+});
+
+test('me.verification is null without a credential or without a repository', async t => {
+  const none = await makeApp({ verificationStatus: null });
+  const noRepo = await makeApp();
+  t.after(() => Promise.all([none.app.close(), noRepo.app.close()]));
+  assert.equal((await none.app.inject({ method: 'GET', url: '/v1/state' })).json().me.verification, null);
+  assert.equal((await noRepo.app.inject({ method: 'GET', url: '/v1/state' })).json().me.verification, null);
+});
+
+test('verification changes produce a different state version', async t => {
+  const a = await makeApp({ verificationStatus: credentialStatus({ requester: true }) });
+  const b = await makeApp({ verificationStatus: credentialStatus({ requester: true, usable: false }) });
+  t.after(() => Promise.all([a.app.close(), b.app.close()]));
+  const va = (await a.app.inject({ method: 'GET', url: '/v1/state' })).json().stateVersion;
+  const vb = (await b.app.inject({ method: 'GET', url: '/v1/state' })).json().stateVersion;
+  assert.notEqual(va, vb);
 });

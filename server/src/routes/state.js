@@ -51,11 +51,25 @@ function compareByNearestDeadline(a, b) {
   return 0;
 }
 
+function hasCredentialCapability(status, role) {
+  return Boolean(status && status.usable && status.capabilities && status.capabilities[role] === true);
+}
+
+function publicVerification(status) {
+  if (!status) return null;
+  return {
+    usable: Boolean(status.usable),
+    requester: hasCredentialCapability(status, 'requester'),
+    reviver: hasCredentialCapability(status, 'reviver')
+  };
+}
+
 async function registerStateRoute(app, {
   requestRepository,
   transactionRepository,
   entitlementRepository = null,
   presenceRepository = null,
+  verificationCredentialRepository = null,
   config = {},
   clock = () => new Date()
 }) {
@@ -84,7 +98,7 @@ async function registerStateRoute(app, {
     const now = clock();
     const isReviver = Array.isArray(user.roles) && user.roles.includes('reviver');
 
-    const [activeRequest, openTransactionIds, status, online] = await Promise.all([
+    const [activeRequest, openTransactionIds, status, online, verificationStatus] = await Promise.all([
       requestRepository.getActiveRequest(user.userId),
       transactionRepository.listOpenTransactionIdsForUser(user.userId),
       entitlementRepository && typeof entitlementRepository.getStatus === 'function'
@@ -92,6 +106,9 @@ async function registerStateRoute(app, {
         : { state: 'NONE', trialEligible: true, trialStartedAt: null, validUntil: null },
       presenceRepository && typeof presenceRepository.countOnlineRevivers === 'function'
         ? presenceRepository.countOnlineRevivers({ now, requireEntitlement, ownerTornId })
+        : null,
+      verificationCredentialRepository && typeof verificationCredentialRepository.getStatus === 'function'
+        ? verificationCredentialRepository.getStatus(user.userId)
         : null
     ]);
     const openTransactions = await Promise.all((openTransactionIds || []).map(transactionId =>
@@ -104,7 +121,7 @@ async function registerStateRoute(app, {
     const queueCount = hasQueueAccess ? await transactionRepository.countAvailableRequests() : null;
 
     const payload = {
-      me: { tornId: user.tornId, name: user.name, roles: user.roles },
+      me: { tornId: user.tornId, name: user.name, roles: user.roles, verification: publicVerification(verificationStatus) },
       pro,
       activeRequest: publicActiveRequest(activeRequest),
       activeTransactions,

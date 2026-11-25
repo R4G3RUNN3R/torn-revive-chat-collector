@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { buildApp } = require('../../src/app');
 
-function makeApp({ presenceRepository = null } = {}) {
+function makeApp({ presenceRepository = null, verificationStatus = null } = {}) {
   return buildApp({
     config: { API_KEY_ENCRYPTION_KEY: '88'.repeat(32), SESSION_TOKEN_PEPPER: 'test-pepper', SUBSCRIPTION_MODE: 'free' },
     tornClient: {
@@ -28,7 +28,7 @@ function makeApp({ presenceRepository = null } = {}) {
       async acceptRequest() { throw new Error('not used'); }
     },
     verificationCredentialRepository: {
-      async getStatus() { return null; },
+      async getStatus() { return verificationStatus; },
       async bind() {},
       async revoke() { return false; },
       async getDecryptedActiveForUser() { return null; }
@@ -59,4 +59,13 @@ test('buildApp serves the badge route only with a presence repository', async t 
   assert.equal((await without.inject({ method: 'GET', url: '/v1/players/7/badge', headers })).statusCode, 404);
   assert.equal((await withPresence.inject({ method: 'GET', url: '/v1/players/7/badge', headers })).statusCode, 200);
   assert.equal((await withPresence.inject({ method: 'GET', url: '/v1/state', headers })).json().revivers.online, 1);
+});
+
+test('buildApp passes the verification credential repository to /v1/state', async t => {
+  const app = makeApp({
+    verificationStatus: { id: 'c', purpose: 'transaction_verification', capabilities: { requester: true, reviver: false }, accessScope: {}, lastValidatedAt: null, usable: true, unusableReason: null }
+  });
+  t.after(() => app.close());
+  const response = await app.inject({ method: 'GET', url: '/v1/state', headers: { authorization: 'Bearer x' } });
+  assert.deepEqual(response.json().me.verification, { usable: true, requester: true, reviver: false });
 });
