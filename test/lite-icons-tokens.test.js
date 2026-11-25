@@ -57,3 +57,27 @@ test('tokens: brand accent, every tone in light and dark, motion 120–250 ms', 
   assert.match(TOKENS_CSS, /prefers-reduced-motion: reduce/);
   assert.doesNotMatch(TOKENS_CSS, /--rr-tone-attention:#a4161a|--rr-tone-attention:#e5484d/);
 });
+
+function luminance(hex) {
+  const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255)
+    .map(v => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+function contrast(a, b) {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+test('tokens: accent and every tone reach WCAG AA (4.5:1) on both surfaces in both themes', () => {
+  for (const [theme, set] of [['light', LIGHT], ['dark', DARK]]) {
+    const colours = ['accent', ...['neutral', 'waiting', 'action', 'progress', 'success', 'attention'].map(t => `tone-${t}`)];
+    for (const name of colours) {
+      for (const surface of ['surface', 'surface-raised']) {
+        assert.match(set[name], /^#[0-9a-f]{6}$/i, `${theme} ${name}`);
+        const ratio = contrast(set[name], set[surface]);
+        assert.ok(ratio >= 4.5, `${theme} ${name} ${set[name]} on ${surface} ${set[surface]} = ${ratio.toFixed(2)}`);
+      }
+    }
+  }
+});

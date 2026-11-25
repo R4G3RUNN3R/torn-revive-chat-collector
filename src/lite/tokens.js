@@ -6,7 +6,7 @@
   'use strict';
 
   const ACCENT = '#a4161a';
-  const ACCENT_DARK = '#e5484d';
+  const ACCENT_DARK = '#fa6a6f';
 
   const LIGHT = Object.freeze({
     accent: ACCENT,
@@ -16,11 +16,11 @@
     'text-muted': '#666666',
     border: '#cccccc',
     'tone-neutral': '#666666',
-    'tone-waiting': '#b7791f',
+    'tone-waiting': '#965f0f',
     'tone-action': '#6b46c1',
     'tone-progress': '#2b6cb0',
-    'tone-success': '#2f855a',
-    'tone-attention': '#c05621',
+    'tone-success': '#276749',
+    'tone-attention': '#a84a1a',
     elevation: '0 4px 12px rgba(0,0,0,.18)'
   });
 
