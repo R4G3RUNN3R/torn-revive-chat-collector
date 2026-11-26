@@ -1,5 +1,52 @@
 # Changelog
 
+## 1.0.1 - Notifications, sound and profile badges (review)
+
+### Added
+
+- Notifications no longer need the panel: one visible Torn tab per browser (the one that polls) notifies once per event. Requesters are told when a reviver accepts (time to pay), when payment is verified, when they are revived, when a revive fails and when a refund is verified. Revivers are told when payment arrives (revive now) and when a refund is owed.
+- A short, soft chime plays for accepted, revived, refund verified, payment received and refund owed. One Settings toggle turns all sound off.
+- Settings → Notifications adds notifications on/off, one toggle per event type, sound, quiet hours, opt-in silent new-queue-request notices for revivers (at most one a minute, count only) and an opt-out for profile badges. A 0.7 "desktop notifications off" choice carries over.
+- An "RR verified requester/reviver" chip appears next to a player's name on their Torn profile when ReviveRelay has verified them. It is looked up only while you are signed in and the profile is visible, and cached for 10 minutes across page loads.
+- A newer ReviveRelay version is announced once by notification, even with the panel closed. If another tab found it, the tab that polls announces it.
+- An open panel keeps re-checking a pending Pro invoice once it expires, at most every 15 s for up to 3 minutes, so it shows EXPIRED soon after the server records it (the server checks for expired invoices once a minute).
+- The first check after installing, or after more than 10 minutes without one, is silent: it records what is already open, and only later changes notify. There is no burst of notifications for transactions that were already under way.
+
+### Changed
+
+- New-request notifications for revivers are now opt-in and silent (0.7 had them on by default), and they give only the queue count.
+
+### Removed
+
+- The opt-in Diagnostics option (off by default in 0.7.x and 1.0.0) and its error reports. ReviveRelay 1.0.1 sends no diagnostics.
+
+### Fixed
+
+- After a failed poll, a new polling tab polls at once instead of waiting a full cadence.
+- A chime blocked by the browser's autoplay rule no longer leaves an audio context behind for every event: one is reused for the page and resumed on the next chime.
+- A background tab no longer uses up the 5 s "Revived" display before you look at it.
+- The panel no longer re-fetches a reviver transaction that has closed, and reopening it on an idle pill clears an old "Needs attention" line.
+- TornPDA notifications show fixed at the bottom of the screen even before the panel has been opened on the page (they were an unstyled button at the end of the page).
+
+### Known limitations
+
+- Notifications and sound need a visible Torn tab (or TornPDA in the foreground): hidden tabs do no work, so with every Torn tab in the background nothing is checked or announced until one is shown again. There is no tab-title fallback.
+- Duplicate notifications are possible only if two tabs poll at once (a browser without BroadcastChannel, or several TornPDA tabs).
+- With two TornPDA tabs open, each notification may appear twice and both tabs poll, because tab leadership is off on TornPDA.
+- The new requester and reviver sheets, and hospital-list "RR" badges, come in 1.1. Everyday requests, the reviver queue and transactions still open in the panel from the pill.
+- "Revived" shows for 5 s from when each tab first displays it; this is kept per tab and in memory, so a tab opened or reloaded within 30 s of the revive shows it again for up to 5 s.
+- For a reviver, a failed transaction that needs reporting shows "Needs attention" on the pill only while the Queue count is not shown.
+- There is no in-app way to report a problem yet: the panel says what happened and asks you to report it to the ReviveRelay operator.
+- The first chime may be blocked by the browser's autoplay policy until you interact with the page; the notification itself still arrives.
+- A state that repeats on one transaction is announced only once. For example, if a retried revive fails a second time, the requester is not told again to choose retry or refund; the pill and panel still show it.
+- If the server has not marked an expired Pro invoice EXPIRED within 3 minutes of its expiry, the open panel stops re-checking and shows it as pending until the panel is next refreshed.
+- Events that happen while no Torn tab has checked for more than 10 minutes are not announced: the next check takes a silent baseline. The pill and panel still show the current state.
+- The whole file is 229.5 KB; the light core is 108.0 KB.
+
+### Release status
+
+1.0.1 is a Beta/Review candidate on the review channel. Stable remains 0.4.4; 0.7.3 remains the rollback.
+
 ## 1.0.0 - Lite engine and header pill (review)
 
 ### Changed

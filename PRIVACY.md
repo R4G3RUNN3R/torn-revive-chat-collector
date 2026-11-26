@@ -1,6 +1,6 @@
 # ReviveRelay Privacy
 
-This document describes the implemented ReviveRelay 1.0.0 review candidate. Public Stable remains 0.4.4; Beta/Review distribution is tracked separately.
+This document describes the implemented ReviveRelay 1.0.1 review candidate. Public Stable remains 0.4.4; Beta/Review distribution is tracked separately.
 
 ## Data Storage
 
@@ -24,6 +24,7 @@ Within ReviveRelay, from 1.0:
 - revivers who can see the request queue also see a waiting requester's hospital time remaining and whether they are abroad;
 - any logged-in user sees only the **number** of revivers online, never who they are;
 - any logged-in user can check whether a given Torn ID is a verified ReviveRelay requester and/or reviver (the profile badge). Nothing else about that account is shown. The backend sends only the requests required to the official Torn API to perform the user-authorized identity, eligibility and evidence checks described in `TORN-API-DISCLOSURE.md`.
+- from 1.0.1, while you are signed in and a Torn profile page is visible, the client automatically sends that profile's Torn ID to ReviveRelay to look up its badge (opt out in Settings → Notifications). The result is cached in your browser for 10 minutes.
 
 ## Purpose of Use
 
@@ -39,11 +40,13 @@ Stored information is used to:
 - operate the 7-day Reviver Pro trial and prepaid subscription entitlement;
 - protect the service from abuse and retain a bounded audit trail.
 
-ReviveRelay 1.0.0 does **not scrape public chat** and performs no public chat collection.
+ReviveRelay 1.0.1 does **not scrape public chat** and performs no public chat collection.
 
 ## Diagnostics
 
-Sanitized client diagnostics are **off by default** and are sent only after the user enables the Diagnostics option. Diagnostic envelopes are bounded and sanitized. They exclude Torn API keys, ReviveRelay bearer/session tokens, merchant credentials, raw Torn API responses, request bodies and public chat content.
+ReviveRelay 1.0.1 sends **no client diagnostics**. The Diagnostics option of clients before 1.0.1, which was off by default, is removed; the server keeps accepting bounded, sanitized envelopes from older clients that still have it enabled.
+
+If an older client queued diagnostics in your userscript manager's storage, 1.0.1 never sends them; they stay in your browser and are cleared when you delete your ReviveRelay account.
 
 Raw telemetry occurrences are deleted by the implemented retention job after 30 days. Aggregate error fingerprints/version statistics may be retained for regression analysis.
 
@@ -71,4 +74,4 @@ Where the review/live subscription mode is enabled, subscription payment is made
 
 ## Contact / review status
 
-ReviveRelay 1.0.0 is a review candidate. Paid public launch is awaiting Torn approval and explicit owner promotion. The review package intentionally does not claim that manual browser acceptance or Torn approval has already occurred.
+ReviveRelay 1.0.1 is a review candidate. Paid public launch is awaiting Torn approval and explicit owner promotion. The review package intentionally does not claim that manual browser acceptance or Torn approval has already occurred.

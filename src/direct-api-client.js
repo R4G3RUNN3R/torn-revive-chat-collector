@@ -5,9 +5,6 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
 
-  const PLAN_IDS = Object.freeze(['monthly', 'six_months', 'yearly']);
-  const PRO_CURRENCIES = Object.freeze(['xanax', 'cash']);
-  const ACCOUNT_DELETE_CONFIRMATION = 'DELETE REVIVERELAY ACCOUNT';
   const SAFE_ERROR_CODE = /^[A-Z][A-Z0-9_]{1,79}$/;
   const SAFE_DETAIL_KEYS = Object.freeze(['error', 'latestVersion', 'minimumVersion', 'installUrl', 'state', 'missing']);
 
@@ -26,48 +23,6 @@
     const baseUrl = String(value || '').trim().replace(/\/+$/, '');
     if (!/^https?:\/\//i.test(baseUrl)) throw new Error('A valid ReviveRelay baseUrl is required');
     return baseUrl;
-  }
-
-  function versioning() {
-    if (typeof globalThis !== 'undefined' &&
-        globalThis.ReviveRelayVersioning &&
-        typeof globalThis.ReviveRelayVersioning.compareVersions === 'function') {
-      return globalThis.ReviveRelayVersioning;
-    }
-    if (typeof require === 'function') return require('./versioning');
-    throw new Error('ReviveRelay versioning unavailable');
-  }
-
-  function incompatibleRuntime(reason) {
-    return Object.freeze({ compatible:false, reason, subscription:null });
-  }
-
-  function validateReviewRuntime(runtime, { clientVersion = '', releaseChannel = '' } = {}) {
-    if (!runtime || typeof runtime !== 'object' || Array.isArray(runtime)) {
-      return incompatibleRuntime('RUNTIME_MISSING');
-    }
-    if (releaseChannel !== 'review') return incompatibleRuntime('CLIENT_CHANNEL_INVALID');
-    if (runtime.releaseChannel !== 'review') return incompatibleRuntime('RUNTIME_CHANNEL_MISMATCH');
-
-    const subscription = runtime.subscription;
-    if (!subscription || typeof subscription !== 'object' || Array.isArray(subscription) ||
-        !['free','review','live'].includes(subscription.mode)) {
-      return incompatibleRuntime('RUNTIME_SUBSCRIPTION_INVALID');
-    }
-
-    try {
-      const { compareVersions } = versioning();
-      compareVersions(runtime.serverVersion, '0.0.0');
-      compareVersions(runtime.minimumClientVersion, '0.0.0');
-      compareVersions(clientVersion, '0.0.0');
-      if (compareVersions(clientVersion, runtime.minimumClientVersion) < 0) {
-        return incompatibleRuntime('CLIENT_TOO_OLD');
-      }
-    } catch (_) {
-      return incompatibleRuntime('RUNTIME_VERSION_INVALID');
-    }
-
-    return Object.freeze({ compatible:true, reason:null, subscription });
   }
 
   function safeParseBody(response) {
@@ -124,26 +79,6 @@
     });
   }
 
-  function validateInvoiceSelection(selection) {
-    if (!selection || typeof selection !== 'object' || Array.isArray(selection)) {
-      throw new DirectApiClientError('INVALID_INVOICE_SELECTION');
-    }
-    const keys = Object.keys(selection).sort();
-    if (keys.length !== 2 || keys[0] !== 'currency' || keys[1] !== 'planId') {
-      throw new DirectApiClientError('INVALID_INVOICE_SELECTION');
-    }
-    if (!PLAN_IDS.includes(selection.planId) || !PRO_CURRENCIES.includes(selection.currency)) {
-      throw new DirectApiClientError('INVALID_INVOICE_SELECTION');
-    }
-    return { planId: selection.planId, currency: selection.currency };
-  }
-
-  function validateInvoiceId(invoiceId) {
-    const normalized = String(invoiceId || '').trim();
-    if (!normalized) throw new DirectApiClientError('INVALID_INVOICE_ID');
-    return normalized;
-  }
-
   function segment(id) {
     return encodeURIComponent(String(id || ''));
   }
@@ -179,25 +114,13 @@
     }
 
     return Object.freeze({
-      async bind(apiKey, version = clientVersion) {
-        const result = await call('POST', '/v1/auth/bind', { apiKey: String(apiKey || ''), clientVersion: String(version || '') }, { auth: false });
-        if (result && result.token) boundToken = String(result.token);
-        return result;
-      },
+      call,
+      setBoundToken(token) { boundToken = String(token || ''); },
       clearBoundToken() { boundToken = ''; },
-      getMe() { return call('GET', '/v1/me'); },
-      submitTelemetry(errors) { return call('POST', '/v1/telemetry/errors', { errors: Array.isArray(errors) ? errors : [] }); },
       createRequest(preset) { return call('POST', '/v1/requests', preset); },
-      getActiveRequest() { return call('GET', '/v1/requests/active'); },
       cancelRequest(requestId) { return call('POST', `/v1/requests/${segment(requestId)}/cancel`); },
-      getVerificationCredential() { return call('GET', '/v1/verification-credential'); },
-      bindVerificationCredential(apiKey) { return call('POST', '/v1/verification-credential', { apiKey: String(apiKey || '') }); },
-      revokeVerificationCredential() { return call('POST', '/v1/verification-credential/revoke'); },
-      getReviverEligibility() { return call('GET', '/v1/reviver/eligibility'); },
-      registerReviver() { return call('POST', '/v1/reviver/register'); },
       getReviverQueue() { return call('GET', '/v1/reviver/queue'); },
       acceptRequest(requestId) { return call('POST', `/v1/requests/${segment(requestId)}/accept`); },
-      getTransaction(transactionId) { return call('GET', `/v1/transactions/${segment(transactionId)}`); },
       checkPayment(transactionId) { return call('POST', `/v1/transactions/${segment(transactionId)}/check-payment`); },
       requestRetry(transactionId) { return call('POST', `/v1/transactions/${segment(transactionId)}/retry-request`); },
       respondRetry(transactionId, decision) {
@@ -205,23 +128,15 @@
         return call('POST', `/v1/transactions/${segment(transactionId)}/retry-response`, { decision });
       },
       requestRefund(transactionId) { return call('POST', `/v1/transactions/${segment(transactionId)}/request-refund`); },
-      checkRefund(transactionId) { return call('POST', `/v1/transactions/${segment(transactionId)}/check-refund`); },
-      getProStatus() { return call('GET', '/v1/pro/status'); },
-      startProTrial() { return call('POST', '/v1/pro/trial'); },
-      async createProInvoice(selection) {
-        return call('POST', '/v1/pro/invoices', validateInvoiceSelection(selection));
-      },
-      async getProInvoice(invoiceId) {
-        return call('GET', `/v1/pro/invoices/${encodeURIComponent(validateInvoiceId(invoiceId))}`);
-      },
-      deleteAccount() { return call('POST', '/v1/account/delete', { confirm: ACCOUNT_DELETE_CONFIRMATION }); }
+      checkRefund(transactionId) { return call('POST', `/v1/transactions/${segment(transactionId)}/check-refund`); }
     });
   }
 
   return {
     DirectApiClientError,
     mapHttpError,
-    validateReviewRuntime,
+    safeParseBody,
+    segment,
     createDirectApiClient
   };
 });

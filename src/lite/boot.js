@@ -5,14 +5,10 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
 
-  // After a start or a Torn SPA navigation the header renders late: re-place the pill a few times.
   const RELAYOUT_DELAYS_MS = Object.freeze([150, 1000, 3000]);
+  const BADGES_KEY = 'reviverelay_badges_enabled';
 
-  function dependency(globalName, path) {
-    if (typeof globalThis !== 'undefined' && globalThis[globalName]) return globalThis[globalName];
-    if (typeof require === 'function') return require(path);
-    throw new Error(`${globalName} unavailable`);
-  }
+  const dependency = (globalName, path) => globalThis[globalName] || require(path);
 
   function createLiteBoot({
     platform,
@@ -22,7 +18,6 @@
     clientVersion = '',
     releaseChannel = '',
     getToken = () => '',
-    // () => { signedIn, tornId }. MUST read shared platform.storage on every call, never tab memory.
     getSession = null,
     onActivate = () => {},
     onRender = null,
@@ -33,15 +28,18 @@
     if (!window || typeof window.addEventListener !== 'function') throw new Error('window is required');
     const { createStateClient } = dependency('ReviveRelayLiteStateClient', './state-client');
     const { createLiteEngine } = dependency('ReviveRelayLiteEngine', './engine');
+    const { createNotifier } = dependency('ReviveRelayLiteNotify', './notify');
+    const { createBadges } = dependency('ReviveRelayLiteBadges', './badges');
 
     const now = typeof clock.now === 'function' ? clock.now : () => Date.now();
     const random = typeof clock.random === 'function' ? clock.random : Math.random;
     const setTimer = typeof clock.setTimeout === 'function' ? clock.setTimeout : (fn, ms) => globalThis.setTimeout(fn, ms);
     const clearTimer = typeof clock.clearTimeout === 'function' ? clock.clearTimeout : handle => globalThis.clearTimeout(handle);
 
-    // One id per page load, kept across BFCache restarts.
     const tabId = `rr-${now().toString(36)}-${random().toString(36).slice(2, 10)}`;
-    const api = createStateClient({ baseUrl, request: platform.request, getToken, clientVersion, releaseChannel });
+    const api = createStateClient({ baseUrl, request: platform.request, getToken, clientVersion, releaseChannel, storage: platform.storage });
+    const notifier = createNotifier({ storage: platform.storage, notify: typeof platform.notify === 'function' ? platform.notify : () => false, window, now });
+    const badges = createBadges({ document, window, api, enabled: () => Boolean(getToken()) && platform.storage.get(BADGES_KEY, true) !== false });
     const engine = createLiteEngine({
       platform,
       api,
@@ -53,7 +51,8 @@
       headerSelectors,
       onActivate,
       getSession,
-      onRender
+      onRender,
+      onLiveSnapshot: notifier.onSnapshot
     });
 
     let started = false;
@@ -70,6 +69,7 @@
         const handle = setTimer(() => {
           relayoutTimers.delete(handle);
           engine.relayout();
+          badges.scan();
         }, delay);
         relayoutTimers.add(handle);
       }
@@ -81,11 +81,14 @@
     }
 
     function onPageShow(event) {
-      // Only a BFCache restore needs a restart; a normal load already started.
       if (!event || event.persisted !== true) return;
       engine.stop();
       engine.start();
       scheduleRelayout();
+    }
+
+    function scanWhenVisible() {
+      if (!document.hidden) badges.scan();
     }
 
     const WINDOW_EVENTS = Object.freeze([
@@ -100,6 +103,7 @@
       if (started) return;
       started = true;
       for (const [type, listener] of WINDOW_EVENTS) window.addEventListener(type, listener);
+      document.addEventListener('visibilitychange', scanWhenVisible);
       engine.start();
       scheduleRelayout();
     }
@@ -108,6 +112,7 @@
       if (!started) return;
       started = false;
       for (const [type, listener] of WINDOW_EVENTS) window.removeEventListener(type, listener);
+      document.removeEventListener('visibilitychange', scanWhenVisible);
       clearRelayout();
       engine.stop();
     }
@@ -120,9 +125,10 @@
       refresh: () => engine.refresh(),
       tabId,
       api,
-      engine
+      engine,
+      notifier
     });
   }
 
-  return Object.freeze({ RELAYOUT_DELAYS_MS, createLiteBoot });
+  return Object.freeze({ RELAYOUT_DELAYS_MS, BADGES_KEY, createLiteBoot });
 });

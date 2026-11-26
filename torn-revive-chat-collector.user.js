@@ -30,9 +30,9 @@
   const REVIVER_ELIGIBILITY_TIMEOUT_MS = 12_000;
   // An open panel re-reads /me, Pro status (and plans) and Torn eligibility at most this often.
   const PANEL_SLOW_REFRESH_MS = 60_000;
-  const MAX_SEEN_REQUEST_IDS = 200;
   const REVIVERELAY_API_KEY_URL = 'https://www.torn.com/preferences.php#tab=api?step=addNewKey&title=ReviveRelay&user=basic,profile,revives,log,perks&logIds=14,15,16,17';
   const MASKED_VERIFICATION_KEY = '••••••••••••••••';
+  const TERMINAL_STATE = /^(COMPLETED|REFUNDED|CANCELLED_BY_REQUESTER|PAYMENT_EXPIRED|CLOSED_|REPORTABLE_)/;
 
   const KEYS = Object.freeze({
     sessionToken: 'reviverelay_session_token',
@@ -45,8 +45,23 @@
     updateState: 'reviverelay_update_state',
     desktopNotificationsEnabled: 'reviverelay_desktop_notifications_enabled',
     clientDiagnosticsEnabled: 'reviverelay_client_diagnostics_enabled',
-    telemetryOutbox: 'reviverelay_telemetry_outbox'
+    telemetryOutbox: 'reviverelay_telemetry_outbox',
+    notificationSettings: 'reviverelay_notification_settings_v1',
+    notifiedEvents: 'reviverelay_notified_events_v1',
+    badgeCache: 'reviverelay_badge_cache_v1',
+    badgesEnabled: 'reviverelay_badges_enabled'
   });
+  const NOTIFY_SETTINGS_KEY = KEYS.notificationSettings;
+  const BADGES_KEY = KEYS.badgesEnabled;
+  const NOTIFY_TYPES = Object.freeze([
+    ['accepted', 'Requester: a reviver accepted (time to pay)'],
+    ['paymentVerified', 'Requester: payment verified'],
+    ['revived', 'Requester: revived'],
+    ['failed', 'Requester: revive failed'],
+    ['refundResolved', 'Requester: refund verified'],
+    ['paymentReceived', 'Reviver: payment received (revive now)'],
+    ['refundOwed', 'Reviver: refund owed']
+  ]);
 
   const Platform = globalThis.ReviveRelayPlatform;
   const LEGACY_DEFAULTS = Object.freeze({
@@ -60,17 +75,21 @@
     [KEYS.updateState]: {},
     [KEYS.desktopNotificationsEnabled]: true,
     [KEYS.clientDiagnosticsEnabled]: false,
-    [KEYS.telemetryOutbox]: []
+    [KEYS.telemetryOutbox]: [],
+    [KEYS.notificationSettings]: null,
+    [KEYS.notifiedEvents]: null,
+    [KEYS.badgeCache]: null,
+    [KEYS.badgesEnabled]: true
   });
 
   const Core = globalThis.TornReviveCore;
   const DirectApiClient = globalThis.ReviveRelayDirectApiClient;
+  const PanelApiClient = globalThis.ReviveRelayPanelApiClient;
   const UpdateManager = globalThis.ReviveRelayUpdateManager;
-  const TelemetryClient = globalThis.ReviveRelayTelemetryClient;
   const RequestPreset = globalThis.ReviveRelayRequestPreset;
   const LiteBoot = globalThis.ReviveRelayLiteBoot;
 
-  if (!Platform || !Core || !DirectApiClient || !UpdateManager || !TelemetryClient || !RequestPreset || !LiteBoot) {
+  if (!Platform || !Core || !DirectApiClient || !PanelApiClient || !UpdateManager || !RequestPreset || !LiteBoot) {
     console.error('[ReviveRelay] Required direct-runtime dependency unavailable.');
     return;
   }
@@ -83,7 +102,6 @@
       getValue: typeof GM_getValue === 'function' ? GM_getValue : null,
       setValue: typeof GM_setValue === 'function' ? GM_setValue : null,
       xmlHttpRequest: typeof GM_xmlhttpRequest === 'function' ? GM_xmlhttpRequest : null,
-      addStyle: typeof GM_addStyle === 'function' ? GM_addStyle : null,
       notification: typeof GM_notification === 'function' ? GM_notification : null
     },
     storageKeys: Object.values(KEYS),
@@ -94,7 +112,6 @@
   const requestTransport = platform.request;
   const state = {
     api: null,
-    telemetry: null,
     updateManager: null,
     sessionToken: '',
     identity: null,
@@ -138,28 +155,25 @@
   let statusIsError = false;
   let panelSlowRefreshAt = null;
   let panelProRolesKey = null;
-  let errorHooksInstalled = false;
   let initRetry = null;
   let retryPill = null;
   let updateResult = null;
+  // The server flips invoices to EXPIRED in a 60 s worker scan, so an open panel keeps asking after
+  // expiry: at most every 15 s, for 3 min past expiry, only while the panel is open and visible.
+  const INVOICE_RECHECK_MS = 15000;
+  const INVOICE_RECHECK_LIMIT_MS = 180000;
+  let invoiceRecheck = { id: null, at: 0 };
+  let announcedUpdate = null;
   const pollFlights = new Map();
   const mutationFlights = new Set();
   const authoritativeStateRevisions = new Map();
 
-  state.api = DirectApiClient.createDirectApiClient({
+  state.api = PanelApiClient.createPanelApiClient({
     baseUrl: API_BASE,
     getToken: () => state.sessionToken,
     request: requestTransport,
     clientVersion: VERSION,
     releaseChannel: UPDATE_CHANNEL
-  });
-
-  state.telemetry = TelemetryClient.createTelemetryClient({
-    submit: payload => state.api.submitTelemetry(payload.errors),
-    getStoredQueue: () => storage.get(KEYS.telemetryOutbox, []),
-    saveStoredQueue: queue => storage.set(KEYS.telemetryOutbox, Array.isArray(queue) ? queue : []),
-    version: VERSION,
-    buildCommit: BUILD_COMMIT
   });
 
   state.updateManager = UpdateManager.createUpdateManager({
@@ -268,7 +282,7 @@
   }
 
   function applyRuntimeContract(runtime) {
-    const result = DirectApiClient.validateReviewRuntime(runtime, {
+    const result = PanelApiClient.validateReviewRuntime(runtime, {
       clientVersion: VERSION,
       releaseChannel: UPDATE_CHANNEL
     });
@@ -369,15 +383,6 @@
     return { tornId: state.identity.tornId, name: state.identity.name };
   }
 
-  function captureClientError(error, operation) {
-    if (!storage.get(KEYS.clientDiagnosticsEnabled, false)) return;
-    try {
-      state.telemetry.captureError(error, { operation });
-    } catch (_) {
-      // Diagnostics must never block ReviveRelay.
-    }
-  }
-
   function setStatus(message, isError = false) {
     statusMessage = String(message || '');
     statusIsError = Boolean(isError);
@@ -414,7 +419,6 @@
   }
 
   function handleApiFailure(error, operation, userMessage = 'ReviveRelay request failed.') {
-    captureClientError(error, operation);
     if (apiErrorCode(error) === 'AUTH_REQUIRED') {
       clearSession('Your ReviveRelay session expired. Verify & connect again.');
       return;
@@ -576,53 +580,31 @@
         applyAuthoritativeState('eligibility', revision, () => {
           state.reviverEligibility = { status: timedOut ? 'TIMEOUT' : 'UNAVAILABLE', canRevive: null };
         });
-        captureClientError(error, 'reviver.eligibility');
       }
     });
   }
 
-  function readSeenRequestIds() {
-    const stored = storage.get(KEYS.seenRequestIds, []);
-    return Array.isArray(stored) ? stored.map(String).slice(-MAX_SEEN_REQUEST_IDS) : [];
+  // Lite notification settings (src/lite/notify.js reads them). Seeded once at boot from the 0.7 desktop toggle.
+  function notificationSettings() {
+    const saved = storage.get(NOTIFY_SETTINGS_KEY, null);
+    return saved && typeof saved === 'object' ? saved : { enabled: storage.get(KEYS.desktopNotificationsEnabled, true) !== false };
   }
 
-  function writeSeenRequestIds(ids) {
-    const bounded = Array.from(new Set(ids.map(String))).slice(-MAX_SEEN_REQUEST_IDS);
-    storage.set(KEYS.seenRequestIds, bounded);
+  function migrateNotificationSettings() {
+    const saved = storage.get(NOTIFY_SETTINGS_KEY, null);
+    if (!saved || typeof saved !== 'object') storage.set(NOTIFY_SETTINGS_KEY, notificationSettings());
   }
 
-  function desktopNotificationsEnabled() {
-    return Boolean(storage.get(KEYS.desktopNotificationsEnabled, true));
+  function hourOptions(selected) {
+    const hours = [['', 'off'], ...Array.from({ length: 24 }, (_, hour) => [String(hour), `${String(hour).padStart(2, '0')}:00`])];
+    return hours.map(([value, label]) => `<option value="${value}"${String(selected ?? '') === value ? ' selected' : ''}>${label}</option>`).join('');
   }
 
-  function notifyNewQueueRequests(requests) {
-    if (!hasReviverSubscriptionAccess() || !hasRole('reviver') || !hasCredentialCapability('reviver') || !hasConfirmedReviveAbility()) return;
-    const seen = new Set(readSeenRequestIds());
-    const next = [...seen];
-    const canNotify = desktopNotificationsEnabled() && typeof platform.notify === 'function';
-    for (const request of Array.isArray(requests) ? requests : []) {
-      const id = String(request?.id || '');
-      if (!id || seen.has(id)) continue;
-      seen.add(id);
-      next.push(id);
-      const offer = formatOffer(request.paymentMethod, request.offerAmount);
-      const requester = `${request.requesterName || 'Player'} [${request.requesterTornId || '?'}]`;
-      if (!canNotify) continue;
-      try {
-        platform.notify({
-          title: 'ReviveRelay · Certified request',
-          text: `${requester} · ${offer}`,
-          timeout: 12_000,
-          onclick: () => {
-            try { window.focus(); } catch (_) {}
-            activatePanelTab('reviver');
-          }
-        });
-      } catch (error) {
-        captureClientError(error, 'notification.certified_request');
-      }
-    }
-    writeSeenRequestIds(next);
+  function saveNotificationSetting(name, value) {
+    const next = { ...notificationSettings() };
+    if (name.startsWith('type:')) next.types = { ...(next.types || {}), [name.slice(5)]: value };
+    else next[name] = value;
+    storage.set(NOTIFY_SETTINGS_KEY, next);
   }
 
   async function refreshReviverQueue() {
@@ -639,7 +621,6 @@
       const result = await state.api.getReviverQueue();
       applyAuthoritativeState('queue', revision, () => {
         state.reviverQueue = Array.isArray(result?.requests) ? result.requests : [];
-        notifyNewQueueRequests(state.reviverQueue);
       });
     });
   }
@@ -733,6 +714,9 @@
         storage.set(KEYS.updateState, {});
         storage.set(KEYS.clientDiagnosticsEnabled, false);
         storage.set(KEYS.telemetryOutbox, []);
+        storage.set(KEYS.notificationSettings, null);
+        storage.set(KEYS.notifiedEvents, null);
+        storage.set(KEYS.badgeCache, null);
         setStatus('ReviveRelay account data deletion completed. Minimal billing/security evidence may remain only where required for payment-reuse prevention, refunds, disputes, or audit history.');
         resetLiteSession();
         renderAll();
@@ -961,7 +945,11 @@
       const reviverSide = tab === 'reviver' || tab === 'activity';
       if (tab === 'request' || tab === 'activity') await refreshActiveRequest();
       if (reviverSide) await refreshReviverQueue();
-      if (reviverSide && state.activeTransaction?.participantRole === 'reviver') await refreshActiveTransaction();
+      const own = state.activeTransaction;
+      if (reviverSide && own?.participantRole === 'reviver') {
+        if (TERMINAL_STATE.test(String(own.state)) && String(own.id) !== String(liteBoot?.engine.viewModel()?.transactionId)) state.activeTransaction = null;
+        else await refreshActiveTransaction();
+      }
       // The pill's transaction (accepted before a navigation or in another tab) reaches the panel.
       const pillTransactionId = liteBoot ? liteBoot.engine.viewModel()?.transactionId : null;
       if (pillTransactionId && String(state.activeTransaction?.id) !== pillTransactionId) await refreshActiveTransaction(pillTransactionId);
@@ -1005,9 +993,9 @@
     // There is no reporting UI or endpoint yet: say what went wrong and whom to tell.
     const problem = { REPORTABLE_NO_ATTEMPT: 'no revive attempt was made', REPORTABLE_MISSING_REFUND: 'the refund was not verified' }[view?.state];
     if (problem) setStatus(`Needs attention: ${problem}. Report it to the ReviveRelay operator.`, true);
+    else if (statusMessage.startsWith('Needs attention:')) setStatus('');
     panelStateVersion = latestPillStateVersion;
     refreshPanelData();
-    if (storage.get(KEYS.clientDiagnosticsEnabled, false)) state.telemetry.drain().catch(() => {});
   }
 
   // Runs after every pill render (each poll, and every second while the panel is open).
@@ -1017,8 +1005,17 @@
     const proRolesKey = JSON.stringify([snapshot?.pro ?? null, snapshot?.me?.roles ?? null]);
     if (panelProRolesKey !== null && proRolesKey !== panelProRolesKey) panelSlowRefreshAt = null;
     panelProRolesKey = proRolesKey;
+    announceUpdate();
     // A hidden page keeps its old version, so it catches up once visible.
     if (!panel || state.minimized || pageHidden()) return;
+    const invoice = state.currentInvoice;
+    const now = Date.now();
+    const pastExpiry = now - Date.parse(invoice?.expiresAt);
+    if (invoice?.state === 'PENDING' && pastExpiry >= 0 && pastExpiry <= INVOICE_RECHECK_LIMIT_MS &&
+        !(invoice.id === invoiceRecheck.id && now - invoiceRecheck.at < INVOICE_RECHECK_MS)) {
+      invoiceRecheck = { id: invoice.id, at: now };
+      refreshCurrentInvoice().then(renderLiveState, () => {});
+    }
     if (latestPillStateVersion && latestPillStateVersion !== panelStateVersion) {
       panelStateVersion = latestPillStateVersion;
       refreshPanelData();
@@ -1451,6 +1448,7 @@
     if (!target) return;
     const validation = RequestPreset.validatePreset(state.preset);
     const preset = validation.ok ? validation.preset : { paymentMethod: 'cash', offerAmount: 500000, comment: '' };
+    const notifications = notificationSettings();
     const requesterNeedsVerification = Boolean(state.activeRequest && !hasCredentialCapability('requester'));
     const reviverNeedsVerification = Boolean(hasRole('reviver') && hasReviverSubscriptionAccess() && !hasCredentialCapability('reviver'));
     const requestedSection = state.settingsSection;
@@ -1486,8 +1484,12 @@
     <details class="rr-settings-section">
       <summary>Notifications</summary>
       <div class="rr-settings-body">
-        <label><input id="rr-desktop-notifications-enabled" type="checkbox" ${desktopNotificationsEnabled() ? 'checked' : ''}> Desktop notifications for new certified requests</label>
-        <p class="rr-muted">Notifications are on by default while Reviver Pro is active and your reviver setup is complete. Turning them off does not affect the live queue or Accept controls.</p>
+        <label><input data-rr-notify="enabled" type="checkbox" ${notifications.enabled !== false ? 'checked' : ''}> Notifications (one visible Torn tab notifies, even with this panel closed)</label>
+        <label><input data-rr-notify="sound" type="checkbox" ${notifications.sound !== false ? 'checked' : ''}> Sound for accepted, revived, payment and refund events</label>
+        ${NOTIFY_TYPES.map(([type, label]) => `<label><input data-rr-notify="type:${type}" type="checkbox" ${notifications.types?.[type] !== false ? 'checked' : ''}> ${label}</label>`).join('')}
+        <label><input data-rr-notify="type:newRequest" type="checkbox" ${notifications.types?.newRequest === true ? 'checked' : ''}> Reviver: new queue requests (silent, at most one a minute)</label>
+        <label>Quiet hours <select data-rr-notify="quietFrom">${hourOptions(notifications.quietFrom)}</select> to <select data-rr-notify="quietTo">${hourOptions(notifications.quietTo)}</select></label>
+        <label><input data-rr-badges type="checkbox" ${storage.get(BADGES_KEY, true) !== false ? 'checked' : ''}> "RR verified" badges on Torn profiles</label>
         <p class="rr-muted">ReviveRelay never auto-accepts a request.</p>
       </div>
     </details>
@@ -1520,17 +1522,10 @@
         <p><strong>Data stored.</strong> ReviveRelay stores the service data needed for your account, certified revive workflow, entitlement and limited security/audit history. Your Torn API key is encrypted at rest; plaintext credentials are never returned after connection and credentials are not sold or shared with advertisers or unrelated third parties.</p>
         <p><strong>Recommended permissions.</strong> Use one Custom Torn API key with Basic, Profile, Revives, Perks, and the restricted Money/Items incoming and outgoing log categories used for payment/refund evidence. A Broad/Full Access key may work, but grants more access than ReviveRelay needs.</p>
         <p><strong>Subscription terms.</strong> Requester access is free. Where Reviver Pro payments are enabled, subscriptions are prepaid and payment is sent manually in Torn to the server-listed Payment recipient. ReviveRelay never sends payment for you.</p>
-        <p><strong>Diagnostics consent.</strong> Sanitized diagnostics are off by default and are sent only when you enable the Diagnostics option.</p>
+        <p><strong>Diagnostics.</strong> The old Diagnostics option (off by default) is removed: ReviveRelay sends no error diagnostics.</p>
         <p><strong>Revoke the Torn API key.</strong> Disconnect the stored key above, then delete the same key in Torn API settings if you want Torn to invalidate it completely.</p>
         <p><a href="https://github.com/R4G3RUNN3R/torn-revive-chat-collector/blob/main/PRIVACY.md" target="_blank" rel="noopener noreferrer">Privacy document (PRIVACY.md)</a> · <a href="https://github.com/R4G3RUNN3R/torn-revive-chat-collector/tree/main/docs/review" target="_blank" rel="noopener noreferrer">Torn review documentation (docs/review)</a></p>
         ${state.sessionToken ? `<div class="rr-warning"><strong>Delete ReviveRelay account/data</strong><p>Operational account data is removed or invalidated immediately where safe. Minimal billing/payment and security/audit evidence may be retained to prevent payment evidence reuse and support refunds or disputes.</p><button id="rr-delete-account"${disabledAttr('account-delete')}>Delete ReviveRelay account/data</button></div>` : ''}
-      </div>
-    </details>
-    <details class="rr-settings-section">
-      <summary>Diagnostics / Advanced</summary>
-      <div class="rr-settings-body">
-        <label><input id="rr-diagnostics-enabled" type="checkbox" ${storage.get(KEYS.clientDiagnosticsEnabled, false) ? 'checked' : ''}> Send sanitized ReviveRelay error diagnostics</label>
-        <p class="rr-muted">Diagnostics exclude API keys, bearer tokens, payment receiver credentials and public chat content.</p>
       </div>
     </details>`;
   }
@@ -1715,7 +1710,17 @@
     } else if (force) {
       setStatus('ReviveRelay is already up to date.');
     }
+    if (!force) announceUpdate();
     if (force || state.settingsOpen) renderSettingsDrawer();
+  }
+
+  // The update notification comes from the leader tab only. A known update (also from a throttled
+  // check) waits here until this tab leads, so a check made in a non-leader tab is not dropped.
+  function announceUpdate() {
+    const version = updateResult?.updateAvailable && !updateResult.error && !updateResult.dismissed && updateResult.latestVersion;
+    if (!version || announcedUpdate === version || !liteBoot?.engine.isLeader()) return;
+    announcedUpdate = version;
+    liteBoot.notifier.notifyOnce(`update:${version}`, `ReviveRelay ${version} is available. Open the panel: Settings → Updates.`);
   }
 
   function openAvailableUpdate() {
@@ -1727,8 +1732,28 @@
     try { return Platform.detectRuntime(globalThis).isTornPda; } catch (_) { return false; }
   }
 
+  // Panel-only: GM_addStyle, or a <style> in <head>.
+  function addPanelStyle(css) {
+    if (typeof GM_addStyle === 'function') return GM_addStyle(css);
+    const style = document.createElement('style');
+    style.textContent = css;
+    document.head.appendChild(style);
+    return style;
+  }
+
+  // TornPDA toasts (src/platform.js) can show before the lazy panel exists, so their CSS is
+  // installed once at init rather than with the panel styles.
+  const PDA_TOAST_CSS = '.rr-pda-toast-stack{position:fixed;z-index:1000001;left:calc(10px + env(safe-area-inset-left,0px));right:calc(10px + env(safe-area-inset-right,0px));bottom:calc(10px + env(safe-area-inset-bottom,0px));display:grid;gap:6px;max-height:50dvh;overflow:auto}.rr-pda-toast{position:relative;width:100%;display:grid;gap:2px;text-align:left;border:1px solid #66727c;background:#151c22;color:#eef2f5;border-radius:9px;padding:10px 12px;box-shadow:0 10px 30px rgba(0,0,0,.5);font:12px/1.4 Arial,sans-serif}.rr-pda-toast strong{font-size:12px}.rr-pda-toast span{color:#b7c1c8}';
+  let pdaToastStyleInstalled = false;
+
+  function installPdaToastStyle() {
+    if (pdaToastStyleInstalled) return;
+    pdaToastStyleInstalled = true;
+    addPanelStyle(PDA_TOAST_CSS);
+  }
+
   function createPanel() {
-    platform.addStyle(`
+    addPanelStyle(`
       #rr-panel{position:fixed;z-index:999999;width:min(420px,calc(100vw - 16px));max-height:calc(100vh - 16px);background:#11161b;color:#d9e0e6;border:1px solid #3e4851;border-radius:9px;box-shadow:0 14px 40px rgba(0,0,0,.45);font:12px/1.45 Arial,sans-serif;overflow:hidden}
       #rr-header{display:flex;align-items:center;gap:9px;padding:9px 10px;background:#171d23;border-bottom:1px solid #343d45;cursor:move;user-select:none}
       .rr-brand{font-weight:800;letter-spacing:.06em}.rr-brand small{display:block;font-size:9px;color:#7f8b95;font-weight:500}.rr-spacer{flex:1}
@@ -1745,7 +1770,7 @@
       .rr-actions,.rr-form-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}.rr-label{display:block;color:#9aa6af;margin:7px 0 3px}.rr-card input,.rr-card select,.rr-card textarea,.rr-settings-section input,.rr-settings-section select,.rr-settings-section textarea{box-sizing:border-box;width:100%;border:1px solid #3a4650;background:#0f1418;color:#e0e5e9;border-radius:5px;padding:6px;font:inherit}.rr-card button,.rr-settings-section button{border:1px solid #48545e;background:#242d34;color:#e6ebee;border-radius:5px;padding:5px 8px;font:inherit;cursor:pointer}.rr-card button:disabled,.rr-settings-section button:disabled{opacity:.45;cursor:not-allowed}
       .rr-certified-card{border-color:#806c3b;box-shadow:inset 3px 0 0 #b89a52}.rr-certified-line,.rr-queue-head{display:flex;align-items:center;justify-content:space-between;gap:8px}.rr-star{color:#d5b461}.rr-chip{font-size:8px;border:1px solid #88743e;color:#d9bc72;border-radius:8px;padding:1px 5px}.rr-offer{font-size:15px;font-weight:800;margin-top:7px}.rr-comment{margin:4px 0;color:#bcc5cc}.rr-deadlines{margin-top:6px}.rr-deadlines>div{display:flex;justify-content:space-between;color:#8e9aa3}.rr-invoice{margin-top:7px;padding-top:7px;border-top:1px solid #313a42}
       .rr-queue-controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-top:8px}.rr-queue-controls label{font-size:9px;color:#89959e}.rr-queue-controls select,.rr-queue-controls input{margin-top:2px}.rr-queue-controls button{align-self:end}.rr-queue-group-title{display:flex;justify-content:space-between;align-items:center;margin:10px 2px 6px;color:#b7c1c8;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.04em}.rr-queue-group-title span{color:#74818b}
-      .rr-pda-toast-stack{position:fixed;z-index:1000001;left:calc(10px + env(safe-area-inset-left,0px));right:calc(10px + env(safe-area-inset-right,0px));bottom:calc(10px + env(safe-area-inset-bottom,0px));display:grid;gap:6px;max-height:50dvh;overflow:auto}.rr-pda-toast{position:relative;width:100%;display:grid;gap:2px;text-align:left;border:1px solid #66727c;background:#151c22;color:#eef2f5;border-radius:9px;padding:10px 12px;box-shadow:0 10px 30px rgba(0,0,0,.5);font:12px/1.4 Arial,sans-serif}.rr-pda-toast strong{font-size:12px}.rr-pda-toast span{color:#b7c1c8}#rr-panel.rr-tornpda{width:auto;max-height:none;display:flex;flex-direction:column}#rr-panel.rr-tornpda button,#rr-panel.rr-tornpda input:not([type=checkbox]):not([type=radio]),#rr-panel.rr-tornpda select{min-height:44px}#rr-panel.rr-tornpda input[type=text],#rr-panel.rr-tornpda input[type=password],#rr-panel.rr-tornpda input[type=number],#rr-panel.rr-tornpda textarea,#rr-panel.rr-tornpda select{font-size:16px}#rr-panel.rr-tornpda #rr-header{cursor:default;touch-action:auto}#rr-panel.rr-tornpda #rr-body{max-height:none;min-height:0;flex:1;overscroll-behavior:contain}@media(max-width:520px){#rr-panel{width:calc(100vw - 16px)}#rr-panel.rr-tornpda{width:auto}.rr-tabs button{font-size:10px}.rr-queue-controls{grid-template-columns:1fr}}
+      #rr-panel.rr-tornpda{width:auto;max-height:none;display:flex;flex-direction:column}#rr-panel.rr-tornpda button,#rr-panel.rr-tornpda input:not([type=checkbox]):not([type=radio]),#rr-panel.rr-tornpda select{min-height:44px}#rr-panel.rr-tornpda input[type=text],#rr-panel.rr-tornpda input[type=password],#rr-panel.rr-tornpda input[type=number],#rr-panel.rr-tornpda textarea,#rr-panel.rr-tornpda select{font-size:16px}#rr-panel.rr-tornpda #rr-header{cursor:default;touch-action:auto}#rr-panel.rr-tornpda #rr-body{max-height:none;min-height:0;flex:1;overscroll-behavior:contain}@media(max-width:520px){#rr-panel{width:calc(100vw - 16px)}#rr-panel.rr-tornpda{width:auto}.rr-tabs button{font-size:10px}.rr-queue-controls{grid-template-columns:1fr}}
     `);
 
     panel = document.createElement('section');
@@ -1820,12 +1845,12 @@
     });
 
     panel.addEventListener('change', event => {
-      if (event.target?.id === 'rr-desktop-notifications-enabled') {
-        storage.set(KEYS.desktopNotificationsEnabled, Boolean(event.target.checked));
+      const notifySetting = event.target?.dataset?.rrNotify;
+      if (notifySetting) {
+        const raw = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
+        saveNotificationSetting(notifySetting, typeof raw === 'boolean' ? raw : (raw === '' ? null : Number(raw)));
       }
-      if (event.target?.id === 'rr-diagnostics-enabled') {
-        storage.set(KEYS.clientDiagnosticsEnabled, Boolean(event.target.checked));
-      }
+      if (event.target?.dataset?.rrBadges !== undefined) storage.set(BADGES_KEY, Boolean(event.target.checked));
       if (event.target?.id === 'rr-queue-payment-filter') {
         state.queuePaymentFilter = ['all', 'cash', 'xanax'].includes(event.target.value) ? event.target.value : 'all';
         renderReviverPanel();
@@ -1853,17 +1878,6 @@
       persistPanelPosition();
     });
     renderAll();
-  }
-
-  function installGlobalErrorHooks() {
-    if (errorHooksInstalled) return;
-    errorHooksInstalled = true;
-    window.addEventListener('error', event => {
-      if (event?.error) captureClientError(event.error, 'window.error');
-    });
-    window.addEventListener('unhandledrejection', event => {
-      captureClientError(event?.reason instanceof Error ? event.reason : new Error(String(event?.reason || 'Unhandled rejection')), 'window.unhandledrejection');
-    });
   }
 
   // The engine reads the session from SHARED storage on every call, never this tab's memory,
@@ -1904,6 +1918,7 @@
 
   function hydratePersistentState() {
     hydrateSession();
+    migrateNotificationSettings();
     state.panelPosition = isTornPdaNow() ? null : (storage.get(KEYS.panelPosition, null) || null);
     state.panelTab = Core.normalizePanelTab(storage.get(KEYS.panelTab, 'request'));
   }
@@ -1911,19 +1926,19 @@
   async function init() {
     await platform.initialize();
     hydratePersistentState();
+    installPdaToastStyle();
     if (isTornPdaNow() && storage.mode() !== 'pda') {
       setStatus('TornPDA durable storage is unavailable. ReviveRelay is using compatibility storage for this session.', true);
     }
-    installGlobalErrorHooks();
     startLite();
-    if (storage.get(KEYS.clientDiagnosticsEnabled, false)) state.telemetry.drain().catch(() => {});
     // Update checks run once per page load; the update manager throttles them to every 12 h.
-    checkUpdates(false).catch(error => captureClientError(error, 'update.initial'));
+    checkUpdates(false).catch(() => {});
   }
 
   // A failed init (e.g. TornPDA storage timeout) leaves a "tap to retry" pill (no storage needed) and
   // retries on a tap and whenever the page is shown again, until init starts. No timers.
   function retryInitWhenShown() {
+    if (liteBoot) return;
     try {
       if (!retryPill?.host.isConnected) retryPill = globalThis.ReviveRelayLitePillView.mountPill({ document, window, onActivate: start });
       retryPill.update({ label: 'ReviveRelay', detail: 'tap to retry', text: 'ReviveRelay · tap to retry', tone: 'attention', icon: 'alert' });
@@ -1947,7 +1962,6 @@
     if (initPromise || liteBoot) return initPromise;
     initPromise = init().then(stopInitRetry, error => {
       console.error('[ReviveRelay] Initialization failed.', error);
-      captureClientError(error, 'init');
       retryInitWhenShown();
     }).finally(() => { initPromise = null; });
     return initPromise;

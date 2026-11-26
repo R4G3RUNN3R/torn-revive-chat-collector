@@ -88,7 +88,7 @@ test('invoice expiry and common server failures are translated to user-facing co
 
   const handler=functionSlice('handleApiFailure','clearSession');
   assert.ok(handler.length>0);
-  assert.match(handler,/captureClientError/);
+  assert.doesNotMatch(handler,/captureClientError|telemetry/);
   assert.doesNotMatch(handler,/\$\{apiErrorCode\(error\)\}/);
   assert.match(handler,/userFacingApiErrorMessage/);
 

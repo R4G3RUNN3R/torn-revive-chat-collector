@@ -39,7 +39,7 @@ Published review artifacts are immutable. Published 0.6.4 and 0.6.5 remain histo
 - [x] Confirm reviver/combined recommended access adds Perks and restricted Money/Items logs.
 - [x] Confirm the subscription worker uses a separate restricted merchant incoming-payment credential that is never exposed to the userscript.
 - [x] Confirm users can revoke ReviveRelay Verification and delete account data.
-- [x] Confirm diagnostics are off by default and sanitized.
+- [x] Confirm diagnostics are off by default and sanitized (clients before 1.0.1); the 1.0.1 client has no diagnostics.
 
 ## Request / transaction safety
 
@@ -120,7 +120,7 @@ The repository contains no first-class browser-extension source tree (`manifest.
 
 TornPDA acceptance requires a genuine TornPDA app/in-app browser on a physical device or equivalent genuine runtime; a narrow desktop viewport is not sufficient.
 
-- [ ] Fresh install on real TornPDA opens the panel normally, keeps Diagnostics OFF by default, and creates no bogus session or preset state.
+- [ ] Fresh install on real TornPDA opens the panel normally, shows no Diagnostics option (removed in 1.0.1), and creates no bogus session or preset state.
 - [ ] Install/update and boot on real TornPDA; confirm the native script manager detects a newer ReviveRelay build and the validated ReviveRelay update action navigates to the approved install URL.
 - [ ] Confirm Create API key opens the intended Torn API-key page inside the TornPDA WebView.
 - [ ] Background/suspend and resume during an in-flight request recovers after the bounded request timeout and refreshes authoritative state.

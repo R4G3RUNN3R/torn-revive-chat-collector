@@ -20,6 +20,8 @@ const EXPECTED = [
   'src/lite/tokens.js',
   'src/lite/pill-view.js',
   'src/lite/engine.js',
+  'src/lite/notify.js',
+  'src/lite/badges.js',
   'src/lite/boot.js'
 ];
 
@@ -33,6 +35,8 @@ const GLOBALS = {
   'src/lite/tokens.js': 'ReviveRelayLiteTokens',
   'src/lite/pill-view.js': 'ReviveRelayLitePillView',
   'src/lite/engine.js': 'ReviveRelayLiteEngine',
+  'src/lite/notify.js': 'ReviveRelayLiteNotify',
+  'src/lite/badges.js': 'ReviveRelayLiteBadges',
   'src/lite/boot.js': 'ReviveRelayLiteBoot'
 };
 
@@ -100,4 +104,14 @@ test('bundled exactly as build.js would, the lite modules resolve each other thr
   assert.ok(document.getElementById('reviverelay-lite-root'));
   engine.stop();
   assert.equal(clock.pending(), 0);
+});
+
+test('Lite-core sources carry no comments; their rationale lives in docs/lite/ENGINE-NOTES.md', () => {
+  for (const modulePath of [...LITE_ENGINE_MODULES, 'src/platform.js', 'src/direct-api-client.js']) {
+    const source = read(modulePath);
+    assert.doesNotMatch(source, /^\s*\/\//m, modulePath);
+    assert.doesNotMatch(source, /[;{},)\]] \/\/ /, modulePath);
+    assert.doesNotMatch(source, /\/\*/, modulePath);
+  }
+  assert.match(read('docs/lite/ENGINE-NOTES.md'), /^# ReviveRelay Lite engine notes/);
 });

@@ -1,7 +1,7 @@
 'use strict';
 
 // ReviveRelay 1.0 Lite engine, in load order. pill-state → scheduler → snapshot-cache →
-// tab-leader → state-client → icons → tokens → pill-view → engine → boot.
+// tab-leader → state-client → icons → tokens → pill-view → engine → notify → badges → boot.
 const LITE_ENGINE_MODULES = Object.freeze([
   'src/lite/pill-state.js',
   'src/lite/scheduler.js',
@@ -12,15 +12,18 @@ const LITE_ENGINE_MODULES = Object.freeze([
   'src/lite/tokens.js',
   'src/lite/pill-view.js',
   'src/lite/engine.js',
+  'src/lite/notify.js',
+  'src/lite/badges.js',
   'src/lite/boot.js'
 ]);
 
-// Support modules used only by the legacy 0.7 panel (settings, updates, diagnostics, preset).
+// Support modules used only by the legacy 0.7 panel (settings, updates, preset).
 // Plan 3b replaces the panel; until then they are measured apart from the Lite core budget.
 const LEGACY_PANEL_MODULES = Object.freeze([
   'src/core.js',
+  'src/versioning.js',
+  'src/panel-api-client.js',
   'src/update-manager.js',
-  'src/telemetry-client.js',
   'src/request-preset.js'
 ]);
 
@@ -30,8 +33,8 @@ const DIRECT_SUPPORT_MODULES = Object.freeze([
   'src/core.js',
   'src/direct-api-client.js',
   'src/versioning.js',
+  'src/panel-api-client.js',
   'src/update-manager.js',
-  'src/telemetry-client.js',
   'src/request-preset.js',
   ...LITE_ENGINE_MODULES
 ]);

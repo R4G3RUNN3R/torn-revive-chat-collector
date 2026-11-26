@@ -7,12 +7,11 @@
 
   const TONES = Object.freeze(['neutral', 'waiting', 'action', 'progress', 'success', 'attention']);
   const FRESHNESS = Object.freeze(['live', 'syncing', 'offline']);
-  // Session states replace the snapshot entirely: nothing cached is ever painted under them.
   const SESSION_STATES = Object.freeze(['signed-out', 'expired']);
   const MAX_CLOCK_SKEW_MS = 24 * 60 * 60 * 1000;
   const NON_AUTHORITATIVE_TONES = new Set(['success', 'attention']);
   const COMPLETED_FADE_MS = 5000;
-  const OUTCOME_WINDOW_MS = 30000; // server recentlyClosed window for outcomes
+  const OUTCOME_WINDOW_MS = 30000;
 
   const TRANSACTION_STATES = Object.freeze([
     'AVAILABLE',
@@ -75,7 +74,6 @@
     return at === null ? null : { kind: 'elapsed', at };
   }
 
-  // Shown 5 s from first sight (unseen: now), never past the 30 s window or with closedAt over 5 s ahead.
   function completedFade(transaction, now, seen) {
     const closedAt = toMs(transaction && (transaction.closedAt || transaction.updatedAt));
     if (closedAt === null) return null;
@@ -86,7 +84,6 @@
     return { refreshAt: Math.min(from + COMPLETED_FADE_MS, closedAt + OUTCOME_WINDOW_MS) };
   }
 
-  // Only finite numbers or numeric strings count; anything else is unknown, never 0.
   function unknownCount(value) {
     let n = null;
     if (typeof value === 'number') n = value;
@@ -168,7 +165,6 @@
     return null;
   }
 
-  // Newest first; only outcomes that still map drive the pill, unknown states are skipped.
   function firstClosed(transactions, role, now, seen, skipReportable) {
     const mapper = role === 'requester' ? requesterMapping : reviverMapping;
     for (const transaction of transactions) {
@@ -221,7 +217,6 @@
 
     const request = snapshot.activeRequest;
     if (request && typeof request === 'object') {
-      // An open request in a state this client does not know is "Updating", never idle "Revive me".
       const known = TRANSACTION_STATES.includes(request.state);
       const mapped = known ? requesterMapping(request.state, request, now, seen) : updatingMapping();
       if (mapped) return fromMapped('requester', mapped, request.state, request.transactionId || null, now);
@@ -231,7 +226,6 @@
     if (reviver) return fromMapped('reviver', reviver.mapped, reviver.transaction.state, reviver.transaction.id, now);
 
     const closed = Array.isArray(snapshot.recentlyClosed) ? snapshot.recentlyClosed : [];
-    // A reviver's reportable ranks below a visible queue count.
     const outcome = firstClosed(closed, 'requester', now, seen) || firstClosed(closed, 'reviver', now, seen, hasRole(snapshot.me, 'reviver') && snapshot.queue);
     if (outcome) return fromMapped(outcome.transaction.participantRole, outcome.mapped, outcome.transaction.state, outcome.transaction.id, now);
 
@@ -254,7 +248,6 @@
     };
   }
 
-  // clockSkewMs (set by the engine) counts only as a finite number within ±24 h.
   function serverNow(snapshot, now) {
     const skew = snapshot && typeof snapshot === 'object' ? snapshot.clockSkewMs : undefined;
     return typeof skew === 'number' && Number.isFinite(skew) && Math.abs(skew) <= MAX_CLOCK_SKEW_MS ? now + skew : now;
@@ -279,7 +272,6 @@
     });
   }
 
-  // firstSeen(transactionId): client ms this tab first showed that outcome, or undefined.
   function derivePill(snapshot, freshness, now, firstSeen) {
     if (SESSION_STATES.includes(freshness)) return sessionView(freshness);
     const mode = FRESHNESS.includes(freshness) ? freshness : 'syncing';

@@ -9,8 +9,8 @@ const REQUIRED = [
   'src/core.js',
   'src/direct-api-client.js',
   'src/versioning.js',
+  'src/panel-api-client.js',
   'src/update-manager.js',
-  'src/telemetry-client.js',
   'src/request-preset.js',
   'src/lite/pill-state.js',
   'src/lite/scheduler.js',
@@ -21,6 +21,8 @@ const REQUIRED = [
   'src/lite/tokens.js',
   'src/lite/pill-view.js',
   'src/lite/engine.js',
+  'src/lite/notify.js',
+  'src/lite/badges.js',
   'src/lite/boot.js'
 ];
 
@@ -31,7 +33,8 @@ const FORBIDDEN = [
   'src/client-chat-policy.js',
   'src/revive-classifier.js',
   'src/candidate-pipeline.js',
-  'src/sidebar-action.js'
+  'src/sidebar-action.js',
+  'src/telemetry-client.js'
 ];
 
 function bundledMarker(relativePath) {
@@ -42,7 +45,7 @@ test('canonical direct module inventory is exact and immutable', () => {
   assert.deepEqual([...DIRECT_SUPPORT_MODULES], REQUIRED);
   assert.equal(Object.isFrozen(DIRECT_SUPPORT_MODULES), true);
   assert.deepEqual([...LITE_ENGINE_MODULES], REQUIRED.filter(modulePath => modulePath.startsWith('src/lite/')));
-  assert.deepEqual([...LEGACY_PANEL_MODULES], ['src/core.js', 'src/update-manager.js', 'src/telemetry-client.js', 'src/request-preset.js']);
+  assert.deepEqual([...LEGACY_PANEL_MODULES], ['src/core.js', 'src/versioning.js', 'src/panel-api-client.js', 'src/update-manager.js', 'src/request-preset.js']);
   for (const modulePath of LEGACY_PANEL_MODULES) assert.ok(DIRECT_SUPPORT_MODULES.includes(modulePath), modulePath);
 });
 
@@ -82,7 +85,7 @@ test('current review bundle contains direct support exactly once and zero legacy
   assert.match(built, /const UPDATE_CHANNEL = 'review'/);
 });
 
-test('ReviveRelay 1.0 is versioned 1.0.0', () => {
-  assert.equal(require('../package.json').version, '1.0.0');
+test('ReviveRelay 1.0 is versioned 1.0.1', () => {
+  assert.equal(require('../package.json').version, '1.0.1');
 });
 

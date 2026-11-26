@@ -119,7 +119,18 @@ class FakeText extends FakeNode {
 }
 
 function compileSelector(selector) {
-  const text = String(selector).trim();
+  const parts = String(selector).trim().split(/\s+/);
+  if (parts.length > 1) {
+    const own = compileSelector(parts.pop());
+    const ancestor = compileSelector(parts.join(' '));
+    if (!own || !ancestor) return null;
+    return el => {
+      if (!own(el)) return false;
+      for (let node = el.parentNode; node && node.nodeType === 1; node = node.parentNode) if (ancestor(node)) return true;
+      return false;
+    };
+  }
+  const text = parts[0];
   let m;
   if ((m = /^#([\w-]+)$/.exec(text))) return el => el.getAttribute('id') === m[1];
   if ((m = /^\.([\w-]+)$/.exec(text))) return el => el.classList.contains(m[1]);

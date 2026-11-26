@@ -159,7 +159,7 @@ test('start and stop are idempotent and stop removes every listener and timer', 
   boot.start();
   boot.start();
   assert.equal(window.listenerCount('pagehide'), 1);
-  assert.equal(document.listenerCount('visibilitychange'), 1);
+  assert.equal(document.listenerCount('visibilitychange'), 2, 'the engine and the badge re-scan');
   await clock.advance(0);
   boot.stop();
   boot.stop();
@@ -234,5 +234,84 @@ test('getSession from MAIN is used as given: a sign-out written to shared storag
   document.setVisibility('visible');
   assert.ok(calls > before);
   assert.equal(boot.engine.viewModel().text, 'Set up revives');
+  boot.stop();
+});
+
+function profilePage(platform) {
+  const stateRequest = platform.request;
+  platform.request = async input => (input.url.endsWith('/badge')
+    ? (platform.requests.push(input), { status: 200, body: { tornId: 42, requesterVerified: true, reviverVerified: false } })
+    : stateRequest(input));
+}
+
+function profileTitle(document) {
+  const wrapper = document.createElement('div');
+  wrapper.setAttribute('class', 'content-title');
+  wrapper.appendChild(document.createElement('h4'));
+  document.body.appendChild(wrapper);
+  return wrapper;
+}
+
+const badgeRequests = platform => platform.requests.filter(request => request.url.endsWith('/v1/players/42/badge')).length;
+
+test('profile badges are scanned on the relayout timers, not on an interval', async () => {
+  const platform = fakePlatform();
+  profilePage(platform);
+  const { boot, clock, document, window } = setup({ platform });
+  window.location = { href: 'https://www.torn.com/profiles.php?XID=42' };
+  const wrapper = profileTitle(document);
+  boot.start();
+  await clock.advance(3000);
+  assert.equal(badgeRequests(platform), 1, 'three scans, one request (then cached)');
+  assert.equal(wrapper.querySelectorAll('[data-rr-badge]').length, 1);
+  boot.stop();
+});
+
+test('a profile opened in a background tab gets its badge once the tab becomes visible', async () => {
+  const platform = fakePlatform();
+  profilePage(platform);
+  const { boot, clock, document, window } = setup({ platform });
+  window.location = { href: 'https://www.torn.com/profiles.php?XID=42' };
+  const wrapper = profileTitle(document);
+  document.visibilityState = 'hidden';
+  boot.start();
+  await clock.advance(3000);
+  assert.equal(badgeRequests(platform), 0, 'hidden: no lookup');
+  document.setVisibility('visible');
+  await clock.advance(0);
+  assert.equal(badgeRequests(platform), 1);
+  assert.equal(wrapper.querySelectorAll('[data-rr-badge]').length, 1);
+  boot.stop();
+});
+
+test('a signed-out boot never looks up a badge', async () => {
+  const platform = fakePlatform();
+  profilePage(platform);
+  const { boot, clock, document, window } = setup({ platform, session: { signedIn: false, tornId: null }, token: '' });
+  window.location = { href: 'https://www.torn.com/profiles.php?XID=42' };
+  profileTitle(document);
+  boot.start();
+  await clock.advance(3000);
+  document.setVisibility('hidden');
+  document.setVisibility('visible');
+  await clock.advance(0);
+  assert.equal(badgeRequests(platform), 0);
+  boot.stop();
+});
+
+test('the leader notifies a live transaction event once, with the panel closed, through platform.notify', async () => {
+  const body = stateBody({ nextPollMs: 5000, activeTransactions: [{ id: 'tx9', participantRole: 'requester', state: 'WAITING_FOR_PAYMENT', paymentDeadline: '2026-11-25T12:10:00.000Z' }] });
+  const platform = fakePlatform({ body });
+  const notes = [];
+  platform.notify = options => { notes.push(options.text); return true; };
+  // A recent baseline (the 1.0.1 notifier stays silent on the first snapshot after install).
+  platform.values.reviverelay_notified_events_v1 = { ids: [], at: Date.parse('2026-11-25T12:00:00.000Z') / 6e4 | 0 };
+  const { boot, clock } = setup({ platform });
+  boot.start();
+  await clock.advance(0);
+  await clock.advance(5000);
+  assert.deepEqual(notes, ['A reviver accepted: time to pay']);
+  assert.deepEqual(platform.values.reviverelay_notified_events_v1.ids, ['tx9:WAITING_FOR_PAYMENT']);
+  assert.equal(typeof boot.notifier.notifyOnce, 'function');
   boot.stop();
 });

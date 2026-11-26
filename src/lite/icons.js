@@ -8,7 +8,6 @@
   const SVG_NS = 'http://www.w3.org/2000/svg';
   const VIEW_BOX = '0 0 24 24';
 
-  // Static, trusted path data (24 × 24 grid, 2 px round strokes, currentColor).
   const ICON_PATHS = Object.freeze({
     heartbeat: Object.freeze(['M3 12h4l2-5 4 10 2-5h6']),
     clock: Object.freeze(['M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18z', 'M12 7v5l3 2']),
@@ -55,7 +54,6 @@
     ];
   }
 
-  // Static SVG string for a bundled icon. Only ever built from ICON_PATHS, never from data.
   function iconMarkup(name, size = 16) {
     const key = resolveName(name);
     const px = resolveSize(size);
@@ -64,7 +62,6 @@
     return `<svg ${attrs}>${paths}</svg>`;
   }
 
-  // Builds the same icon as DOM nodes; no HTML string is ever parsed.
   function createIcon(document, name, size = 16) {
     const key = resolveName(name);
     const px = resolveSize(size);

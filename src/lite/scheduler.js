@@ -23,7 +23,6 @@
     return Math.min(BACKOFF_MS.max, Math.max(BACKOFF_MS.min, Math.round(base * factor)));
   }
 
-  // Leader poll cadence for one context (spec "One scheduler" table).
   function pollDelayMs({ hidden = false, nextPollMs = null, hasActive = false, isReviver = false, sheetOpen = false } = {}) {
     if (hidden) return null;
     let table = CADENCE_MS.IDLE;
@@ -32,7 +31,6 @@
     else if (isReviver) table = CADENCE_MS.REVIVER;
     const server = clampPollMs(nextPollMs);
     if (server === null) return table;
-    // The server may always slow polling; an open reviver sheet keeps 5 s unless it asks for > 20 s.
     if (isReviver && sheetOpen && !hasActive && server <= CADENCE_MS.REVIVER) return Math.min(server, CADENCE_MS.REVIVER_SHEET_OPEN);
     return server;
   }
@@ -51,13 +49,11 @@
 
     function computeDueAt(job) {
       const base = job.lastRunAt === null ? job.addedAt : job.lastRunAt;
-      if (job.failures > 0) return base + job.backoff;
       const delay = job.delay(context(job));
       if (delay === null || delay === undefined || !Number.isFinite(Number(delay))) return null;
-      return base + Math.max(0, Number(delay));
+      return base + (job.failures > 0 ? job.backoff : Math.max(0, Number(delay)));
     }
 
-    // A trigger that arrived while the job was running makes it due now, once visible.
     function nextDueAt(job) {
       if (job.pendingTrigger) {
         job.pendingTrigger = false;

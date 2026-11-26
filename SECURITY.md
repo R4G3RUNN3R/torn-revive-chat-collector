@@ -57,7 +57,7 @@ The Task 12 review audit also checks for unexpected `@connect` hosts, excessive 
 
 ## Diagnostics and deletion
 
-Sanitized diagnostics are **off by default**. User-linked raw telemetry occurrences are removed during account deletion, and the scheduled telemetry retention job deletes raw occurrences after 30 days.
+Sanitized diagnostics are **off by default** in clients before 1.0.1 (0.7.x and 1.0.0) and absent from the 1.0.1 client. User-linked raw telemetry occurrences are removed during account deletion, and the scheduled telemetry retention job deletes raw occurrences after 30 days.
 
 Account deletion removes credentials, sessions and active reviver registration, closes/cancels still-open safe-to-cancel operational state, and marks the account deleted. Minimal billing/payment reuse and security/audit history is retained intentionally.
 

@@ -45,7 +45,6 @@
     );
     const readyPromise = globalObject && globalObject.__PDA_platformReadyPromise;
     const hasPdaReadyPromise = Boolean(readyPromise && typeof readyPromise.then === 'function');
-    // The PDA ready promise appears before the native bridge on a cold WebView.
     const isTornPda = hasPdaReadyPromise || hasFlutterBridge || (hasPdaStorage && hasPdaHttp);
     return Object.freeze({
       kind: isTornPda ? RUNTIME_TORNPDA : RUNTIME_USERSCRIPT,
@@ -99,7 +98,6 @@
       if (value !== sentinel) onValue(value);
     }
 
-    // Copy values into PDA storage, then reset their GM copies to the legacy defaults.
     async function moveToPda(values) {
       await writeManyPda(values);
       for (const key of Object.keys(values)) {
@@ -355,15 +353,6 @@
       onError
     });
 
-    function addStyle(css) {
-      if (typeof gm.addStyle === 'function') return gm.addStyle(css);
-      if (!document || !document.head) return null;
-      const style = document.createElement('style');
-      style.textContent = String(css || '');
-      document.head.appendChild(style);
-      return style;
-    }
-
     function openUrl(url) {
       if (!window) return false;
       let target;
@@ -391,7 +380,6 @@
       storage,
       request,
       notify,
-      addStyle,
       openUrl,
       initialize: () => storage.initialize()
     });

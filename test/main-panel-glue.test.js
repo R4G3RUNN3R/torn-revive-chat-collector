@@ -224,7 +224,7 @@ test('"Request certified revive" shows only once the panel has loaded and there 
 test('a failed init is reported and retried on the next visible visibilitychange or pageshow, until it starts', async () => {
   let attempts = 0;
   const harness = loadMain({
-    store: { ...SIGNED_IN, reviverelay_client_diagnostics_enabled: true },
+    store: { ...SIGNED_IN },
     initialize: async real => {
       attempts += 1;
       if (attempts === 1) throw Object.assign(new Error('TORNPDA_STORAGE_TIMEOUT'), { code: 'TORNPDA_STORAGE_TIMEOUT' });
@@ -235,7 +235,6 @@ test('a failed init is reported and retried on the next visible visibilitychange
   await harness.clock.flush();
   assert.equal(attempts, 1);
   assert.equal(harness.boots.length, 0);
-  assert.deepEqual(harness.telemetry.map(entry => entry.meta.operation), ['init']);
   assert.equal(harness.clock.pending(), 0, 'no retry timer');
 
   harness.setVisibility('hidden');
@@ -266,7 +265,7 @@ test('a Lite boot that throws is retried once on pageshow', async () => {
   await harness.clock.flush();
   assert.equal(harness.boots.length, 2);
   assert.deepEqual(harness.boot.calls, ['start']);
-  assert.equal(harness.window.count('error'), 1, 'global error hooks are installed once');
+  assert.equal(harness.window.count('error'), 0, '1.0.1 sends no diagnostics, so it installs no global error hooks');
 });
 
 // ---- tab switch loads data ---------------------------------------------------
@@ -528,10 +527,195 @@ test('a failed init mounts a "tap to retry" pill; taps and every visible return 
   pill.options.onActivate();
   await harness.clock.flush();
   assert.equal(attempts, 5);
-  assert.equal(harness.boots.length, 1, 'the Lite pill replaces the retry pill');
+  assert.equal(harness.boots.length, 1);
+  assert.equal(pill.destroyed, true, 'the Lite pill replaces the retry pill');
   assert.equal(harness.document.count('visibilitychange'), 0);
   assert.equal(harness.window.count('pageshow'), 0);
   pill.options.onActivate();
   await harness.clock.flush();
   assert.equal(attempts, 5, 'a stale tap after the start does nothing');
+});
+
+// ---- Plan 3b: notification settings, update notice, invoice expiry, carry-over fixes ----
+
+const plain = value => JSON.parse(JSON.stringify(value));
+const changeEvent = target => ({ type: 'change', target: { dataset: {}, ...target } });
+
+test('boot seeds the Lite notification settings once from the 0.7 desktop toggle, so the notifier honours it', async () => {
+  const off = await bootMain({ store: { reviverelay_desktop_notifications_enabled: false } });
+  assert.deepEqual(plain(off.store.reviverelay_notification_settings_v1), { enabled: false });
+  const on = await bootMain();
+  assert.deepEqual(plain(on.store.reviverelay_notification_settings_v1), { enabled: true });
+  const kept = await bootMain({ store: { reviverelay_desktop_notifications_enabled: false, reviverelay_notification_settings_v1: { enabled: true, sound: false } } });
+  assert.deepEqual(plain(kept.store.reviverelay_notification_settings_v1), { enabled: true, sound: false }, 'never overwrites saved settings');
+});
+
+test('Settings saves the Lite notification, per-type and badge settings', async () => {
+  const harness = await bootMain({ store: { reviverelay_desktop_notifications_enabled: false } });
+  harness.view = { sheet: 'request' };
+  await openPanel(harness);
+  const onChange = harness.main.panel.listeners.get('change');
+  onChange(changeEvent({ type: 'checkbox', checked: false, dataset: { rrNotify: 'sound' } }));
+  assert.deepEqual(plain(harness.store.reviverelay_notification_settings_v1), { enabled: false, sound: false });
+  onChange(changeEvent({ type: 'checkbox', checked: true, dataset: { rrNotify: 'enabled' } }));
+  onChange(changeEvent({ type: 'checkbox', checked: true, dataset: { rrNotify: 'type:newRequest' } }));
+  onChange(changeEvent({ type: 'checkbox', checked: false, dataset: { rrNotify: 'type:accepted' } }));
+  onChange(changeEvent({ type: 'select-one', value: '22', dataset: { rrNotify: 'quietFrom' } }));
+  onChange(changeEvent({ type: 'select-one', value: '', dataset: { rrNotify: 'quietTo' } }));
+  assert.deepEqual(plain(harness.store.reviverelay_notification_settings_v1), { enabled: true, sound: false, types: { newRequest: true, accepted: false }, quietFrom: 22, quietTo: null });
+  onChange(changeEvent({ type: 'checkbox', checked: false, dataset: { rrBadges: '' } }));
+  assert.equal(harness.store.reviverelay_badges_enabled, false);
+});
+test('a background update check announces a new version once, from the leader tab only', async () => {
+  for (const leader of [true, false]) {
+    const harness = loadMain({ store: { ...SIGNED_IN } });
+    harness.leader = leader;
+    harness.context.ReviveRelayUpdateManager = { createUpdateManager: () => ({ check: async () => ({ updateAvailable: true, latestVersion: '1.0.2' }), openUpdate: () => false }) };
+    harness.run();
+    await harness.clock.flush();
+    assert.deepEqual(harness.boot.notifier.notes.map(([id]) => id), leader ? ['update:1.0.2'] : [], `leader=${leader}`);
+    if (leader) assert.match(harness.boot.notifier.notes[0][1], /1\.0\.2 is available/);
+  }
+});
+
+test('Minor 2: an update found by a non-leader tab is announced once when that tab becomes leader', async () => {
+  const harness = loadMain({ store: { ...SIGNED_IN } });
+  harness.leader = false;
+  harness.context.ReviveRelayUpdateManager = { createUpdateManager: () => ({ check: async () => ({ updateAvailable: true, latestVersion: '1.0.2' }), openUpdate: () => false }) };
+  harness.run();
+  await harness.clock.flush();
+  harness.main.handlePillRender({ snapshot: {} });
+  assert.deepEqual(harness.boot.notifier.notes, [], 'never from a non-leader tab');
+  harness.leader = true;
+  harness.main.handlePillRender({ snapshot: {} });
+  harness.main.handlePillRender({ snapshot: {} });
+  assert.deepEqual(harness.boot.notifier.notes.map(([id]) => id), ['update:1.0.2']);
+});
+
+test('Minor 2: a throttled (skipped) check still lets the leader announce a known update', async () => {
+  const harness = loadMain({ store: { ...SIGNED_IN } });
+  harness.context.ReviveRelayUpdateManager = { createUpdateManager: () => ({ check: async () => ({ updateAvailable: true, latestVersion: '1.0.2', skipped: true }), openUpdate: () => false }) };
+  harness.run();
+  await harness.clock.flush();
+  assert.deepEqual(harness.boot.notifier.notes.map(([id]) => id), ['update:1.0.2']);
+});
+
+test('account deletion clears the Lite notification and badge storage', async () => {
+  const harness = await bootMain({ store: { ...SIGNED_IN, reviverelay_notified_events_v1: { ids: ['tx1:COMPLETED'] }, reviverelay_badge_cache_v1: [['42', {}]] } });
+  harness.view = { sheet: 'request' };
+  await openPanel(harness);
+  await harness.main.deleteReviveRelayAccount();
+  await harness.clock.flush();
+  assert.equal(harness.count('POST /v1/account/delete'), 1);
+  assert.equal(harness.store.reviverelay_notified_events_v1, null);
+  assert.equal(harness.store.reviverelay_badge_cache_v1, null);
+  assert.equal(harness.store.reviverelay_notification_settings_v1, null);
+});
+
+test('an open panel re-checks a PENDING invoice once when its expiry passes', async () => {
+  const harness = await bootMain();
+  harness.view = { sheet: 'reviver-pro' };
+  await openPanel(harness);
+  harness.main.state.currentInvoice = { id: 'inv-1', state: 'PENDING', expiresAt: new Date(harness.clock.now() - 1000).toISOString() };
+  harness.main.handlePillRender({ snapshot: {} });
+  await harness.clock.flush();
+  harness.main.handlePillRender({ snapshot: {} });
+  await harness.clock.flush();
+  assert.equal(harness.count('GET /v1/pro/invoices/inv-1'), 1);
+});
+
+test('I-1: an open, visible panel keeps re-checking an expired PENDING invoice (throttled, bounded) until the server flips it', async () => {
+  const harness = await bootMain();
+  harness.view = { sheet: 'reviver-pro' };
+  await openPanel(harness);
+  // The server marks invoices EXPIRED only in its 60 s worker scan: it still answers PENDING for a while.
+  harness.invoice = { id: 'inv-1', state: 'PENDING', expiresAt: new Date(harness.clock.now() - 1000).toISOString() };
+  harness.main.state.currentInvoice = { ...harness.invoice };
+  const tick = async seconds => {
+    for (let i = 0; i < seconds; i += 1) {
+      harness.main.handlePillRender({ snapshot: {} });
+      await harness.clock.advance(1000);
+    }
+  };
+  await tick(10);
+  assert.equal(harness.count('GET /v1/pro/invoices/inv-1'), 1, 'throttled: one check in the first 10 s');
+  await tick(50);
+  const checks = harness.count('GET /v1/pro/invoices/inv-1');
+  assert.ok(checks >= 3 && checks <= 4, `re-checks every 15-20 s while still PENDING (got ${checks})`);
+  // Hidden tab or closed panel: no re-checks.
+  harness.setVisibility('hidden');
+  await tick(40);
+  harness.setVisibility('visible');
+  harness.main.setPanelOpen(false);
+  await tick(40);
+  assert.equal(harness.count('GET /v1/pro/invoices/inv-1'), checks, 'no re-check while hidden or closed');
+  harness.main.setPanelOpen(true);
+  harness.invoice = { ...harness.invoice, state: 'EXPIRED' };
+  await tick(20);
+  assert.equal(harness.main.state.currentInvoice.state, 'EXPIRED');
+  const settled = harness.count('GET /v1/pro/invoices/inv-1');
+  await tick(60);
+  assert.equal(harness.count('GET /v1/pro/invoices/inv-1'), settled, 'stops once EXPIRED');
+});
+
+test('I-1: re-checks of a PENDING invoice give up about 3 minutes past expiry', async () => {
+  const harness = await bootMain();
+  harness.view = { sheet: 'reviver-pro' };
+  await openPanel(harness);
+  harness.invoice = { id: 'inv-2', state: 'PENDING', expiresAt: new Date(harness.clock.now() - 1000).toISOString() };
+  harness.main.state.currentInvoice = { ...harness.invoice };
+  for (let i = 0; i < 300; i += 1) {
+    harness.main.handlePillRender({ snapshot: {} });
+    await harness.clock.advance(1000);
+  }
+  const checks = harness.count('GET /v1/pro/invoices/inv-2');
+  assert.ok(checks >= 9 && checks <= 13, `bounded re-checks (got ${checks})`);
+  assert.equal(harness.main.state.currentInvoice.state, 'PENDING');
+});
+
+test('M2: a closed reviver transaction the pill no longer shows is dropped, not refetched', async () => {
+  const harness = await bootMain();
+  harness.view = { sheet: 'reviver-queue' };
+  await openPanel(harness);
+  harness.main.state.activeTransaction = { id: 'tx-7', participantRole: 'reviver', state: 'COMPLETED' };
+  harness.main.handlePillRender({ snapshot: { stateVersion: 'queue-changed' } });
+  await harness.clock.flush();
+  assert.equal(harness.count('GET /v1/transactions/tx-7'), 0);
+  assert.equal(harness.main.state.activeTransaction, null);
+});
+
+test('M4: reopening the pill on an idle state clears a stale "Needs attention" line', async () => {
+  const harness = await bootMain();
+  harness.view = { role: 'requester', state: 'REPORTABLE_NO_ATTEMPT', transactionId: 'tx-9', sheet: 'request-report' };
+  await openPanel(harness);
+  assert.match(statusLine(harness), /Needs attention/);
+  harness.main.handlePillActivate();
+  harness.view = { role: 'requester', state: null, transactionId: null, sheet: 'request' };
+  await openPanel(harness);
+  assert.doesNotMatch(statusLine(harness), /Needs attention/);
+});
+
+test('M5/M6: once the Lite boot runs, the retry path never mounts over it, and the engine pill replaces the retry pill', async () => {
+  const harness = await bootMain();
+  const before = harness.pills.length;
+  harness.main.retryInitWhenShown();
+  assert.equal(harness.pills.length, before, 'no retry pill over a live engine');
+  assert.equal(harness.document.count('visibilitychange'), 0);
+});
+
+// ---- 1.0.1 smoke Bug 1: TornPDA toast styles before the panel is ever opened ----
+
+test('Bug 1: the TornPDA toast styles are installed once at init, before the panel is ever opened', async () => {
+  const harness = loadMain({ store: { ...SIGNED_IN } });
+  const styles = [];
+  harness.context.GM_addStyle = css => { styles.push(String(css)); return null; };
+  harness.run();
+  await harness.clock.flush();
+  const toastStyles = () => styles.filter(css => css.includes('.rr-pda-toast-stack{position:fixed'));
+  assert.equal(harness.main.panel, null, 'the panel has not been opened');
+  assert.equal(toastStyles().length, 1, 'toast CSS is present before any toast can show');
+  assert.match(toastStyles()[0], /\.rr-pda-toast\{position:relative/);
+  await openPanel(harness);
+  assert.ok(harness.main.panel);
+  assert.equal(toastStyles().length, 1, 'opening the panel does not install the toast CSS again');
 });

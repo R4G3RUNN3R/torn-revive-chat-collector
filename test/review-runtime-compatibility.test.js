@@ -1,7 +1,7 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
-const {validateReviewRuntime}=require('../src/direct-api-client');
+const {validateReviewRuntime}=require('../src/panel-api-client');
 
 const merchant={tornId:3877028,name:'R4G3RUNN3R'};
 const plans=[];

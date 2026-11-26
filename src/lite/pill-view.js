@@ -6,7 +6,6 @@
   'use strict';
 
   const HOST_ID = 'reviverelay-lite-root';
-  // Torn header button area, most specific first. Overridable for tests and future Torn markup.
   const HEADER_SLOT_SELECTORS = Object.freeze([
     '#topRoot [class*="header-buttons"]',
     '#header-root [class*="header-buttons"]',
@@ -43,11 +42,7 @@
 
   let current = null;
 
-  function dependency(globalName, path) {
-    if (typeof globalThis !== 'undefined' && globalThis[globalName]) return globalThis[globalName];
-    if (typeof require === 'function') return require(path);
-    throw new Error(`${globalName} unavailable`);
-  }
+  const dependency = (globalName, path) => globalThis[globalName] || require(path);
 
   function mediaMatches(window, query) {
     try {
@@ -149,7 +144,7 @@
     function onClick(event) {
       if (event && typeof event.preventDefault === 'function') event.preventDefault();
       if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
-      try { onActivate(); } catch (_) { /* activation errors stay with the caller */ }
+      try { onActivate(); } catch (_) { }
     }
 
     function onResize() {

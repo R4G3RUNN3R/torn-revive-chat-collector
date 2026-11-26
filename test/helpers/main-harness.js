@@ -10,6 +10,7 @@ const vm = require('node:vm');
 const Platform = require('../../src/platform');
 const Core = require('../../src/core');
 const DirectApiClient = require('../../src/direct-api-client');
+const PanelApiClient = require('../../src/panel-api-client');
 const Versioning = require('../../src/versioning');
 const RequestPreset = require('../../src/request-preset');
 const { createFakeTimers } = require('./fake-timers');
@@ -17,7 +18,8 @@ const { createFakeTimers } = require('./fake-timers');
 const MAIN_PATH = path.resolve(__dirname, '..', '..', 'torn-revive-chat-collector.user.js');
 const EXPOSED = [
   'state', 'handlePillActivate', 'handlePillRender', 'setPanelOpen', 'panelTabForPill', 'refreshPanelData',
-  'refreshMe', 'requestRevive', 'cancelActiveRequest', 'runTransactionAction', 'activatePanelTab', 'renderAll'
+  'refreshMe', 'requestRevive', 'cancelActiveRequest', 'runTransactionAction', 'activatePanelTab', 'renderAll',
+  'retryInitWhenShown', 'deleteReviveRelayAccount'
 ];
 
 function mainSource() {
@@ -98,6 +100,7 @@ function defaultResponder(harness) {
     if (route === 'GET /v1/reviver/eligibility') return { eligibility: { status: 'ELIGIBLE', canRevive: true } };
     if (route === 'GET /v1/reviver/queue') return { requests: [] };
     if (route === 'POST /v1/requests') return { request: { id: 'r1', state: 'OPEN' } };
+    if (route.startsWith('GET /v1/pro/invoices/') && harness.invoice) return { invoice: harness.invoice };
     if (route.startsWith('GET /v1/transactions/')) return { transaction: harness.transactions[route.split('/').pop()] || null };
     return {};
   };
@@ -131,7 +134,6 @@ function loadMain({ store = {}, initialize = null, clock = createFakeTimers(), r
     lastToken: '',
     boots: [],
     pills: [],
-    telemetry: [],
     view: null,
     pending: null,
     tornIdForToken: token => (String(token).startsWith('token-') ? Number(String(token).slice(6)) : 1001),
@@ -169,12 +171,16 @@ function loadMain({ store = {}, initialize = null, clock = createFakeTimers(), r
       const boot = {
         options,
         calls: [],
-        start() { boot.calls.push('start'); },
+        notifier: { notes: [], notifyOnce(id, text) { boot.notifier.notes.push([id, text]); return true; } },
+        start() {
+          boot.calls.push('start');
+          context.ReviveRelayLitePillView.mountPill({ lite: true });
+        },
         stop() { boot.calls.push('stop'); },
         resetSession() { boot.calls.push('resetSession'); },
         setPanelOpen(open) { boot.calls.push(`setPanelOpen:${open}`); },
         refresh() { boot.calls.push('refresh'); },
-        engine: { viewModel: () => harness.view }
+        engine: { viewModel: () => harness.view, isLeader: () => harness.leader !== false }
       };
       harness.boots.push(boot);
       if (harness.bootThrows) throw new Error('boot failed');
@@ -199,16 +205,17 @@ function loadMain({ store = {}, initialize = null, clock = createFakeTimers(), r
     ReviveRelayPlatform: platformModule,
     TornReviveCore: Core,
     ReviveRelayDirectApiClient: DirectApiClient,
+    ReviveRelayPanelApiClient: PanelApiClient,
     ReviveRelayVersioning: Versioning,
     ReviveRelayUpdateManager: { createUpdateManager: () => ({ check: async () => ({}), openUpdate: () => false }) },
-    ReviveRelayTelemetryClient: {
-      createTelemetryClient: () => ({ captureError: (error, meta) => harness.telemetry.push({ error, meta }), drain: async () => ({ sent: 0 }) })
-    },
     ReviveRelayRequestPreset: RequestPreset,
     ReviveRelayLiteBoot: liteBootModule,
-    // Records the pills MAIN mounts itself (the retry pill after a failed init).
+    // Records every pill mounted (MAIN's retry pill, the engine's pill on boot.start()); like the real
+    // pill-view module it is a singleton: mounting destroys the previous pill.
     ReviveRelayLitePillView: {
       mountPill(options) {
+        const previous = harness.pills[harness.pills.length - 1];
+        if (previous && !previous.destroyed) previous.destroy();
         const pill = { options, views: [], destroyed: false, host: { isConnected: true }, update(view) { pill.views.push(view); }, destroy() { pill.destroyed = true; pill.host.isConnected = false; } };
         harness.pills.push(pill);
         return pill;

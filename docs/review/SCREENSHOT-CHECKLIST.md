@@ -8,7 +8,7 @@ These screenshots are **required human review evidence** and are currently pendi
 - [ ] **Reviver**: Pro/verification/eligibility gates and certified queue with Accept control for an eligible reviver.
 - [ ] **Activity**: current identity, request, transaction, Pro and queue state without exposing secret credential material.
 - [ ] **Pro**: private review mode, current trial/entitlement, server-owned Monthly/6 Months/Yearly plans, manual Torn payment instructions and payment recipient **R4G3RUNN3R [3877028]**.
-- [ ] **Settings**: ReviveRelay Verification requester/reviver key helpers, masked connected key, revoke guidance, diagnostics off by default, About & Privacy, and account deletion control.
+- [ ] **Settings**: ReviveRelay Verification requester/reviver key helpers, masked connected key, revoke guidance, no Diagnostics option (1.0.1; clients before 1.0.1 had diagnostics off by default), About & Privacy, and account deletion control.
 
 ## Capture requirements
 

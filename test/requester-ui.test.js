@@ -75,7 +75,7 @@ test('main navigation presents ReviveRelay Pro separately and opens Settings fro
 test('Settings is a collapsible drawer and Pro billing stays out of it', () => {
   assert.match(source, /function renderSettingsDrawer\(\)/);
   assert.match(source, /<details[^>]*class=["'][^"']*rr-settings-section/);
-  for (const label of ['Revive Me preset', 'Torn API Key', 'Notifications', 'Updates', 'Diagnostics / Advanced']) {
+  for (const label of ['Revive Me preset', 'Torn API Key', 'Notifications', 'Updates']) {
     assert.match(source, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   }
   const settingsRenderer = source.match(/function renderSettingsDrawer\(\)\s*\{([\s\S]*?)\n\s*\}\n\n\s*function/)?.[1] || '';
@@ -184,16 +184,14 @@ test('contextual settings buttons open the section they advertise', () => {
 });
 
 
-test('desktop notifications can be disabled from Settings and default to enabled', () => {
-  assert.match(source, /desktopNotificationsEnabled/);
-  assert.match(source, /id=["']rr-desktop-notifications-enabled["']/);
-  assert.match(source, /storage\.get\(KEYS\.desktopNotificationsEnabled,\s*true\)/);
-  assert.match(source, /storage\.set\(KEYS\.desktopNotificationsEnabled,\s*Boolean\(event\.target\.checked\)\)/);
-
-  const notifyStart=source.indexOf('function notifyNewQueueRequests(requests)');
-  const notifyEnd=source.indexOf('async function refreshReviverQueue()',notifyStart);
-  const notifyFn=notifyStart>=0 && notifyEnd>notifyStart ? source.slice(notifyStart,notifyEnd) : '';
-  assert.match(notifyFn, /desktopNotificationsEnabled/);
+test('Settings holds the Lite notification, sound, quiet-hours and badge controls, seeded from the 0.7 toggle', () => {
+  for (const name of ['enabled', 'sound', 'type:newRequest', 'quietFrom', 'quietTo']) assert.match(source, new RegExp(`data-rr-notify="${name}"`));
+  assert.match(source, /data-rr-notify="type:\$\{type\}"/);
+  for (const type of ['accepted', 'paymentVerified', 'revived', 'failed', 'refundResolved', 'paymentReceived', 'refundOwed']) assert.match(source, new RegExp(`\\['${type}', '`));
+  assert.match(source, /data-rr-badges/);
+  assert.match(source, /notificationSettings: 'reviverelay_notification_settings_v1'/);
+  assert.match(source, /storage\.get\(KEYS\.desktopNotificationsEnabled, true\) !== false/);
+  assert.match(source, /function migrateNotificationSettings\(\)/);
 });
 
 

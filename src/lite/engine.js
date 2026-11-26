@@ -5,11 +5,7 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
 
-  function dependency(globalName, path) {
-    if (typeof globalThis !== 'undefined' && globalThis[globalName]) return globalThis[globalName];
-    if (typeof require === 'function') return require(path);
-    throw new Error(`${globalName} unavailable`);
-  }
+  const dependency = (globalName, path) => globalThis[globalName] || require(path);
 
   function loadModules() {
     return {
@@ -31,10 +27,9 @@
     tabId,
     headerSelectors,
     onActivate = () => {},
-    // () => ({ signedIn, tornId }); omitted: signed in, identity unknown.
     getSession = null,
-    // Called after every render with { view, snapshot, freshness }.
-    onRender = null
+    onRender = null,
+    onLiveSnapshot = null
   } = {}) {
     if (!api || typeof api.getState !== 'function') throw new Error('api.getState is required');
     if (!document || typeof document.addEventListener !== 'function') throw new Error('document is required');
@@ -64,13 +59,13 @@
     let sheetOpen = false;
     let lastFetchedAt = null;
     let resyncSoon = false;
-    let refreshSoon = false; // a follower asked for a refresh
+    let refreshSoon = false;
     let jobsAddedAt = 0;
-    let deferredPollAt = null; // first poll waits for a young cache
-    let authExpired = false; // no polling until resetSession() or a restart
-    let knownSession = null; // a different session seen later restarts the engine
-    let sessionSince = null; // expiries of requests sent before this are about the old session
-    let gatedChannel = null; // passive state listener while gated
+    let deferredPollAt = null;
+    let authExpired = false;
+    let knownSession = null;
+    let sessionSince = null;
+    let gatedChannel = null;
 
     function session() {
       if (typeof getSession !== 'function') return { signedIn: true, tornId: null };
@@ -92,15 +87,16 @@
       return owner === expected;
     }
 
-    function resetApi() {
+    function resetApi(badgesToo) {
       if (typeof api.reset === 'function') api.reset();
+      if (badgesToo && typeof api.clearBadges === 'function') api.clearBadges();
     }
 
     function expire() {
       authExpired = true;
       deferredPollAt = null;
       cache.clear();
-      resetApi();
+      resetApi(true);
     }
 
     function isAuthError(error) {
@@ -121,7 +117,6 @@
       return value.signedIn !== knownSession.signedIn || value.tornId !== knownSession.tornId;
     }
 
-    // Broadcasts name their session so other users' tabs can ignore them.
     function statePayload(snapshot, freshness, fetchedAt, extra = {}) {
       const owner = snapshot && snapshot.me ? Number(snapshot.me.tornId) : NaN;
       const tornId = Number.isSafeInteger(owner) && owner > 0 ? owner : (knownSession ? knownSession.tornId : null);
@@ -165,7 +160,6 @@
       onBroadcast(message.payload);
     }
 
-    // A gated tab still hears the leader, to notice a sign-in made elsewhere.
     function listenWhileGated() {
       if (gatedChannel || !started || typeof createChannel !== 'function') return;
       try {
@@ -175,7 +169,7 @@
       }
       if (!gatedChannel) return;
       gatedChannel.addEventListener('message', onGatedMessage);
-      try { gatedChannel.postMessage({ type: 'state-request', from: `${tabId}:gated` }); } catch (_) { /* closed */ }
+      try { gatedChannel.postMessage({ type: 'state-request', from: `${tabId}:gated` }); } catch (_) { }
     }
 
     function stopListening() {
@@ -185,10 +179,9 @@
       try {
         channel.removeEventListener('message', onGatedMessage);
         channel.close();
-      } catch (_) { /* already closed */ }
+      } catch (_) { }
     }
 
-    // A leader whose session changed resets; a gated one steps out. True when it acted.
     function leaderSessionCheck() {
       if (sessionChanged()) {
         resetSession();
@@ -201,7 +194,6 @@
       return false;
     }
 
-    // Gated tabs never hold leadership.
     function syncLeadership() {
       if (!started) return;
       if (sessionGate()) {
@@ -213,7 +205,6 @@
       }
     }
 
-    // Per tab, not broadcast: each tab shows an outcome 5 s from its own first sight.
     const firstSeen = new Map();
 
     function render() {
@@ -222,11 +213,11 @@
       for (const [id, seenAt] of firstSeen) if (at - seenAt > PillState.OUTCOME_WINDOW_MS + PillState.COMPLETED_FADE_MS) firstSeen.delete(id);
       lastView = PillState.derivePill(current.snapshot, current.freshness, at, id => firstSeen.get(id));
       const id = lastView.transactionId;
-      if (lastView.refreshAt !== null && id && !firstSeen.has(id)) firstSeen.set(id, at);
-      if (!view.host.isConnected) view.place(); // Torn removed the pill without navigating
+      if (lastView.refreshAt !== null && id && !firstSeen.has(id) && !isHidden()) firstSeen.set(id, at);
+      if (!view.host.isConnected) view.place();
       view.update(lastView);
       if (typeof onRender === 'function') {
-        try { onRender({ view: lastView, snapshot: current.snapshot, freshness: current.freshness }); } catch (_) { /* listener errors stay with the caller */ }
+        try { onRender({ view: lastView, snapshot: current.snapshot, freshness: current.freshness }); } catch (_) { }
       }
     }
 
@@ -245,7 +236,6 @@
       });
     }
 
-    // A follower's "live" goes stale 2 × the leader's cadence (sheet speed-up ignored) after its last fetch.
     function followerStaleAfter() {
       if (isLeader() || current.freshness !== 'live' || lastFetchedAt === null) return null;
       const cadence = cadenceMs(false, false);
@@ -259,7 +249,6 @@
       return true;
     }
 
-    // Handled by the 1 s tick while it runs; otherwise a one-shot job.
     function freshnessDelay(ctx) {
       if (needsTick()) return null;
       const limit = followerStaleAfter();
@@ -287,7 +276,6 @@
       return cadenceMs(isHidden());
     }
 
-    // Data younger than the cadence defers a poll to fetchedAt + cadence, at least the minimum away.
     function youngDataPollAt(fetchedAt) {
       const cadence = cadenceMs(false);
       const age = now() - fetchedAt;
@@ -303,6 +291,9 @@
       if (freshness === 'live' && fetchedAt !== null) lastFetchedAt = fetchedAt;
       if (snapshot && fetchedAt !== null) cache.write(snapshot, fetchedAt);
       if (isLeader()) leader.broadcast(statePayload(snapshot, freshness, fetchedAt, extra));
+      if (freshness === 'live' && snapshot && isLeader() && typeof onLiveSnapshot === 'function') {
+        try { onLiveSnapshot(snapshot); } catch (_) {}
+      }
       render();
       rescheduleLocal();
     }
@@ -333,7 +324,6 @@
       if (result && result.notModified) {
         const shown = current.snapshot && current.snapshot.stateVersion;
         if (!shown || result.stateVersion !== shown) {
-          // A 304 for a version we are not showing: drop the ETag and refetch soon.
           resetApi();
           resyncSoon = true;
           apply(current.snapshot, 'syncing', null);
@@ -355,15 +345,13 @@
         deferredPollAt = null;
       }
       if (!scheduler) return;
-      // A fresh load honours a young cache, a hand-off the last fetch; older data polls at once.
-      if (nowLeader && deferredPollAt === null) deferredPollAt = youngDataPollAt(lastFetchedAt);
+      if (nowLeader && deferredPollAt === null && current.freshness === 'live') deferredPollAt = youngDataPollAt(lastFetchedAt);
       if (nowLeader && deferredPollAt !== null) scheduler.reschedule('poll');
       else if (nowLeader) scheduler.trigger('poll');
       else scheduler.reschedule('poll');
       scheduler.reschedule('freshness');
     }
 
-    // Answer a joining follower, even without a snapshot.
     function onStateRequest() {
       if (!started || !isLeader()) return;
       if (leaderSessionCheck()) return;
@@ -385,7 +373,6 @@
       }
       const own = session();
       if (!own.signedIn) return;
-      // Never paint another Torn user's state.
       const sender = Number(payload.tornId);
       if (own.tornId !== null && Number.isSafeInteger(sender) && sender > 0 && sender !== own.tornId) return;
       if (!ownedBySession(payload.snapshot)) return;
@@ -402,7 +389,7 @@
         rescheduleLocal();
         return;
       }
-      deferredPollAt = null; // a later hand-off defers from this fetchedAt
+      deferredPollAt = null;
       const freshness = PillState.FRESHNESS.includes(payload.freshness) ? payload.freshness : 'syncing';
       current = { snapshot: payload.snapshot || current.snapshot, freshness };
       if (freshness === 'live' && Number.isFinite(payload.fetchedAt)) lastFetchedAt = payload.fetchedAt;
@@ -461,7 +448,7 @@
       document.addEventListener('visibilitychange', onVisibilityChange);
       scheduler.start();
       syncLeadership();
-      render(); // after setup: onRender may stop() or resetSession()
+      render();
       rescheduleLocal();
     }
 
@@ -488,7 +475,6 @@
       rescheduleLocal();
     }
 
-    // Followers ask the leader; gated and hidden tabs ask nothing.
     function refresh() {
       if (!scheduler) return;
       if (isLeader()) scheduler.trigger('poll');
@@ -501,7 +487,6 @@
       view.refreshTheme();
     }
 
-    // Forget everything tied to the old session (a new session's cache entry stays).
     function resetSession(fromBroadcast = false) {
       const wasStarted = started;
       const nowSession = session();
@@ -516,7 +501,7 @@
       current = { snapshot: null, freshness: 'syncing' };
       lastFetchedAt = null;
       if (!keepCache) cache.clear();
-      resetApi();
+      resetApi(true);
       if (wasStarted) start();
     }
 

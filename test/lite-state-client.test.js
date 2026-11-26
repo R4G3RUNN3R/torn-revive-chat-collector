@@ -118,7 +118,7 @@ test('a malformed 200 or an unexpected 304 is rejected and never moves the versi
 test('getPlayerBadge fetches once and serves from cache for 10 minutes', async () => {
   let now = 0;
   const { api, calls } = client([
-    { status: 200, body: { tornId: 42, requesterVerified: true, reviverVerified: 'yes' } },
+    { status: 200, body: { tornId: 42, requesterVerified: true, reviverVerified: false } },
     { status: 200, body: { tornId: 42, requesterVerified: false, reviverVerified: true } }
   ], { now: () => now });
   const first = await api.getPlayerBadge(42);
@@ -134,8 +134,8 @@ test('getPlayerBadge fetches once and serves from cache for 10 minutes', async (
 });
 
 test('badge cache is an LRU bounded at 200 entries', async () => {
-  assert.deepEqual(BADGE_CACHE, { ttlMs: 600000, maxEntries: 200 });
-  const responder = input => ({ status: 200, body: { requesterVerified: true, reviverVerified: false, url: input.url } });
+  assert.deepEqual(BADGE_CACHE, { ttlMs: 600000, maxEntries: 200, key: 'reviverelay_badge_cache_v1' });
+  const responder = input => ({ status: 200, body: { tornId: Number(input.url.split('/').at(-2)), requesterVerified: true, reviverVerified: false } });
   const { api: lru, calls: lruCalls } = client(Array.from({ length: 203 }, () => responder), { now: () => 0 });
   for (let id = 1; id <= 200; id += 1) await lru.getPlayerBadge(id);
   assert.equal(lru.badgeCacheSize(), 200);
@@ -159,12 +159,65 @@ test('getPlayerBadge rejects invalid ids without a request and maps HTTP errors'
   assert.equal(api.badgeCacheSize(), 0);
 });
 
-test('reset forgets the version and the badge cache', async () => {
+test('reset forgets the version', async () => {
   const { api, calls } = client([{ status: 200, body: stateBody() }, { status: 200, body: stateBody() }]);
   await api.getState();
   api.reset();
   await api.getState();
   assert.equal('If-None-Match' in calls[1].headers, false);
+});
+
+test('a malformed badge 200 is rejected and never cached', async () => {
+  const { api, calls } = client([
+    { status: 200, body: { tornId: 42, requesterVerified: 'yes', reviverVerified: true } },
+    { status: 200, body: { tornId: 43, requesterVerified: true, reviverVerified: true } },
+    { status: 200, responseText: 'null' },
+    { status: 200, body: { tornId: 42, requesterVerified: true, reviverVerified: false } }
+  ]);
+  await assert.rejects(api.getPlayerBadge(42), error => error.code === 'INVALID_BADGE_RESPONSE' && error.retryable === true);
+  await assert.rejects(api.getPlayerBadge(42), error => error.code === 'INVALID_BADGE_RESPONSE');
+  await assert.rejects(api.getPlayerBadge(42), error => error.code === 'INVALID_BADGE_RESPONSE', 'a JSON null body');
+  assert.equal(api.badgeCacheSize(), 0);
+  assert.deepEqual(await api.getPlayerBadge(42), { tornId: 42, requesterVerified: true, reviverVerified: false });
+  assert.equal(calls.length, 4);
+});
+
+test('the badge LRU persists in storage and a new client (page load) reuses it', async () => {
+  const values = {};
+  const storage = { get: (key, fallback) => (key in values ? values[key] : fallback), set: (key, value) => { values[key] = value; } };
+  const first = client([{ status: 200, body: { tornId: 42, requesterVerified: true, reviverVerified: false } }], { now: () => 0, storage });
+  await first.api.getPlayerBadge(42);
+  assert.equal(values[BADGE_CACHE.key].length, 1);
+  const second = client([], { now: () => 1000, storage });
+  assert.deepEqual(await second.api.getPlayerBadge(42), { tornId: 42, requesterVerified: true, reviverVerified: false });
+  assert.equal(second.calls.length, 0);
+  values[BADGE_CACHE.key] = [['x', {}], 'junk', ['7', { badge: { tornId: 7 }, expiresAt: 'soon' }], ['8', { badge: { tornId: 8, requesterVerified: 'yes', reviverVerified: true }, expiresAt: 1e15 }]];
+  assert.equal(client([], { storage }).api.badgeCacheSize(), 0, 'malformed stored entries are dropped');
+});
+
+test('reset forgets only the ETag; clearBadges empties the memory and stored LRU', async () => {
+  const values = {};
+  const storage = { get: (key, fallback) => (key in values ? values[key] : fallback), set: (key, value) => { values[key] = value; } };
+  const { api } = client([{ status: 200, body: { tornId: 42, requesterVerified: true, reviverVerified: true } }], { storage });
+  await api.getPlayerBadge(42);
+  api.reset();
+  assert.equal(api.badgeCacheSize(), 1);
+  api.clearBadges();
+  assert.equal(api.badgeCacheSize(), 0);
+  assert.deepEqual(values[BADGE_CACHE.key], []);
+});
+
+test('the session token never appears in badge or state errors', async () => {
+  const token = 'session-token';
+  const leak = new Error(`socket closed for Bearer ${token}`);
+  const { api } = client([leak, { status: 401, body: { error: 'AUTH_REQUIRED', token, detail: token } }, { status: 500, responseText: `oops ${token}` }]);
+  for (const call of [() => api.getPlayerBadge(42), () => api.getPlayerBadge(42), () => api.getState()]) {
+    await assert.rejects(call(), error => {
+      const text = `${error.message} ${error.stack} ${JSON.stringify(error)} ${JSON.stringify(error.details)}`;
+      assert.equal(text.includes(token), false, text);
+      return true;
+    });
+  }
 });
 
 test('constructor validation', () => {

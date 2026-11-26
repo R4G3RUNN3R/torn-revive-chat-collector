@@ -9,7 +9,6 @@
   const LEADER_CHANNEL = 'rr-leader';
   const STATE_CHANNEL = 'rr-state';
   const DEFAULTS = Object.freeze({ heartbeatMs: 2000, leaderTimeoutMs: 4000, electionMs: 500 });
-  // Staggered promotion (electionMs + hash(id) % STAGGER_MS); crash hand-off stays under 5 s.
   const STAGGER_MS = 200;
 
   function hashId(value) {
@@ -18,12 +17,8 @@
     return hash;
   }
 
-  function defaultTabId() {
-    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-  }
-
   function createTabLeader({
-    tabId = defaultTabId(),
+    tabId,
     locks = null,
     createChannel = null,
     createAbortController = typeof AbortController === 'function' ? () => new AbortController() : null,
@@ -45,11 +40,9 @@
     let control = null;
     let stateChannel = null;
 
-    // Web Locks mode
     let pending = null;
     let releaseLock = null;
 
-    // Heartbeat mode
     let knownLeader = null;
     let leaderHidden = false;
     let heartbeatTimer = null;
@@ -61,12 +54,12 @@
     function setLeader(value) {
       if (leader === value) return;
       leader = value;
-      try { onChange(value); } catch (_) { /* listener errors never break election */ }
+      try { onChange(value); } catch (_) { }
     }
 
     function post(channel, message) {
       if (!channel) return;
-      try { channel.postMessage({ ...message, from: id }); } catch (_) { /* channel closed */ }
+      try { channel.postMessage({ ...message, from: id }); } catch (_) { }
     }
 
     function openChannels() {
@@ -94,25 +87,24 @@
           channel.removeEventListener('message', onControlMessage);
           channel.removeEventListener('message', onStateMessage);
           channel.close();
-        } catch (_) { /* already closed */ }
+        } catch (_) { }
       }
       control = null;
       stateChannel = null;
     }
 
-    // rr-state: 'state' from the leader; 'state-request' / 'refresh-request' for the leader.
     function onStateMessage(event) {
       const message = event && event.data;
       if (!message || typeof message !== 'object' || message.from === id || !started) return;
       if (message.type === 'state-request' || message.type === 'refresh-request') {
         if (!leader) return;
         const listener = message.type === 'state-request' ? onStateRequest : onRefreshRequest;
-        try { listener(); } catch (_) { /* listener errors stay local */ }
+        try { listener(); } catch (_) { }
         return;
       }
       if (message.type !== 'state' || leader) return;
       if (!message.payload || typeof message.payload !== 'object') return;
-      try { onSnapshot(message.payload); } catch (_) { /* renderer errors stay local */ }
+      try { onSnapshot(message.payload); } catch (_) { }
     }
 
     function onControlMessage(event) {
@@ -153,7 +145,7 @@
       const { controller } = pending;
       pending = null;
       if (controller) {
-        try { controller.abort(); } catch (_) { /* already settled */ }
+        try { controller.abort(); } catch (_) { }
       }
     }
 
@@ -236,7 +228,6 @@
       }, delay);
     }
 
-    // A lower-id candidate gets time to promote first; a higher-id one is answered once so it yields.
     function onCandidateHello(from) {
       if (electionTimer === null || yieldedTo === null || yieldedTo.has(from)) return;
       yieldedTo.add(from);
@@ -249,7 +240,7 @@
       claimTimer = setTimer(() => {
         claimTimer = null;
         if (leader || isHidden() || !started || !leaderHidden) return;
-        startElection(); // the hidden leader never answered
+        startElection();
       }, electionMs);
     }
 
@@ -265,7 +256,6 @@
       scheduleHeartbeat();
     }
 
-    // A hidden leader never polls: a visible tab claims from it instead of sitting unled.
     function trackLeader(from, hidden) {
       knownLeader = from;
       leaderHidden = Boolean(hidden);
@@ -375,7 +365,7 @@
         setLeader(true);
         return;
       }
-      post(stateChannel, { type: 'state-request' }); // ask any leader for its state now
+      post(stateChannel, { type: 'state-request' });
       if (lockApi) {
         mode = 'locks';
         if (!isHidden()) claimLock();
@@ -419,7 +409,6 @@
       return true;
     }
 
-    // Ask the leader to poll soon (e.g. after this tab created a request).
     function requestRefresh() {
       if (!started || leader || !stateChannel) return false;
       post(stateChannel, { type: 'refresh-request' });
