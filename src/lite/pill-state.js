@@ -76,10 +76,14 @@
 
   // Shared COMPLETED fade: returns null once the transaction has faded (or when it
   // carries no timestamp at all, so "Revived" can never linger), else the refresh time.
+  // A closedAt more than COMPLETED_FADE_MS ahead of now (wrong clock, bad data) counts as
+  // already faded; a small future closedAt stays visible but re-renders within the fade window.
   function completedFade(transaction, now) {
     const closedAt = toMs(transaction && (transaction.closedAt || transaction.updatedAt));
-    if (closedAt === null || now - closedAt >= COMPLETED_FADE_MS) return null;
-    return { refreshAt: closedAt + COMPLETED_FADE_MS };
+    if (closedAt === null) return null;
+    const age = now - closedAt;
+    if (age >= COMPLETED_FADE_MS || age < -COMPLETED_FADE_MS) return null;
+    return { refreshAt: Math.min(closedAt + COMPLETED_FADE_MS, now + COMPLETED_FADE_MS) };
   }
 
   // Only finite numbers or numeric strings count; anything else (false, [], ' ', null) is unknown, never 0.
@@ -269,9 +273,10 @@
   }
 
   // The engine stores the measured server-minus-client offset on the snapshot it received.
+  // Only a finite number within +-24 h is accepted; no coercion (true, [5], "5", null are ignored).
   function serverNow(snapshot, now) {
-    const skew = snapshot && typeof snapshot === 'object' ? Number(snapshot.clockSkewMs) : NaN;
-    return Number.isFinite(skew) && Math.abs(skew) <= MAX_CLOCK_SKEW_MS ? now + skew : now;
+    const skew = snapshot && typeof snapshot === 'object' ? snapshot.clockSkewMs : undefined;
+    return typeof skew === 'number' && Number.isFinite(skew) && Math.abs(skew) <= MAX_CLOCK_SKEW_MS ? now + skew : now;
   }
 
   function sessionView(state) {

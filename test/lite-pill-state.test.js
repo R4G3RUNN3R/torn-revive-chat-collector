@@ -451,3 +451,41 @@ test('signed-out and expired sessions ignore the snapshot and are never "Offline
   assert.equal(expired.transactionId, null);
   assert.equal(Object.isFrozen(expired), true);
 });
+
+test('COMPLETED with closedAt 20 h in the future is treated as already faded for both roles', () => {
+  for (const role of ['requester', 'reviver']) {
+    const future = transaction('COMPLETED', role, { closedAt: iso(20 * 3600 * 1000) });
+    for (const snap of [snapshot({ recentlyClosed: [future] }), snapshot({ activeTransactions: [future] })]) {
+      const view = derivePill(snap, 'live', NOW);
+      assert.equal(view.text, 'Revive me · 3 online', role);
+      assert.equal(view.refreshAt, null, role);
+    }
+  }
+});
+
+test('COMPLETED with closedAt 2 s in the future is still shown and re-renders within 5 s', () => {
+  const requester = transaction('COMPLETED', 'requester', { closedAt: iso(2000) });
+  const reviver = transaction('COMPLETED', 'reviver', { closedAt: iso(2000) });
+  const shownRequester = derivePill(snapshot({ recentlyClosed: [requester] }), 'live', NOW);
+  assert.equal(shownRequester.text, 'Revived');
+  assert.ok(shownRequester.refreshAt <= NOW + 5000);
+  const shownReviver = derivePill(snapshot({ recentlyClosed: [reviver] }), 'live', NOW);
+  assert.equal(shownReviver.text, 'Revive complete');
+  assert.ok(shownReviver.refreshAt <= NOW + 5000);
+});
+
+test('a wrong but in-bound clock skew (-20 h) does not keep "Revived" on screen', () => {
+  const closed = transaction('COMPLETED', 'requester', { closedAt: iso(-2000) });
+  const view = derivePill(snapshot({ recentlyClosed: [closed], clockSkewMs: -20 * 3600 * 1000 }), 'live', NOW);
+  assert.equal(view.text, 'Revive me · 3 online');
+  assert.equal(view.refreshAt, null);
+});
+
+test('non-numeric clockSkewMs values (true, [5], "5", null) are ignored', () => {
+  // closedAt is 4999 ms old: a coerced skew of 1 or 5 ms (true, [5], "5") would age it past 5 s.
+  const closed = transaction('COMPLETED', 'requester', { closedAt: iso(-4999) });
+  for (const clockSkewMs of [true, [5], '5', null]) {
+    const view = derivePill(snapshot({ recentlyClosed: [closed], clockSkewMs }), 'live', NOW);
+    assert.equal(view.text, 'Revived', String(clockSkewMs));
+  }
+});
