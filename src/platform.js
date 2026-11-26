@@ -45,10 +45,7 @@
     );
     const readyPromise = globalObject && globalObject.__PDA_platformReadyPromise;
     const hasPdaReadyPromise = Boolean(readyPromise && typeof readyPromise.then === 'function');
-    // TornPDA injects its bridge/helpers independently. Its own HTTP helpers
-    // wait on __PDA_platformReadyPromise before using flutter_inappwebview, so
-    // the ready promise is a reliable early marker even when the native bridge
-    // itself has not appeared yet on a cold/recovered WebView.
+    // The PDA ready promise appears before the native bridge on a cold WebView.
     const isTornPda = hasPdaReadyPromise || hasFlutterBridge || (hasPdaStorage && hasPdaHttp);
     return Object.freeze({
       kind: isTornPda ? RUNTIME_TORNPDA : RUNTIME_USERSCRIPT,
@@ -96,6 +93,22 @@
       writeGm(FALLBACK_DIRTY_KEY, true);
     }
 
+    function readGmIfSet(key, onValue) {
+      const sentinel = `\u0000ReviveRelayMissing:${key}`;
+      const value = readGm(key, sentinel);
+      if (value !== sentinel) onValue(value);
+    }
+
+    // Copy values into PDA storage, then reset their GM copies to the legacy defaults.
+    async function moveToPda(values) {
+      await writeManyPda(values);
+      for (const key of Object.keys(values)) {
+        writeGm(key, Object.prototype.hasOwnProperty.call(legacyDefaults, key) ? legacyDefaults[key] : null);
+      }
+      writeGm(FALLBACK_DIRTY_KEY, false);
+      backend = 'pda';
+    }
+
     async function writeManyPda(values) {
       const entries = Object.entries(values);
       if (!entries.length) return;
@@ -123,18 +136,9 @@
 
           if (readGm(FALLBACK_DIRTY_KEY, false) === true) {
             const recovery = {};
-            for (const key of keys) {
-              const sentinel = `\u0000ReviveRelayMissing:${key}`;
-              const fallbackValue = readGm(key, sentinel);
-              if (fallbackValue !== sentinel) recovery[key] = fallbackValue;
-            }
+            for (const key of keys) readGmIfSet(key, value => { recovery[key] = value; });
             Object.assign(cache, recovery);
-            await writeManyPda(recovery);
-            for (const key of Object.keys(recovery)) {
-              writeGm(key, Object.prototype.hasOwnProperty.call(legacyDefaults, key) ? legacyDefaults[key] : null);
-            }
-            writeGm(FALLBACK_DIRTY_KEY, false);
-            backend = 'pda';
+            await moveToPda(recovery);
             initialized = true;
             return;
           }
@@ -142,19 +146,9 @@
           const migrate = {};
           for (const key of keys) {
             if (Object.prototype.hasOwnProperty.call(cache, key)) continue;
-            const sentinel = `\u0000ReviveRelayMissing:${key}`;
-            const legacy = readGm(key, sentinel);
-            if (legacy !== sentinel) {
-              cache[key] = legacy;
-              migrate[key] = legacy;
-            }
+            readGmIfSet(key, value => { cache[key] = value; migrate[key] = value; });
           }
-          await writeManyPda(migrate);
-          for (const key of Object.keys(migrate)) {
-            writeGm(key, Object.prototype.hasOwnProperty.call(legacyDefaults, key) ? legacyDefaults[key] : null);
-          }
-          writeGm(FALLBACK_DIRTY_KEY, false);
-          backend = 'pda';
+          await moveToPda(migrate);
         } catch (error) {
           onError(error, 'storage.pda.initialize');
           if (Object.keys(cache).length) migrateCacheToGm();
