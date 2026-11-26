@@ -224,11 +224,11 @@ function tabSet({ heartbeat = false } = {}) {
   const hub = createChannelHub();
   const locks = heartbeat ? null : createLockManager();
   function BroadcastChannel(name) { return hub.createChannel(name); }
-  const tab = (tabId, api, session = { signedIn: true, tornId: 1001 }) => {
+  const tab = (tabId, api, session = { signedIn: true, tornId: 1001 }, storage = memoryStorage()) => {
     const window = createFakeWindow({ BroadcastChannel, locks });
     window.AbortController = function AbortController() { return createAbortController(); };
     const renders = [];
-    const made = makeEngine({ clock, api, window, tabId, session, onRender: event => renders.push(event) });
+    const made = makeEngine({ clock, api, window, tabId, session, storage, onRender: event => renders.push(event) });
     return { ...made, renders, lastRender: () => renders[renders.length - 1] };
   };
   return { clock, hub, tab, firstPollMs: heartbeat ? 1000 : 0 };
@@ -495,4 +495,111 @@ test('clock skew is measured against the midpoint of request and response', asyn
   assert.equal(api.calls, 1);
   assert.equal(storage.values[SNAPSHOT_KEY].data.clockSkewMs, 500);
   engine.stop();
+});
+
+// ---- a leader whose session ends or changes ---------------------------------
+
+const snapshotFor = (tornId, overrides = {}) => snapshot({ me: { tornId, name: `User ${tornId}`, roles: ['requester'], verification: { usable: true, requester: true, reviver: false } }, ...overrides });
+const setSession = (tabs, value) => tabs.forEach(item => { item.holder.session = value; });
+
+test('a leader whose shared session is signed out steps out within one cadence and shows the signed-out view', async () => {
+  const { clock, tab } = tabSet();
+  const aApi = fakeApi([{ notModified: false, snapshot: snapshot() }]);
+  const bApi = fakeApi([{ notModified: false, snapshot: snapshot() }]);
+  const a = tab('a', aApi);
+  const b = tab('b', bApi);
+  a.engine.start();
+  b.engine.start();
+  await clock.advance(0);
+  assert.equal(a.engine.isLeader(), true);
+  assert.equal(pillText(b.engine), 'Revive me · 2 online');
+  setSession([a, b], { signedIn: false, tornId: null });
+  b.engine.resetSession();
+  await clock.advance(60000);
+  assert.equal(a.engine.isLeader(), false);
+  assert.equal(pillText(a.engine), 'Set up revives');
+  assert.notEqual(a.lastRender().freshness, 'live');
+  assert.equal(pillText(b.engine), 'Set up revives');
+  assert.equal(aApi.calls, 1);
+  await clock.advance(120000);
+  assert.equal(aApi.calls, 1);
+  assert.equal(bApi.calls, 0);
+  a.engine.stop();
+  b.engine.stop();
+});
+
+test('a leader whose session turns signed out with no tab resetting still steps out at its next poll', async () => {
+  const { clock, tab } = tabSet();
+  const aApi = fakeApi([{ notModified: false, snapshot: snapshot() }]);
+  const a = tab('a', aApi);
+  a.engine.start();
+  await clock.advance(0);
+  assert.equal(a.engine.isLeader(), true);
+  a.holder.session = { signedIn: false, tornId: null };
+  await clock.advance(60000);
+  assert.equal(a.engine.isLeader(), false);
+  assert.equal(pillText(a.engine), 'Set up revives');
+  assert.equal(aApi.calls, 1);
+  a.engine.stop();
+});
+
+test('after a user switch the old leader resets and the new session shows its own state without waiting a cadence', async () => {
+  const { clock, tab } = tabSet();
+  const aApi = fakeApi([{ notModified: false, snapshot: snapshotFor(1001) }, { notModified: false, snapshot: snapshotFor(2002, { revivers: { online: 8 } }) }]);
+  const bApi = fakeApi([{ notModified: false, snapshot: snapshotFor(2002, { revivers: { online: 8 } }) }]);
+  const a = tab('a', aApi);
+  const b = tab('b', bApi);
+  a.engine.start();
+  b.engine.start();
+  await clock.advance(0);
+  assert.equal(pillText(b.engine), 'Revive me · 2 online');
+  setSession([a, b], { signedIn: true, tornId: 2002 });
+  b.engine.resetSession();
+  await clock.advance(0);
+  // A was told by B's state request (or its next poll) and reset: nothing of user 1001 is served.
+  assert.ok(aApi.resets >= 1);
+  await clock.advance(1000);
+  assert.equal(pillText(b.engine), 'Revive me · 8 online');
+  assert.ok(!b.renders.slice(-1).some(event => event.snapshot && event.snapshot.me.tornId === 1001));
+  a.engine.stop();
+  b.engine.stop();
+});
+
+test('a leader tags its broadcast with the snapshot owner, not a session read that changed in flight', async () => {
+  const { clock, hub, tab } = tabSet();
+  const inFlight = deferred();
+  const a = tab('a', fakeApi([() => inFlight.promise]));
+  const spy = hub.createChannel('rr-state');
+  const tags = [];
+  spy.addEventListener('message', event => {
+    if (event.data && event.data.type === 'state' && event.data.payload.snapshot) tags.push(event.data.payload.tornId);
+  });
+  a.engine.start();
+  await clock.advance(0);
+  a.holder.session = { signedIn: true, tornId: 2002 };
+  inFlight.resolve({ notModified: false, snapshot: snapshotFor(1001) });
+  await clock.advance(0);
+  assert.deepEqual(tags, [1001]);
+  a.engine.stop();
+});
+
+test('a broadcast-triggered reset keeps a shared cache whose owner already matches the new session', async () => {
+  const { clock, tab } = tabSet();
+  const storage = memoryStorage();
+  const a = tab('a', fakeApi([{ notModified: false, snapshot: snapshotFor(2002) }]), { signedIn: true, tornId: 2002 }, storage);
+  const b = tab('b', fakeApi([{ notModified: false, snapshot: snapshotFor(2002) }]), { signedIn: true, tornId: 1001 }, storage);
+  a.engine.start();
+  b.engine.start();
+  await clock.advance(0);
+  assert.equal(a.engine.isLeader(), true);
+  assert.ok(storage.values[SNAPSHOT_KEY]);
+  b.holder.session = { signedIn: true, tornId: 2002 };
+  await clock.advance(60000);
+  assert.equal(b.engine.isLeader(), false);
+  assert.ok(b.engine.isStarted());
+  assert.ok(storage.values[SNAPSHOT_KEY]);
+  assert.equal(storage.values[SNAPSHOT_KEY].data.me.tornId, 2002);
+  assert.equal(pillText(b.engine), 'Revive me · 2 online');
+  a.engine.stop();
+  b.engine.stop();
 });

@@ -118,7 +118,9 @@
 
     // Every broadcast names the session it belongs to, so other users' tabs can ignore it.
     function statePayload(snapshot, freshness, fetchedAt, extra = {}) {
-      return { snapshot, freshness, fetchedAt, tornId: session().tornId, ...extra };
+      const owner = snapshot && snapshot.me ? Number(snapshot.me.tornId) : NaN;
+      const tornId = Number.isSafeInteger(owner) && owner > 0 ? owner : (knownSession ? knownSession.tornId : null);
+      return { snapshot, freshness, fetchedAt, tornId, ...extra };
     }
 
     function joinLeadership() {
@@ -179,6 +181,20 @@
         channel.removeEventListener('message', onGatedMessage);
         channel.close();
       } catch (_) { /* already closed */ }
+    }
+
+    // A leader whose session ended or changed resets (which re-evaluates leadership); a gated
+    // leader without a change just steps out. Returns true when it acted.
+    function leaderSessionCheck() {
+      if (sessionChanged()) {
+        resetSession();
+        return true;
+      }
+      if (sessionGate()) {
+        syncLeadership();
+        return true;
+      }
+      return false;
     }
 
     // Gated tabs (signed out, or session expired) never hold leadership.
@@ -256,7 +272,8 @@
     }
 
     function pollDelay() {
-      if (!isLeader() || sessionGate()) return null;
+      // A gated or session-changed leader still gets one poll slot: poll() makes it step out.
+      if (!isLeader()) return null;
       if (resyncSoon && !isHidden()) return Scheduler.POLL_BOUNDS_MS.min;
       if (deferredPollAt !== null && !isHidden()) return deferredPollAt - jobsAddedAt;
       return cadenceMs(isHidden());
@@ -277,7 +294,8 @@
     }
 
     async function poll() {
-      if (!isLeader() || sessionGate()) return;
+      if (!started || !isLeader()) return;
+      if (leaderSessionCheck()) return;
       deferredPollAt = null;
       const runEpoch = epoch;
       const requestedAt = now();
@@ -339,6 +357,7 @@
     // Even without a snapshot (e.g. offline before the first success), so the joiner learns it.
     function onStateRequest() {
       if (!started || !isLeader()) return;
+      if (leaderSessionCheck()) return;
       leader.broadcast(statePayload(current.snapshot, current.freshness, lastFetchedAt));
     }
 
@@ -346,7 +365,7 @@
       if (!started || isLeader() || !payload || typeof payload !== 'object') return;
       // Another tab may have signed in, out or as someone else: start over with that session.
       if (sessionChanged()) {
-        resetSession();
+        resetSession(true);
         return;
       }
       const own = session();
@@ -357,7 +376,7 @@
       if (!ownedBySession(payload.snapshot)) return;
       if (authExpired) {
         // Live state for this user from another tab: the shared session works again.
-        if (payload.freshness === 'live' && payload.snapshot) resetSession();
+        if (payload.freshness === 'live' && payload.snapshot) resetSession(true);
         return;
       }
       if (payload.freshness === 'expired') {
@@ -484,14 +503,21 @@
     }
 
     // Sign-in, sign-out or a different Torn user: forget everything tied to the old session.
-    function resetSession() {
+    function resetSession(fromBroadcast = false) {
       const wasStarted = started;
+      // A snapshot the leader just wrote for the new session stays in the shared cache.
+      const nowSession = session();
+      let keepCache = false;
+      if (fromBroadcast === true && nowSession.signedIn && nowSession.tornId !== null) {
+        const cached = cache.read();
+        keepCache = Boolean(cached && cached.snapshot && cached.snapshot.me && Number(cached.snapshot.me.tornId) === nowSession.tornId);
+      }
       stop();
       sessionSince = now();
       authExpired = false;
       current = { snapshot: null, freshness: 'syncing' };
       lastFetchedAt = null;
-      cache.clear();
+      if (!keepCache) cache.clear();
       if (typeof api.reset === 'function') api.reset();
       if (wasStarted) start();
     }
@@ -502,7 +528,7 @@
       setSheetOpen,
       refresh,
       relayout,
-      resetSession,
+      resetSession: () => resetSession(false),
       isStarted: () => started,
       isLeader,
       viewModel: () => lastView
