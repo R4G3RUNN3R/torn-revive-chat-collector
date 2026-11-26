@@ -139,7 +139,8 @@
   let panelSlowRefreshAt = null;
   let panelProRolesKey = null;
   let errorHooksInstalled = false;
-  let initRetryArmed = false;
+  let initRetry = null;
+  let retryPill = null;
   let updateResult = null;
   const pollFlights = new Map();
   const mutationFlights = new Set();
@@ -1920,23 +1921,31 @@
     checkUpdates(false).catch(error => captureClientError(error, 'update.initial'));
   }
 
-  // A failed init (e.g. TornPDA storage timeout) is retried once, when the page is next shown.
+  // A failed init (e.g. TornPDA storage timeout) leaves a "tap to retry" pill (no storage needed) and
+  // retries on a tap and whenever the page is shown again, until init starts. No timers.
   function retryInitWhenShown() {
-    if (initRetryArmed) return;
-    initRetryArmed = true;
-    const retry = () => {
-      if (pageHidden()) return;
-      document.removeEventListener('visibilitychange', retry);
-      window.removeEventListener('pageshow', retry);
-      start();
-    };
-    document.addEventListener('visibilitychange', retry);
-    window.addEventListener('pageshow', retry);
+    try {
+      if (!retryPill?.host.isConnected) retryPill = globalThis.ReviveRelayLitePillView.mountPill({ document, window, onActivate: start });
+      retryPill.update({ label: 'ReviveRelay', detail: 'tap to retry', text: 'ReviveRelay · tap to retry', tone: 'attention', icon: 'alert' });
+    } catch (error) {
+      console.error('[ReviveRelay] Retry pill unavailable.', error);
+    }
+    if (initRetry) return;
+    initRetry = () => { if (!pageHidden()) start(); };
+    document.addEventListener('visibilitychange', initRetry);
+    window.addEventListener('pageshow', initRetry);
+  }
+
+  function stopInitRetry() {
+    if (!initRetry) return;
+    document.removeEventListener('visibilitychange', initRetry);
+    window.removeEventListener('pageshow', initRetry);
+    initRetry = null;
   }
 
   function start() {
     if (initPromise || liteBoot) return initPromise;
-    initPromise = init().catch(error => {
+    initPromise = init().then(stopInitRetry, error => {
       console.error('[ReviveRelay] Initialization failed.', error);
       captureClientError(error, 'init');
       retryInitWhenShown();

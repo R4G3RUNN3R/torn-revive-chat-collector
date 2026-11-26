@@ -221,7 +221,7 @@ test('"Request certified revive" shows only once the panel has loaded and there 
 
 // ---- failed init -----------------------------------------------------------
 
-test('a failed init is reported and retried once on the next visible visibilitychange or pageshow', async () => {
+test('a failed init is reported and retried on the next visible visibilitychange or pageshow, until it starts', async () => {
   let attempts = 0;
   const harness = loadMain({
     store: { ...SIGNED_IN, reviverelay_client_diagnostics_enabled: true },
@@ -485,4 +485,53 @@ test('opening the pill on a reportable transaction shows a one-line status sayin
   idle.view = { role: 'requester', state: null, transactionId: null, sheet: 'request' };
   await openPanel(idle);
   assert.doesNotMatch(statusLine(idle), /Needs attention/);
+});
+
+// ---- a failed init stays visible and retryable ----------------------------------
+
+test('a failed init mounts a "tap to retry" pill; taps and every visible return retry until init starts', async () => {
+  let attempts = 0;
+  let failing = true;
+  const harness = loadMain({
+    store: { ...SIGNED_IN },
+    initialize: async real => {
+      attempts += 1;
+      if (failing) throw new Error('TORNPDA_STORAGE_TIMEOUT');
+      return real.initialize();
+    }
+  });
+  harness.run();
+  await harness.clock.flush();
+  assert.equal(attempts, 1);
+  assert.equal(harness.pills.length, 1, 'a retry pill is visible');
+  const pill = harness.pills[0];
+  const shown = pill.views[pill.views.length - 1];
+  assert.equal(shown.text, 'ReviveRelay · tap to retry');
+  assert.equal(shown.tone, 'attention');
+
+  pill.options.onActivate();
+  await harness.clock.flush();
+  assert.equal(attempts, 2, 'a tap retries init');
+  assert.equal(pill.destroyed, false, 'a second failure keeps the retry pill');
+  assert.equal(harness.pills.filter(entry => !entry.destroyed).length, 1);
+
+  harness.setVisibility('hidden');
+  harness.setVisibility('visible');
+  await harness.clock.flush();
+  assert.equal(attempts, 3, 'every return to visible retries, not just the first');
+  harness.window.dispatch('pageshow', { persisted: false });
+  await harness.clock.flush();
+  assert.equal(attempts, 4);
+  assert.equal(harness.clock.pending(), 0, 'no timers');
+
+  failing = false;
+  pill.options.onActivate();
+  await harness.clock.flush();
+  assert.equal(attempts, 5);
+  assert.equal(harness.boots.length, 1, 'the Lite pill replaces the retry pill');
+  assert.equal(harness.document.count('visibilitychange'), 0);
+  assert.equal(harness.window.count('pageshow'), 0);
+  pill.options.onActivate();
+  await harness.clock.flush();
+  assert.equal(attempts, 5, 'a stale tap after the start does nothing');
 });

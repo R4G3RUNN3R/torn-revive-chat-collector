@@ -130,6 +130,7 @@ function loadMain({ store = {}, initialize = null, clock = createFakeTimers(), r
     transactions: {},
     lastToken: '',
     boots: [],
+    pills: [],
     telemetry: [],
     view: null,
     pending: null,
@@ -204,7 +205,15 @@ function loadMain({ store = {}, initialize = null, clock = createFakeTimers(), r
       createTelemetryClient: () => ({ captureError: (error, meta) => harness.telemetry.push({ error, meta }), drain: async () => ({ sent: 0 }) })
     },
     ReviveRelayRequestPreset: RequestPreset,
-    ReviveRelayLiteBoot: liteBootModule
+    ReviveRelayLiteBoot: liteBootModule,
+    // Records the pills MAIN mounts itself (the retry pill after a failed init).
+    ReviveRelayLitePillView: {
+      mountPill(options) {
+        const pill = { options, views: [], destroyed: false, host: { isConnected: true }, update(view) { pill.views.push(view); }, destroy() { pill.destroyed = true; pill.host.isConnected = false; } };
+        harness.pills.push(pill);
+        return pill;
+      }
+    }
   });
   harness.context = context;
   harness.run = () => vm.runInContext(mainSource(), context, { filename: 'torn-revive-chat-collector.user.js' });
