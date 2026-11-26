@@ -1,5 +1,34 @@
 # Changelog
 
+## 1.0.0 - Lite engine and header pill (review)
+
+### Changed
+
+- ReviveRelay now lives in one pill in Torn's header (launcher position when the header slot is missing). It shows where your revive is: Revive me · n online, Waiting, Pay <reviver>, <reviver> is reviving, Revived, Refunded, Needs attention, and for revivers Queue · n or the transaction that needs them.
+- The header pill replaces the left-sidebar "ReviveRelay → Revive Me!" button and the floating `RR` launcher from 0.7.3.
+- The panel opens from the pill, and its Request tab has a **Request certified revive** button.
+- One scheduler per tab replaces the nine 0.7 timers. Background tabs no longer poll; one tab per browser polls the new `/v1/state` endpoint for all tabs, and hidden tabs make no requests. Polling adapts: 60 s idle, 20 s for revivers, 5 s with an open request or transaction, with back-off when offline.
+- The last known state paints instantly from cache (marked as syncing) and is never shown for a different Torn account.
+- Finished revives show briefly ("Revived", "Refunded"); problems show "Needs attention".
+- An expired session shows "Sign in again" and stops polling until you reconnect.
+- The existing panel (requests, reviver queue, Torn API key, Reviver Pro, invoices, settings, diagnostics, account deletion) opens from the pill and no longer polls on its own.
+
+### Server
+
+- `/v1/state` adds `recentlyClosed` (outcomes for 30 s, reportable failures for 1 hour) and `serverTime`.
+
+### Known limitations (until 1.1 or Plan 3b)
+
+- New-request desktop notifications for revivers only fire while the panel is open.
+- "Update available" is only visible inside the panel.
+- The pill does not re-mount if Torn replaces its header without navigating.
+- A Pro invoice that expires keeps showing PENDING until the panel is reopened.
+- The whole file is 227.6 KB in 1.0; the light core is 108 KB. 1.1 targets 110 KB or less for the whole file, once the old panel is replaced.
+
+### Release status
+
+1.0.0 is a Beta/Review candidate on the review channel. Stable remains 0.4.4; 0.7.3 remains the rollback.
+
 ## 0.7.3 - TornPDA bootstrap launcher hardening
 
 ### Fixed

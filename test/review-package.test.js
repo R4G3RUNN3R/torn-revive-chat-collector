@@ -73,3 +73,9 @@ test('0.6.1 review evidence documents runtime isolation, lifetime OWNER and perm
   assert.match(all,/one[- ]time per canonical Torn identity/i);
   assert.match(all,/stable[^\n]{0,80}0\.4\.4[^\n]{0,80}(?:unchanged|remains)|public production[^\n]{0,80}0\.4\.4/i);
 });
+
+test('the pinned build manifest pins the current package version',()=>{
+  const manifest=JSON.parse(read('docs/review/BUILD-MANIFEST.json'));
+  assert.equal(manifest.version,pkg.version,'re-pin docs/review/BUILD-MANIFEST.json after every version bump');
+  assert.equal(manifest.artifact,`dist/review/ReviveRelay-${pkg.version}.user.js`);
+});
