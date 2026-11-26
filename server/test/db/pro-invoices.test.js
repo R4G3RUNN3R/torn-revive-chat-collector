@@ -138,3 +138,59 @@ test('one Torn log ID cannot activate two Pro invoices', async () => {
     assert.equal(entitlement.rows[0].paid_until.toISOString(),'2026-10-02T10:06:00.000Z');
   });
 });
+
+test('payment made before a replacement invoice cancelled it still pays the original invoice', async () => {
+  await withDisposableDatabase('pro_invoice_cancel_race', async pool => {
+    const userId=await insertUser(pool,920008,'Race User');
+    const repo=createProInvoiceRepository(pool);
+    const first=await repo.createInvoice({userId,tornId:920008,planId:'monthly',currency:'cash',now:new Date('2026-11-25T02:14:43Z')});
+    const replacement=await repo.createInvoice({userId,tornId:920008,planId:'monthly',currency:'cash',now:new Date('2026-11-25T02:15:54Z')});
+    const scannable=await repo.listScannable(new Date('2026-11-25T02:16:00Z'));
+    assert.deepEqual(scannable.map(row=>[row.id,row.state]),[[first.id,'CANCELLED'],[replacement.id,'PENDING']]);
+
+    const paid=await repo.markPaidWithEvidence({
+      invoiceId:first.id,tornLogId:'race-log',senderTornId:920008,currency:'cash',amount:10000000,
+      evidenceAt:new Date('2026-11-25T02:15:36Z'),paidAt:new Date('2026-11-25T02:16:00Z')
+    });
+    assert.equal(paid.paid,true);
+    assert.equal(paid.invoice.state,'PAID');
+    assert.equal((await repo.getInvoiceForUser({invoiceId:replacement.id,userId})).state,'PENDING');
+    const audit=await pool.query(`SELECT details FROM audit_events WHERE entity_id=$1 AND action='pro.invoice_paid'`,[first.id]);
+    assert.equal(audit.rows[0].details.recoveredFromState,'CANCELLED');
+    const entitlement=await pool.query('SELECT paid_until FROM pro_entitlements WHERE user_id=$1',[userId]);
+    assert.equal(entitlement.rows[0].paid_until.toISOString(),'2026-12-25T02:16:00.000Z');
+  });
+});
+
+test('cancelled invoice rejects payment made after it was cancelled', async () => {
+  await withDisposableDatabase('pro_invoice_cancel_after', async pool => {
+    const userId=await insertUser(pool,920009,'Late Payer');
+    const repo=createProInvoiceRepository(pool);
+    const first=await repo.createInvoice({userId,tornId:920009,planId:'monthly',currency:'cash',now:new Date('2026-11-25T02:00:00Z')});
+    await repo.createInvoice({userId,tornId:920009,planId:'monthly',currency:'cash',now:new Date('2026-11-25T02:10:00Z')});
+    const late=await repo.markPaidWithEvidence({
+      invoiceId:first.id,tornLogId:'late-log',senderTornId:920009,currency:'cash',amount:10000000,
+      evidenceAt:new Date('2026-11-25T02:10:01Z'),paidAt:new Date('2026-11-25T02:11:00Z')
+    });
+    assert.equal(late.paid,false);
+    assert.equal(late.reason,'EVIDENCE_MISMATCH');
+    assert.equal((await repo.getInvoiceForUser({invoiceId:first.id,userId})).state,'CANCELLED');
+  });
+});
+
+test('invoice expired by a late scan still accepts payment made inside its window', async () => {
+  await withDisposableDatabase('pro_invoice_expired_recovery', async pool => {
+    const userId=await insertUser(pool,920010,'Outage Payer');
+    const repo=createProInvoiceRepository(pool);
+    const invoice=await repo.createInvoice({userId,tornId:920010,planId:'monthly',currency:'xanax',now:new Date('2026-11-20T12:00:00Z')});
+    assert.equal(await repo.expireDue(new Date('2026-11-23T12:00:00Z')),1);
+    assert.deepEqual((await repo.listScannable(new Date('2026-11-23T12:00:00Z'))).map(row=>row.id),[invoice.id]);
+    assert.deepEqual(await repo.listScannable(new Date('2026-11-28T12:00:01Z')),[]);
+    const paid=await repo.markPaidWithEvidence({
+      invoiceId:invoice.id,tornLogId:'outage-log',senderTornId:920010,currency:'xanax',amount:10,
+      evidenceAt:new Date('2026-11-21T11:00:00Z'),paidAt:new Date('2026-11-23T12:00:00Z')
+    });
+    assert.equal(paid.paid,true);
+    assert.deepEqual(await repo.listScannable(new Date('2026-11-23T12:01:00Z')),[]);
+  });
+});

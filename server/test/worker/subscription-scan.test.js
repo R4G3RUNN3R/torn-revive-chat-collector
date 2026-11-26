@@ -30,7 +30,7 @@ function setup({invoices=[invoice()],cash=[evidence()],xanax=[]}={}) {
   const calls={expired:[],listed:[],fetched:[],marked:[]};
   const invoiceRepository={
     async expireDue(now){calls.expired.push(now);return 0;},
-    async listPending(now){calls.listed.push(now);return invoices;},
+    async listScannable(now){calls.listed.push(now);return invoices;},
     async markPaidWithEvidence(input){calls.marked.push(input);return {paid:true,invoice:{...invoices.find(row=>row.id===input.invoiceId),state:'PAID'}};}
   };
   const evidenceService={
@@ -97,7 +97,7 @@ test('expired invoices are processed before pending list and empty queue still r
   const handler=createSubscriptionScanHandler({
     invoiceRepository:{
       async expireDue(){order.push('expire');return 2;},
-      async listPending(){order.push('list');return [];},
+      async listScannable(){order.push('list');return [];},
       async markPaidWithEvidence(){throw new Error('not used');}
     },
     evidenceService:{async getIncomingEvidence(){throw new Error('not used');}},
@@ -126,7 +126,7 @@ test('running the scan twice after a successful payment does not process the inv
   const handler=createSubscriptionScanHandler({
     invoiceRepository:{
       async expireDue(){return 0;},
-      async listPending(){return state==='PENDING'?[row]:[];},
+      async listScannable(){return state==='PENDING'?[row]:[];},
       async markPaidWithEvidence(){paidCalls+=1;state='PAID';return {paid:true,invoice:{...row,state}};}
     },
     evidenceService:{async getIncomingEvidence(){return [evidence()];}},
@@ -135,4 +135,21 @@ test('running the scan twice after a successful payment does not process the inv
   await handler({type:'subscription.scan'});
   await handler({type:'subscription.scan'});
   assert.equal(paidCalls,1);
+});
+
+test('cancelled invoice is paid only by evidence from before its cancellation',async()=>{
+  const cancelled=invoice({state:'CANCELLED',updatedAt:new Date('2026-09-02T10:02:00Z')});
+  const s=setup({invoices:[cancelled],cash:[
+    evidence({tornLogId:'after-cancel',at:new Date('2026-09-02T10:03:00Z')}),
+    evidence({tornLogId:'before-cancel',at:new Date('2026-09-02T10:01:30Z')})
+  ]});
+  await s.handler({type:'subscription.scan'});
+  assert.deepEqual(s.calls.marked.map(row=>row.tornLogId),['before-cancel']);
+});
+
+test('cancelled invoice with only post-cancellation evidence is not paid',async()=>{
+  const cancelled=invoice({state:'CANCELLED',updatedAt:new Date('2026-09-02T10:00:30Z')});
+  const s=setup({invoices:[cancelled],cash:[evidence({at:new Date('2026-09-02T10:01:00Z')})]});
+  await s.handler({type:'subscription.scan'});
+  assert.equal(s.calls.marked.length,0);
 });
