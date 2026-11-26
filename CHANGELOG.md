@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.0.2 - Sidebar dock, status inside the panel (review)
+
+### Changed
+
+- The sidebar dock is back: one **ReviveRelay** row in Torn's left sidebar, in the same place as 0.7.3, opens and closes the panel. The panel opens docked beside the sidebar. The row always reads "ReviveRelay" and never changes with your revive's state; screen readers hear only its fixed name and whether the panel is open.
+- On TornPDA, on touch screens or windows 900 px wide or less (0.7.3's launcher rule), and on pages without a left sidebar, a round **RR** launcher sits at the bottom right instead of the row (44 px touch target). 0.7.3 showed its launcher next to the sidebar button; 1.0.2 shows one or the other.
+- Status moved into the panel: what the pill used to say ("Checking payment", "Time to pay", "Revive failed · choose", "Needs attention", "Offline", "Updating", "Sign in again" and the rest) shows as one line at the top of the panel, with its countdown. While the data is being confirmed (from cache, or after a failed check) the line ends in " · updating".
+- The docked panel never reaches below the window: its height is capped to the space below its top and its content scrolls. A resize while docked keeps your saved (dragged) panel position.
+
+### Removed
+
+- The header pill. ReviveRelay no longer places anything in Torn's header.
+
+### Known limitations
+
+- Idle states ("Revive me", the reviver queue count, setup) are not repeated in the status line; the panel's Request card, summary and tabs already show them.
+- The sidebar row follows 0.7.3's sidebar selectors; if Torn changes its sidebar markup, the RR launcher is used until the selectors are updated.
+
+### Release status
+
+1.0.2 is a Beta/Review candidate on the review channel. Stable remains 0.4.4; 0.7.3 remains the rollback.
+
 ## 1.0.1 - Notifications, sound and profile badges (review)
 
 ### Added

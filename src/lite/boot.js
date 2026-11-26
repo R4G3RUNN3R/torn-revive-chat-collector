@@ -21,8 +21,7 @@
     getSession = null,
     onActivate = () => {},
     onRender = null,
-    clock = {},
-    headerSelectors
+    clock = {}
   } = {}) {
     if (!platform || typeof platform.request !== 'function' || !platform.storage) throw new Error('platform with request and storage is required');
     if (!window || typeof window.addEventListener !== 'function') throw new Error('window is required');
@@ -48,7 +47,6 @@
       storage: platform.storage,
       clock,
       tabId,
-      headerSelectors,
       onActivate,
       getSession,
       onRender,

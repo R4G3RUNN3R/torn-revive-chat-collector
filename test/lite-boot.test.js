@@ -57,18 +57,17 @@ function setup({ platform = fakePlatform(), session = { signedIn: true, tornId: 
     getSession: () => session,
     onActivate: () => activations.push(1),
     onRender: event => renders.push(event),
-    clock,
-    headerSelectors: ['#rr-test-header']
+    clock
   });
   return { boot, clock, document, window, platform, activations, renders };
 }
 
-function addHeader(document) {
-  const slot = document.createElement('div');
-  slot.setAttribute('id', 'rr-test-header');
-  slot.rect.width = 300;
-  document.body.appendChild(slot);
-  return slot;
+function addSidebar(document) {
+  const sidebar = document.createElement('div');
+  sidebar.setAttribute('id', 'sidebar');
+  sidebar.rect.width = 172;
+  document.body.appendChild(sidebar);
+  return sidebar;
 }
 
 test('start polls /v1/state through the platform transport with the session token and paints the pill', async () => {
@@ -86,44 +85,44 @@ test('start polls /v1/state through the platform transport with the session toke
   boot.stop();
 });
 
-test('clicking the pill calls onActivate, and onRender sees each render', async () => {
+test('clicking the dock calls onActivate, and onRender sees each render', async () => {
   const { boot, clock, document, activations, renders } = setup();
   boot.start();
   await clock.advance(0);
   const host = document.getElementById(HOST_ID);
-  host.attachedShadow.querySelector('.rr-pill').click();
+  host.attachedShadow.querySelector('.rr-dock').click();
   assert.equal(activations.length, 1);
   assert.equal(renders[renders.length - 1].view.text, 'Revive me · 4 online');
   boot.stop();
 });
 
-test('the pill moves into Torn\'s header when it renders after boot, without any interval', async () => {
+test('the dock moves into Torn\'s left sidebar when it renders after boot, without any interval', async () => {
   const { boot, clock, document } = setup();
   boot.start();
   const host = document.getElementById(HOST_ID);
   assert.equal(host.getAttribute('data-rr-placement'), 'launcher');
-  addHeader(document);
+  addSidebar(document);
   await clock.advance(RELAYOUT_DELAYS_MS[0]);
-  assert.equal(host.getAttribute('data-rr-placement'), 'header');
+  assert.equal(host.getAttribute('data-rr-placement'), 'sidebar');
   await clock.advance(RELAYOUT_DELAYS_MS[RELAYOUT_DELAYS_MS.length - 1]);
   boot.stop();
   assert.equal(clock.pending(), 0);
 });
 
-test('SPA navigation (popstate, hashchange) re-places the pill after Torn re-renders its header', async () => {
+test('SPA navigation (popstate, hashchange) re-places the dock after Torn re-renders its sidebar', async () => {
   const { boot, clock, document, window } = setup();
-  const first = addHeader(document);
+  const first = addSidebar(document);
   boot.start();
   await clock.advance(5000);
   const host = document.getElementById(HOST_ID);
   assert.equal(host.parentNode, first);
   first.remove();
-  const second = addHeader(document);
+  const second = addSidebar(document);
   window.dispatch('popstate');
   await clock.advance(RELAYOUT_DELAYS_MS[0]);
   assert.equal(host.parentNode, second);
   second.remove();
-  const third = addHeader(document);
+  const third = addSidebar(document);
   window.dispatch('hashchange');
   await clock.advance(RELAYOUT_DELAYS_MS[0]);
   assert.equal(host.parentNode, third);
@@ -223,7 +222,7 @@ test('getSession from MAIN is used as given: a sign-out written to shared storag
   const document = createFakeDocument();
   const window = createFakeWindow();
   const boot = createLiteBoot({
-    platform, window, document, baseUrl: BASE_URL, getToken: () => platform.storage.get('token', ''), getSession, clock, headerSelectors: ['#rr-test-header']
+    platform, window, document, baseUrl: BASE_URL, getToken: () => platform.storage.get('token', ''), getSession, clock
   });
   boot.start();
   await clock.advance(0);

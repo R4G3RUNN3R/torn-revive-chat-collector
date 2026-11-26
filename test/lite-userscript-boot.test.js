@@ -24,6 +24,8 @@ function stateBody(tornId) {
   };
 }
 
+let lastViews = [];
+
 // Runs the real built userscript against fake GM, DOM and timers (no browser).
 function bootUserscript({ values = {}, stateStatus = 200 } = {}) {
   const clock = createFakeTimers();
@@ -54,14 +56,30 @@ function bootUserscript({ values = {}, stateStatus = 200 } = {}) {
       return { abort() {} };
     }
   });
+  // 1.0.2: the dock never shows status, so the tests read the engine's derived status (what the
+  // panel's status line shows) by wrapping derivePill as the bundle defines it.
+  const views = [];
+  let pillState = null;
+  Object.defineProperty(context, 'ReviveRelayLitePillState', {
+    configurable: true,
+    get: () => pillState,
+    set: api => {
+      pillState = Object.freeze({ ...api, derivePill: (...args) => { const view = api.derivePill(...args); views.push(view); return view; } });
+    }
+  });
   vm.runInContext(bundle, context, { filename: `ReviveRelay-${version}.user.js` });
-  return { clock, document, window, requests, intervals, store };
+  lastViews = views;
+  return { clock, document, window, requests, intervals, store, views };
 }
 
 const pillHost = document => document.getElementById('reviverelay-lite-root');
-const pillLabel = document => pillHost(document).attachedShadow.querySelector('.rr-label').textContent;
+// The status the engine derived last; the dock itself always reads "ReviveRelay".
+const pillLabel = document => {
+  assert.equal(pillHost(document).attachedShadow.querySelector('button').getAttribute('aria-label'), 'ReviveRelay');
+  return lastViews[lastViews.length - 1].label;
+};
 
-test('the built 1.0 userscript boots to the header pill from /v1/state with no setInterval and no panel', async () => {
+test('the built userscript boots to the sidebar dock from /v1/state with no setInterval and no panel', async () => {
   const { clock, document, requests, intervals, store } = bootUserscript({
     values: { reviverelay_session_token: 'session-token', reviverelay_public_identity: { tornId: 1001, name: 'Patient' } }
   });

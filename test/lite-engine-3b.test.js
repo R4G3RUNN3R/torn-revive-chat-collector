@@ -53,7 +53,7 @@ function tabs(count, clock, responsesFor) {
     window.AbortController = function AbortController() { return createAbortController(); };
     const document = createFakeDocument();
     const live = [];
-    const engine = createLiteEngine({ api, window, document, storage, clock, tabId: `t${index}`, headerSelectors: ['#rr-none'], onLiveSnapshot: snap => live.push(snap) });
+    const engine = createLiteEngine({ api, window, document, storage, clock, tabId: `t${index}`, onLiveSnapshot: snap => live.push(snap) });
     return { api, engine, document, live };
   });
 }

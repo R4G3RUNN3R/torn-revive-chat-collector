@@ -2,137 +2,238 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { HOST_ID, HEADER_SLOT_SELECTORS, PILL_CSS, detectTheme, mountPill } = require('../src/lite/pill-view');
-const { derivePill } = require('../src/lite/pill-state');
+const PillView = require('../src/lite/pill-view');
+const { HOST_ID, SIDEBAR_SELECTORS, DOCK_CSS, detectTheme, mountDock } = PillView;
 const { createFakeDocument, createFakeWindow, countNodes } = require('./helpers/fake-dom');
 
-const NOW = Date.parse('2026-11-25T12:00:00.000Z');
+// 0.7.3's src/sidebar-action.js NAV_SELECTORS (git show e661af8:src/sidebar-action.js), in order.
+const SIDEBAR_SELECTORS_073 = [
+  '#sidebar',
+  '#sidebarroot',
+  'nav[aria-label="Primary"]',
+  'nav[aria-label="Main"]',
+  '[role="navigation"][class*="sidebar"]',
+  '[class*="sidebar"] nav'
+];
 
-function idleSnapshot(online = 3) {
-  return {
-    stateVersion: '0123456789abcdef',
-    me: { tornId: 1, name: 'P', roles: ['requester'], verification: { usable: true, requester: true, reviver: false } },
-    activeRequest: null,
-    activeTransactions: [],
-    revivers: { online },
-    queue: null
+// Records observers so a test can deliver a mutation batch, as the browser does after a DOM change.
+function withMutationObserver(window) {
+  const observers = [];
+  window.MutationObserver = class {
+    constructor(callback) { this.callback = callback; this.targets = []; observers.push(this); }
+    observe(target, options) { this.targets.push([target, options]); }
+    disconnect() { this.targets = []; }
   };
+  window.flushMutations = () => {
+    for (const observer of [...observers]) if (observer.targets.length) observer.callback([], observer);
+  };
+  window.observers = observers;
+  return window;
 }
 
-function setup({ header = true, headerWidth = 300, media = {} } = {}) {
-  const document = createFakeDocument();
-  const window = createFakeWindow({ media });
-  let slot = null;
-  if (header) {
-    slot = document.createElement('div');
-    slot.setAttribute('id', 'rr-test-header');
-    slot.rect.width = headerWidth;
-    document.body.appendChild(slot);
+function addSidebar(document, id = 'sidebar', parent = document.body) {
+  const sidebar = document.createElement('div');
+  sidebar.setAttribute('id', id);
+  for (const name of ['user', 'areas', 'lists']) {
+    const block = document.createElement('div');
+    block.setAttribute('class', `sidebar-${name}`);
+    sidebar.appendChild(block);
   }
-  const activations = [];
-  const view = mountPill({ document, window, onActivate: () => activations.push(1), headerSelectors: ['#rr-test-header'] });
-  const button = view.shadow.querySelector('.rr-pill');
-  return { document, window, slot, view, button, activations };
+  parent.appendChild(sidebar);
+  return sidebar;
 }
 
-test('mounts one shadow-root host in the header slot', () => {
-  const { document, slot, view } = setup();
+function setup({ sidebar = true, media = {}, pda = false, width = 1280 } = {}) {
+  const document = createFakeDocument();
+  const window = withMutationObserver(createFakeWindow({ media }));
+  window.innerWidth = width;
+  const side = sidebar ? addSidebar(document) : null;
+  const activations = [];
+  const view = mountDock({ document, window, pda, onActivate: () => activations.push(1) });
+  const button = view.shadow.querySelector('button');
+  return { document, window, sidebar: side, view, button, activations };
+}
+
+test('the dock uses 0.7.3\'s sidebar targets, in 0.7.3\'s order', () => {
+  assert.deepEqual([...SIDEBAR_SELECTORS], SIDEBAR_SELECTORS_073);
+});
+
+test('the dock mounts one row in Torn\'s left sidebar, second from the top as 0.7.3 did', () => {
+  const { document, sidebar, view } = setup();
   assert.equal(view.host.getAttribute('id'), HOST_ID);
-  assert.equal(view.host.parentNode, slot);
-  assert.equal(view.placement(), 'header');
+  assert.equal(view.host.parentNode, sidebar);
+  assert.equal(sidebar.children[1], view.host);
+  assert.equal(sidebar.children.length, 4);
+  assert.equal(view.placement(), 'sidebar');
   assert.equal(view.shadow.mode, 'closed');
   assert.equal(document.querySelectorAll(`#${HOST_ID}`).length, 1);
-  assert.ok(Array.isArray(HEADER_SLOT_SELECTORS) && HEADER_SLOT_SELECTORS.length > 0);
 });
 
-test('falls back to the launcher position when the header slot is missing or too narrow', () => {
-  const missing = setup({ header: false });
-  assert.equal(missing.view.placement(), 'launcher');
-  assert.equal(missing.view.host.parentNode, missing.document.body);
-  const narrow = setup({ headerWidth: 0 });
-  assert.equal(narrow.view.placement(), 'launcher');
-  assert.match(PILL_CSS, /:host\(\[data-rr-placement="launcher"\]\)\{position:fixed/);
+test('without #sidebar the dock falls back to #sidebarroot (the next 0.7.3 target)', () => {
+  const document = createFakeDocument();
+  const window = withMutationObserver(createFakeWindow());
+  const root = addSidebar(document, 'sidebarroot');
+  const view = mountDock({ document, window });
+  assert.equal(view.host.parentNode, root);
+  assert.equal(view.placement(), 'sidebar');
 });
 
-test('re-checks the slot on resize', () => {
-  const { window, slot, view } = setup({ headerWidth: 0 });
-  assert.equal(view.placement(), 'launcher');
-  slot.rect.width = 300;
-  window.dispatch('resize');
-  assert.equal(view.placement(), 'header');
-  assert.equal(view.host.parentNode, slot);
+test('the row re-mounts after Torn re-renders the sidebar\'s children, with no timer', () => {
+  const { sidebar, view, window } = setup();
+  sidebar.removeChild(view.host);
+  assert.equal(view.host.isConnected, false);
+  window.flushMutations();
+  assert.equal(view.host.parentNode, sidebar);
+  assert.equal(sidebar.children[1], view.host);
 });
 
-test('renders a view model with textContent and attributes', () => {
-  const { view, button } = setup();
-  view.update(derivePill(idleSnapshot(), 'live', NOW));
-  assert.equal(button.getAttribute('data-tone'), 'neutral');
-  assert.equal(button.getAttribute('data-syncing'), 'false');
-  assert.equal(button.getAttribute('aria-label'), 'ReviveRelay: Revive me · 3 online');
-  assert.equal(button.querySelector('.rr-label').textContent, 'Revive me');
-  assert.equal(button.querySelector('.rr-detail').textContent, '3 online');
-  assert.equal(button.querySelector('.rr-icon').firstChild.getAttribute('data-rr-icon'), 'heartbeat');
+test('the row re-mounts after Torn replaces the whole sidebar element', () => {
+  const { document, sidebar, view, window } = setup();
+  sidebar.remove();
+  const replacement = addSidebar(document);
+  window.flushMutations();
+  assert.equal(view.host.parentNode, replacement);
+  assert.equal(replacement.children[1], view.host);
+  assert.equal(document.querySelectorAll(`#${HOST_ID}`).length, 1);
+  // The observer follows the new sidebar and drops the old one.
+  const watched = window.observers.flatMap(observer => observer.targets.map(([target]) => target));
+  assert.ok(watched.includes(replacement));
+  assert.ok(!watched.includes(sidebar));
 });
 
-test('player names are rendered as text, never parsed as markup', () => {
-  const { view, button } = setup();
-  const hostile = '<img src=x onerror=alert(1)>';
-  view.update({ label: `Pay ${hostile}`, detail: '1:00 left', text: `Pay ${hostile} · 1:00 left`, tone: 'action', icon: 'cash', syncing: false, offline: false });
-  const label = button.querySelector('.rr-label');
-  assert.equal(label.textContent, `Pay ${hostile}`);
-  assert.equal(label.childNodes.length, 1);
-  assert.equal(label.childNodes[0].nodeType, 3);
-  assert.equal(button.querySelector('img'), null);
-});
-
-test('updates patch only what changed', () => {
-  const { document, view } = setup();
-  const vm = derivePill(idleSnapshot(), 'live', NOW);
-  view.update(vm);
+test('a mutation while the row is in place changes nothing (no re-insert loop)', () => {
+  const { document, view, window } = setup();
   const before = document.mutations;
-  view.update(derivePill(idleSnapshot(), 'live', NOW));
+  window.flushMutations();
+  window.flushMutations();
   assert.equal(document.mutations, before);
-  view.update(derivePill(idleSnapshot(5), 'live', NOW));
-  assert.equal(document.mutations, before + 2);
+  assert.equal(view.placement(), 'sidebar');
 });
 
-test('syncing and offline states are reflected on the pill', () => {
+test('the dock is never placed in Torn\'s header', () => {
+  const document = createFakeDocument();
+  const window = withMutationObserver(createFakeWindow());
+  const header = document.createElement('div');
+  header.setAttribute('class', 'header-buttons___qZ3xK');
+  document.body.appendChild(header);
+  const view = mountDock({ document, window });
+  assert.notEqual(view.host.parentNode, header);
+  assert.equal(view.placement(), 'launcher');
+  assert.equal(PillView.HEADER_SLOT_SELECTORS, undefined);
+  const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'lite', 'pill-view.js'), 'utf8');
+  assert.doesNotMatch(source, /header-buttons|header-navigation|headerSelectors/);
+});
+
+test('with no sidebar, the floating bottom-right launcher is used', () => {
+  const { document, view } = setup({ sidebar: false });
+  assert.equal(view.placement(), 'launcher');
+  assert.equal(view.host.parentNode, document.body);
+  assert.match(DOCK_CSS, /:host\(\[data-rr-placement="launcher"\]\)\{position:fixed[^}]*right:calc\(10px \+ env\(safe-area-inset-right, 0px\)\)[^}]*bottom:calc\(10px \+ env\(safe-area-inset-bottom, 0px\)\)/);
+});
+
+test('a hidden (zero-width) sidebar uses the launcher; a later visible sidebar gets the row on resize', () => {
+  const { sidebar, view, window } = setup();
+  sidebar.rect.width = 0;
+  window.dispatch('resize');
+  assert.equal(view.placement(), 'launcher');
+  sidebar.rect.width = 172;
+  window.dispatch('resize');
+  assert.equal(view.placement(), 'sidebar');
+  assert.equal(view.host.parentNode, sidebar);
+});
+
+test('on a TornPDA runtime the launcher is used even when Torn renders a sidebar', () => {
+  const flagged = setup({ pda: true });
+  assert.equal(flagged.view.placement(), 'launcher');
+  assert.equal(flagged.view.host.parentNode, flagged.document.body);
+  const document = createFakeDocument();
+  const window = withMutationObserver(createFakeWindow());
+  window.flutter_inappwebview = {};
+  addSidebar(document);
+  const bridged = mountDock({ document, window });
+  assert.equal(bridged.placement(), 'launcher');
+});
+
+test('0.7.3 recovery-launcher rule: a coarse pointer OR a viewport of 900 px or less uses the launcher', () => {
+  assert.equal(setup({ media: { '(pointer: coarse)': true }, width: 1280 }).view.placement(), 'launcher', 'wide touch screen');
+  assert.equal(setup({ width: 900 }).view.placement(), 'launcher', 'narrow fine-pointer window');
+  assert.equal(setup({ media: { '(pointer: coarse)': true }, width: 800 }).view.placement(), 'launcher');
+  assert.equal(setup({ width: 901 }).view.placement(), 'sidebar');
+});
+
+test('the launcher is a 44 px touch target labelled RR; the sidebar row reads ReviveRelay', () => {
+  assert.match(DOCK_CSS, /:host\(\[data-rr-placement="launcher"\]\) \.rr-dock\{[^}]*min-width:44px[^}]*min-height:44px/);
+  const { button } = setup();
+  assert.equal(button.textContent, 'ReviveRelayRR');
+  assert.match(DOCK_CSS, /:host\(\[data-rr-placement="launcher"\]\) \.rr-full,:host\(:not\(\[data-rr-placement="launcher"\]\)\) \.rr-short\{display:none\}/);
+});
+
+test('the button has a fixed accessible name and carries aria-expanded, never status', () => {
   const { view, button } = setup();
-  view.update(derivePill(idleSnapshot(), 'syncing', NOW));
-  assert.equal(button.getAttribute('data-syncing'), 'true');
-  assert.match(button.getAttribute('aria-label'), /\(syncing\)$/);
-  view.update(derivePill(idleSnapshot(), 'offline', NOW));
-  assert.equal(button.getAttribute('data-offline'), 'true');
-  assert.equal(button.querySelector('.rr-label').textContent, 'Offline');
-  assert.equal(button.querySelector('.rr-icon').firstChild.getAttribute('data-rr-icon'), 'alert');
-  assert.equal(button.querySelector('.rr-icon').childNodes.length, 1);
+  assert.equal(button.getAttribute('aria-label'), 'ReviveRelay');
+  assert.equal(button.getAttribute('aria-expanded'), 'false');
+  assert.equal(button.getAttribute('aria-live'), null);
+  assert.equal(view.update, undefined, 'the dock has no status update');
+  view.setExpanded(true);
+  assert.equal(button.getAttribute('aria-expanded'), 'true');
+  assert.equal(button.getAttribute('aria-label'), 'ReviveRelay');
+  view.setExpanded(false);
+  assert.equal(button.getAttribute('aria-expanded'), 'false');
 });
 
-test('collapsed pill stays within 30 DOM nodes in every icon state', () => {
+test('no tone colours or state styling in the dock CSS', () => {
+  assert.doesNotMatch(DOCK_CSS, /data-tone|--rr-tone|data-syncing|data-offline|rr-detail|rr-sync/);
+});
+
+test('the dock stays within 12 DOM nodes', () => {
   const { view } = setup();
-  for (const icon of ['heartbeat', 'clock', 'cash', 'check', 'alert', 'refund', 'bolt', 'shield', 'settings', 'pill', 'user-check']) {
-    view.update({ label: 'Label', detail: '1:00 left', text: 'Label · 1:00 left', tone: 'waiting', icon, syncing: true, offline: false });
-    assert.ok(countNodes(view.host) <= 30, `${icon}: ${countNodes(view.host)} nodes`);
-  }
+  assert.ok(countNodes(view.host) <= 12, String(countNodes(view.host)));
 });
 
-test('click activates; destroy removes host and listeners and is idempotent', () => {
-  const { document, window, view, button, activations } = setup();
-  button.click();
+test('click activates and stops propagation so Torn\'s sidebar handlers do not react', () => {
+  const { button, activations } = setup();
+  let stopped = false;
+  let prevented = false;
+  button.dispatchEvent({ type: 'click', target: button, preventDefault() { prevented = true; }, stopPropagation() { stopped = true; } });
+  assert.equal(prevented, true);
+  assert.equal(stopped, true);
   assert.equal(activations.length, 1);
+});
+
+test('a capture-phase window click on the host activates once, before Torn sees it', () => {
+  const { window, view, activations } = setup();
+  let stopped = false;
+  window.dispatch('click', { composedPath: () => [view.host, window], preventDefault() {}, stopPropagation() { stopped = true; } });
+  assert.equal(activations.length, 1);
+  assert.equal(stopped, true);
+  window.dispatch('click', { composedPath: () => [window], preventDefault() {}, stopPropagation() {} });
+  assert.equal(activations.length, 1, 'other clicks are ignored');
+});
+
+test('destroy removes the host, listeners and observer, and is idempotent', () => {
+  const { document, window, view, button } = setup();
   assert.equal(window.listenerCount('resize'), 1);
+  assert.equal(window.listenerCount('click'), 1);
   view.destroy();
   view.destroy();
   assert.equal(document.getElementById(HOST_ID), null);
   assert.equal(window.listenerCount('resize'), 0);
+  assert.equal(window.listenerCount('click'), 0);
   assert.equal(button.listenerCount('click'), 0);
-  view.update(derivePill(idleSnapshot(), 'live', NOW));
+  assert.ok(window.observers.every(observer => observer.targets.length === 0));
+  view.place();
+  view.setExpanded(true);
+  assert.equal(document.getElementById(HOST_ID), null);
 });
 
-test('mounting again replaces a leftover host instead of duplicating it', () => {
-  const { document, window } = setup();
-  mountPill({ document, window, headerSelectors: ['#rr-test-header'] });
+test('mounting again replaces the previous dock instead of duplicating it', () => {
+  const { document, window, view: first, sidebar } = setup();
+  const second = mountDock({ document, window });
+  window.dispatch('resize');
   assert.equal(document.querySelectorAll(`#${HOST_ID}`).length, 1);
+  assert.equal(window.listenerCount('resize'), 1);
+  assert.equal(first.host.parentNode, null);
+  assert.equal(second.host.parentNode, sidebar);
 });
 
 test('theme follows Torn body class, then prefers-color-scheme; reduced motion is flagged', () => {
@@ -144,7 +245,6 @@ test('theme follows Torn body class, then prefers-color-scheme; reduced motion i
   assert.equal(dark.view.host.getAttribute('data-theme'), 'light');
   const light = setup();
   assert.equal(light.view.host.getAttribute('data-theme'), 'light');
-  assert.equal(light.view.host.getAttribute('data-motion'), 'full');
   light.document.body.classList.add('dark-mode');
   assert.equal(detectTheme({ document: light.document, window: light.window }), 'dark');
 });
@@ -154,58 +254,4 @@ test('the lite UI source never uses innerHTML', () => {
     const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'lite', file), 'utf8');
     assert.doesNotMatch(source, /innerHTML|outerHTML|insertAdjacentHTML/, file);
   }
-});
-
-test('remounting without destroy tears down the previous instance', () => {
-  const { document, window, view: first } = setup();
-  const second = mountPill({ document, window, headerSelectors: ['#rr-test-header'] });
-  window.dispatch('resize');
-  assert.equal(document.querySelectorAll(`#${HOST_ID}`).length, 1);
-  assert.equal(window.listenerCount('resize'), 1);
-  assert.equal(first.host.parentNode, null);
-  const before = document.mutations;
-  first.update(derivePill(idleSnapshot(), 'live', NOW));
-  assert.equal(document.mutations, before);
-  assert.equal(second.host.parentNode.getAttribute('id'), 'rr-test-header');
-});
-
-test('motion CSS: only opacity/transform transitions, token durations, no infinite animation', () => {
-  assert.doesNotMatch(PILL_CSS, /infinite/);
-  assert.doesNotMatch(PILL_CSS, /rr-pulse/);
-  const transitions = [...PILL_CSS.matchAll(/transition:([^;}]*)/g)].map(m => m[1]).filter(v => v !== 'none');
-  assert.ok(transitions.length > 0);
-  for (const value of transitions) {
-    for (const part of value.split(',')) {
-      assert.match(part.trim(), /^(opacity|transform)\s/, part);
-    }
-  }
-  const durations = [...PILL_CSS.matchAll(/(?:transition|animation)(?:-duration)?:[^;}]*/g)].join(' ').match(/\b\d+(?:\.\d+)?m?s\b/g) || [];
-  for (const d of durations) {
-    const ms = d.endsWith('ms') ? parseFloat(d) : parseFloat(d) * 1000;
-    assert.ok(ms === 0 || (ms >= 120 && ms <= 250), d);
-  }
-  assert.match(PILL_CSS, /prefers-reduced-motion: reduce/);
-  assert.match(PILL_CSS, /data-motion="reduce"/);
-});
-
-test('button has a default aria-label before the first update', () => {
-  const { button } = setup();
-  assert.equal(button.getAttribute('aria-label'), 'ReviveRelay');
-});
-
-test('coarse-pointer 44px target applies to the launcher placement only', () => {
-  const match = PILL_CSS.match(/@media \(pointer: coarse\)\{([^@]*)\}/);
-  assert.ok(match, 'coarse-pointer rule present');
-  assert.match(match[1], /:host\(\[data-rr-placement="launcher"\]\) \.rr-pill\{min-height:44px\}/);
-  assert.doesNotMatch(match[1].replace(/:host\(\[data-rr-placement="launcher"\]\) \.rr-pill/, ''), /\.rr-pill\{min-height/);
-});
-
-test('click stops propagation so Torn header handlers do not react', () => {
-  const { button, activations } = setup();
-  let stopped = false;
-  let prevented = false;
-  button.dispatchEvent({ type: 'click', target: button, preventDefault() { prevented = true; }, stopPropagation() { stopped = true; } });
-  assert.equal(prevented, true);
-  assert.equal(stopped, true);
-  assert.equal(activations.length, 1);
 });

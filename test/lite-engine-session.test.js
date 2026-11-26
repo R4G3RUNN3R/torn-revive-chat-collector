@@ -47,9 +47,9 @@ function fakeApi(responses) {
   return api;
 }
 
-function makeEngine({ clock, api, session = { signedIn: true, tornId: 1001 }, storage = memoryStorage(), window = createFakeWindow(), document = createFakeDocument(), tabId = 'tab', headerSelectors = ['#rr-none'], onRender = null }) {
+function makeEngine({ clock, api, session = { signedIn: true, tornId: 1001 }, storage = memoryStorage(), window = createFakeWindow(), document = createFakeDocument(), tabId = 'tab', onRender = null }) {
   const holder = { session };
-  const engine = createLiteEngine({ api, window, document, storage, clock, tabId, headerSelectors, getSession: () => holder.session, onRender });
+  const engine = createLiteEngine({ api, window, document, storage, clock, tabId, getSession: () => holder.session, onRender });
   return { engine, document, window, storage, holder };
 }
 
@@ -199,22 +199,21 @@ test('onRender reports every render, and listener errors never break the engine'
   engine.stop();
 });
 
-test('relayout moves the pill into Torn\'s header once it renders and re-reads the theme', async () => {
+test('relayout moves the dock into Torn\'s left sidebar once it renders and re-reads the theme', async () => {
   const clock = createFakeTimers();
   const document = createFakeDocument();
   const api = fakeApi([{ notModified: false, snapshot: snapshot() }]);
-  const { engine } = makeEngine({ clock, api, document, headerSelectors: ['#rr-test-header'] });
+  const { engine } = makeEngine({ clock, api, document });
   engine.start();
   const host = document.getElementById(HOST_ID);
   assert.equal(host.getAttribute('data-rr-placement'), 'launcher');
-  const slot = document.createElement('div');
-  slot.setAttribute('id', 'rr-test-header');
-  slot.rect.width = 300;
-  document.body.appendChild(slot);
+  const sidebar = document.createElement('div');
+  sidebar.setAttribute('id', 'sidebar');
+  document.body.appendChild(sidebar);
   document.body.classList.add('dark-mode');
   engine.relayout();
-  assert.equal(host.parentNode, slot);
-  assert.equal(host.getAttribute('data-rr-placement'), 'header');
+  assert.equal(host.parentNode, sidebar);
+  assert.equal(host.getAttribute('data-rr-placement'), 'sidebar');
   assert.equal(host.getAttribute('data-theme'), 'dark');
   engine.stop();
   engine.relayout();

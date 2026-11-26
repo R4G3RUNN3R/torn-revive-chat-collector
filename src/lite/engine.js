@@ -25,7 +25,6 @@
     storage,
     clock = {},
     tabId,
-    headerSelectors,
     onActivate = () => {},
     getSession = null,
     onRender = null,
@@ -214,8 +213,7 @@
       lastView = PillState.derivePill(current.snapshot, current.freshness, at, id => firstSeen.get(id));
       const id = lastView.transactionId;
       if (lastView.refreshAt !== null && id && !firstSeen.has(id) && !isHidden()) firstSeen.set(id, at);
-      if (!view.host.isConnected) view.place();
-      view.update(lastView);
+      if (!view.host.isConnected || (!isTornPda && view.placement() === 'launcher')) view.place();
       if (typeof onRender === 'function') {
         try { onRender({ view: lastView, snapshot: current.snapshot, freshness: current.freshness }); } catch (_) { }
       }
@@ -432,7 +430,8 @@
       }
       current = gate ? { snapshot: null, freshness: gate } : { snapshot: cached ? cached.snapshot : null, freshness: 'syncing' };
       deferredPollAt = cached ? youngDataPollAt(cached.fetchedAt) : null;
-      view = PillView.mountPill({ document, window, onActivate, headerSelectors });
+      view = PillView.mountDock({ document, window, onActivate, pda: isTornPda });
+      view.setExpanded(sheetOpen);
       scheduler = Scheduler.createScheduler({ setTimeout: setTimer, clearTimeout: clearTimer, now, random, isHidden });
       jobsAddedAt = now();
       scheduler.addJob('poll', { delay: pollDelay, run: poll });
@@ -470,6 +469,7 @@
 
     function setSheetOpen(open) {
       sheetOpen = Boolean(open);
+      if (view) view.setExpanded(sheetOpen);
       if (!scheduler) return;
       scheduler.reschedule('poll');
       rescheduleLocal();

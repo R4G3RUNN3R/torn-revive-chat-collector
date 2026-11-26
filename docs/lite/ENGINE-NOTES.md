@@ -12,7 +12,7 @@ described, as that line now reads.
 
 ## src/lite/boot.js
 
-- `const RELAYOUT_DELAYS_MS = Object.freeze([150, 1000, 3000]);`: After a start or a Torn SPA navigation the header renders late: re-place the pill a few times.
+- `const RELAYOUT_DELAYS_MS = Object.freeze([150, 1000, 3000]);`: After a start or a Torn SPA navigation the sidebar renders late: re-place the dock a few times.
 - `getSession = null,`: () => { signedIn, tornId }. MUST read shared platform.storage on every call, never tab memory.
 - `const tabId = `rr-${now().toString(36)}-${random().toString(36).slice(2, 10)}`;`: One id per page load, kept across BFCache restarts.
 - `if (!event || event.persisted !== true) return;`: Only a BFCache restore needs a restart; a normal load already started.
@@ -34,7 +34,7 @@ described, as that line now reads.
 - `function leaderSessionCheck() {`: A leader whose session changed resets; a gated one steps out. True when it acted.
 - `function syncLeadership() {`: Gated tabs never hold leadership.
 - `const firstSeen = new Map();`: Per tab, not broadcast: each tab shows an outcome 5 s from its own first sight.
-- `if (!view.host.isConnected) view.place();`: Torn removed the pill without navigating
+- `if (!view.host.isConnected) view.place();`: Torn removed the dock without navigating
 - `try { onRender({ view: lastView, snapshot: current.snapshot, freshness: current.freshness }); } catc`: listener errors stay with the caller
 - `function followerStaleAfter() {`: A follower's "live" goes stale 2 × the leader's cadence (sheet speed-up ignored) after its last fetch.
 - `function freshnessDelay(ctx) {`: Handled by the 1 s tick while it runs; otherwise a one-shot job.
@@ -68,7 +68,12 @@ described, as that line now reads.
 
 ## src/lite/pill-view.js
 
-- `const HEADER_SLOT_SELECTORS = Object.freeze([`: Torn header button area, most specific first. Overridable for tests and future Torn markup.
+- `const HOST_ID = 'reviverelay-lite-root';`: 1.0.2 dock: one fixed "ReviveRelay" row in Torn's left sidebar, or a floating "RR" launcher on TornPDA, narrow touch screens or pages without a sidebar. It never shows status; the panel's status line does (MAIN `renderStateLine`). Never placed in Torn's header.
+- `const SIDEBAR_SELECTORS = Object.freeze([`: 0.7.3's `src/sidebar-action.js` NAV_SELECTORS, in order; the first match wins. Overridable for tests and future Torn markup.
+- `target.insertBefore(host, native[1] || native[0] || null);`: 0.7.3's slot: second from the top of the sidebar.
+- `return mediaMatches(window, '(pointer: coarse)') || Number(window.innerWidth) <= 900;`: 0.7.3's `isRecoveryLauncherContext` condition (coarse pointer OR viewport ≤ 900 px; TornPDA is checked first). Unlike 0.7.3, which showed its launcher in addition to the sidebar button, 1.0.2 shows exactly one control: the launcher replaces the row.
+- `function observe(sidebar) {`: Torn re-renders its sidebar: watch the sidebar and its parent (childList only) and re-place on the mutation batch. No timer; 0.7.3's 5 s setInterval is not needed because the engine also re-places on every render (when the host is detached, or while it is the launcher outside TornPDA, so a sidebar that appears late takes the row on the next render or visibility change) and boot on every navigation. place() is a no-op while the row is in place, so its own insert cannot loop.
+- `function onWindowClick(event) {`: As 0.7.3: a capture-phase window listener sees the click before Torn's sidebar handlers can; it stops propagation, so the button's own listener does not run twice.
 - `try { onActivate(); } catch (_) { }`: activation errors stay with the caller
 
 ## src/lite/scheduler.js

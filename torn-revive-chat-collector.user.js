@@ -139,7 +139,7 @@
     submittingRequest: false,
     settingsOpen: false,
     settingsSection: null,
-    // The panel starts closed on every page; the header pill opens it.
+    // The panel starts closed on every page; the sidebar dock (or the RR launcher) opens it.
     minimized: true,
     panelPosition: null,
     panelTab: 'request'
@@ -150,6 +150,8 @@
   let initPromise = null;
   let liteBoot = null;
   let latestPillStateVersion = null;
+  let lastPillView = null;
+  let dockedAt = null;
   let panelStateVersion = null;
   let statusMessage = '';
   let statusIsError = false;
@@ -968,8 +970,29 @@
     if (open && !panel) createPanel();
     state.minimized = !open;
     if (panel) panel.style.display = open ? '' : 'none';
-    if (open) applyPanelPosition(state.panelPosition);
+    if (open) {
+      dockedAt = dockedPanelPosition();
+      applyPanelPosition();
+    }
     if (liteBoot) liteBoot.setPanelOpen(open);
+  }
+
+  // As 0.7.3's dock: on desktop the panel opens beside the sidebar row (over any saved position).
+  function dockedPanelPosition() {
+    const dock = document.getElementById('reviverelay-lite-root');
+    if (dock?.getAttribute('data-rr-placement') !== 'sidebar' || !dock.parentNode) return null;
+    return { x: dock.parentNode.getBoundingClientRect().right + 8, y: dock.getBoundingClientRect().top };
+  }
+
+  // The dock never shows status (1.0.2). What the pill used to say shows at the top of the panel,
+  // for the states the panel does not already spell out (a transaction, offline, signed out by the server).
+  function renderStateLine() {
+    const line = document.getElementById('rr-state-line');
+    if (!line) return;
+    const view = lastPillView;
+    const text = view && (view.state || view.offline || view.sheet === 'session-expired') ? String(view.text || '') : '';
+    line.textContent = text && view.syncing ? `${text} · updating` : text;
+    line.hidden = !text;
   }
 
   function panelTabForPill(view) {
@@ -979,7 +1002,7 @@
     return 'request';
   }
 
-  // The header pill is the 1.0 entry point: it toggles the panel on the tab its state points at.
+  // The dock is the entry point: it toggles the panel on the tab the engine's state points at.
   function handlePillActivate() {
     if (panel && !state.minimized) {
       setPanelOpen(false);
@@ -999,7 +1022,8 @@
   }
 
   // Runs after every pill render (each poll, and every second while the panel is open).
-  function handlePillRender({ snapshot }) {
+  function handlePillRender({ view, snapshot }) {
+    lastPillView = view || null;
     latestPillStateVersion = snapshot?.stateVersion || null;
     // Pro or role changes made elsewhere reach the panel promptly: drop the slow-refresh throttle.
     const proRolesKey = JSON.stringify([snapshot?.pro ?? null, snapshot?.me?.roles ?? null]);
@@ -1008,6 +1032,7 @@
     announceUpdate();
     // A hidden page keeps its old version, so it catches up once visible.
     if (!panel || state.minimized || pageHidden()) return;
+    renderStateLine();
     const invoice = state.currentInvoice;
     const now = Date.now();
     const pastExpiry = now - Date.parse(invoice?.expiresAt);
@@ -1551,6 +1576,7 @@
 
   function renderLiveState() {
     if (!panel) return;
+    renderStateLine();
     renderSummary();
     renderRequestPanel();
     renderReviverPanel();
@@ -1628,7 +1654,9 @@
     return { width: rect.width || 420, height: rect.height || 560 };
   }
 
-  function applyPanelPosition(position = state.panelPosition) {
+  // A docked open (dockedAt) never replaces the user's saved drag position. The panel's height is
+  // capped to the viewport below its top, so growing content scrolls inside #rr-body.
+  function applyPanelPosition(position = dockedAt || state.panelPosition) {
     if (!panel) return;
     if (isTornPdaNow()) {
       state.panelPosition = null;
@@ -1640,9 +1668,10 @@
     }
     const fallback = { x: Math.max(8, (window.innerWidth || 1200) - 438), y: 90 };
     const next = Core.clampPanelPosition(position || fallback, panelViewport(), panelSize(), 8);
-    state.panelPosition = next;
+    if (!dockedAt) state.panelPosition = next;
     panel.style.left = `${Math.round(next.x)}px`;
     panel.style.top = `${Math.round(next.y)}px`;
+    panel.style.maxHeight = `calc(100vh - ${Math.round(next.y) + 8}px)`;
     panel.style.right = 'auto';
     panel.style.bottom = 'auto';
   }
@@ -1655,7 +1684,8 @@
   function resetPanelPosition() {
     state.panelPosition = null;
     storage.set(KEYS.panelPosition, null);
-    applyPanelPosition(null);
+    dockedAt = dockedPanelPosition();
+    applyPanelPosition(dockedAt);
     persistPanelPosition();
   }
 
@@ -1670,7 +1700,8 @@
       dragging = true;
       startX = event.clientX;
       startY = event.clientY;
-      origin = state.panelPosition || { x: panel.offsetLeft, y: panel.offsetTop };
+      origin = { x: parseFloat(panel.style.left) || 0, y: parseFloat(panel.style.top) || 0 };
+      dockedAt = null;
       try { header.setPointerCapture(event.pointerId); } catch (_) {}
     });
     header.addEventListener('pointermove', event => {
@@ -1754,19 +1785,19 @@
 
   function createPanel() {
     addPanelStyle(`
-      #rr-panel{position:fixed;z-index:999999;width:min(420px,calc(100vw - 16px));max-height:calc(100vh - 16px);background:#11161b;color:#d9e0e6;border:1px solid #3e4851;border-radius:9px;box-shadow:0 14px 40px rgba(0,0,0,.45);font:12px/1.45 Arial,sans-serif;overflow:hidden}
+      #rr-panel{position:fixed;z-index:999999;display:flex;flex-direction:column;width:min(420px,calc(100vw - 16px));max-height:calc(100vh - 16px);background:#11161b;color:#d9e0e6;border:1px solid #3e4851;border-radius:9px;box-shadow:0 14px 40px rgba(0,0,0,.45);font:12px/1.45 Arial,sans-serif;overflow:hidden}
       #rr-header{display:flex;align-items:center;gap:9px;padding:9px 10px;background:#171d23;border-bottom:1px solid #343d45;cursor:move;user-select:none}
       .rr-brand{font-weight:800;letter-spacing:.06em}.rr-brand small{display:block;font-size:9px;color:#7f8b95;font-weight:500}.rr-spacer{flex:1}
       #rr-connection-pill{font-size:9px;padding:2px 6px;border-radius:8px;background:#3a2424;color:#eaa}.rr-connected{background:#21382d!important;color:#9ed8b6!important}
       #rr-settings-toggle,#rr-minimize{border:1px solid #46515b;background:#20272e;color:#d9e0e6;border-radius:5px;padding:2px 7px;cursor:pointer}
       #rr-settings-toggle{font-size:14px;line-height:1.2;padding:3px 7px}
-      #rr-body{overflow:auto;max-height:calc(100vh - 58px)}.rr-tabs{display:grid;grid-template-columns:repeat(4,1fr);border-bottom:1px solid #303840;background:#12171c}
+      #rr-body{overflow:auto;min-height:0;flex:1 1 auto}.rr-tabs{display:grid;grid-template-columns:repeat(4,1fr);border-bottom:1px solid #303840;background:#12171c}
       .rr-tabs button{border:0;border-right:1px solid #2a3239;background:transparent;color:#87939d;padding:8px 4px;font:inherit}.rr-tabs button:last-child{border-right:0}.rr-tabs .rr-tab-active{color:#f0f4f7;background:#1d252c}
       .rr-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:#303840}.rr-summary>div{background:#151b20;padding:7px;text-align:center}.rr-summary span{display:block;color:#76838d;font-size:9px}.rr-summary strong{font-size:11px}
       .rr-panel-content{display:none!important;padding:8px}.rr-panel-content.rr-panel-active{display:block!important}.rr-card{background:#171d22;border:1px solid #303a42;border-radius:7px;padding:9px;margin-bottom:8px}.rr-card-title{font-weight:800;margin-bottom:6px;color:#eef2f5}
       .rr-settings-drawer{display:none;padding:8px}.rr-settings-drawer.rr-settings-open{display:block}.rr-settings-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:2px 1px 8px}.rr-settings-heading strong{display:block;font-size:13px}.rr-settings-heading span{display:block;color:#7f8b95;font-size:9px;margin-top:2px}.rr-settings-heading button{border:1px solid #48545e;background:#242d34;color:#e6ebee;border-radius:5px;padding:4px 7px;cursor:pointer}
       .rr-settings-section{background:#171d22;border:1px solid #303a42;border-radius:7px;margin-bottom:7px;overflow:hidden}.rr-settings-section>summary{cursor:pointer;list-style:none;padding:9px;font-weight:800;color:#eef2f5}.rr-settings-section>summary::-webkit-details-marker{display:none}.rr-settings-section>summary:after{content:'+';float:right;color:#7f8b95}.rr-settings-section[open]>summary:after{content:'−'}.rr-settings-body{padding:0 9px 9px;border-top:1px solid #283139}.rr-settings-body p{margin:8px 0}.rr-permission-list{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin:8px 0;padding:7px;border:1px solid #303a42;border-radius:5px;background:#11161b}.rr-permission-list strong{grid-column:1/-1}.rr-permission-list span{font-size:10px;color:#aeb8c0}.rr-setup-choice{margin-top:9px;padding-top:9px;border-top:1px solid #303a42}.rr-warning{margin:8px 0;padding:7px;border:1px solid #806c3b;border-radius:5px;background:#2a2416;color:#dbc783}
-      .rr-kv{display:flex;justify-content:space-between;gap:12px;padding:3px 0}.rr-kv span{color:#85919b}.rr-kv strong{text-align:right}.rr-muted{color:#798690;font-size:10px}.rr-status{padding:6px 9px;color:#8fa9ba;border-top:1px solid #303840;min-height:16px}.rr-status-error{color:#e4a1a1}
+      .rr-kv{display:flex;justify-content:space-between;gap:12px;padding:3px 0}.rr-kv span{color:#85919b}.rr-kv strong{text-align:right}.rr-muted{color:#798690;font-size:10px}.rr-status{padding:6px 9px;color:#8fa9ba;border-top:1px solid #303840;min-height:16px}.rr-status-error{color:#e4a1a1}.rr-state-line{padding:7px 10px;background:#1d252c;border-bottom:1px solid #303840;color:#eef2f5;font-weight:700}.rr-state-line[hidden]{display:none}
       .rr-actions,.rr-form-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}.rr-label{display:block;color:#9aa6af;margin:7px 0 3px}.rr-card input,.rr-card select,.rr-card textarea,.rr-settings-section input,.rr-settings-section select,.rr-settings-section textarea{box-sizing:border-box;width:100%;border:1px solid #3a4650;background:#0f1418;color:#e0e5e9;border-radius:5px;padding:6px;font:inherit}.rr-card button,.rr-settings-section button{border:1px solid #48545e;background:#242d34;color:#e6ebee;border-radius:5px;padding:5px 8px;font:inherit;cursor:pointer}.rr-card button:disabled,.rr-settings-section button:disabled{opacity:.45;cursor:not-allowed}
       .rr-certified-card{border-color:#806c3b;box-shadow:inset 3px 0 0 #b89a52}.rr-certified-line,.rr-queue-head{display:flex;align-items:center;justify-content:space-between;gap:8px}.rr-star{color:#d5b461}.rr-chip{font-size:8px;border:1px solid #88743e;color:#d9bc72;border-radius:8px;padding:1px 5px}.rr-offer{font-size:15px;font-weight:800;margin-top:7px}.rr-comment{margin:4px 0;color:#bcc5cc}.rr-deadlines{margin-top:6px}.rr-deadlines>div{display:flex;justify-content:space-between;color:#8e9aa3}.rr-invoice{margin-top:7px;padding-top:7px;border-top:1px solid #313a42}
       .rr-queue-controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-top:8px}.rr-queue-controls label{font-size:9px;color:#89959e}.rr-queue-controls select,.rr-queue-controls input{margin-top:2px}.rr-queue-controls button{align-self:end}.rr-queue-group-title{display:flex;justify-content:space-between;align-items:center;margin:10px 2px 6px;color:#b7c1c8;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.04em}.rr-queue-group-title span{color:#74818b}
@@ -1784,6 +1815,7 @@
       <button id="rr-minimize" type="button" aria-label="Minimize ReviveRelay">▾</button>
     </div>
     <div id="rr-body">
+      <div id="rr-state-line" class="rr-state-line" hidden></div>
       <div class="rr-tabs" role="tablist">
         <button data-rr-tab="request" role="tab" aria-selected="false">Request</button>
         <button data-rr-tab="reviver" role="tab" aria-selected="false">Reviver</button>
@@ -1874,7 +1906,8 @@
     });
 
     window.addEventListener('resize', () => {
-      applyPanelPosition(state.panelPosition);
+      if (dockedAt) dockedAt = dockedPanelPosition() || dockedAt;
+      applyPanelPosition();
       persistPanelPosition();
     });
     renderAll();
@@ -1891,8 +1924,8 @@
     return { signedIn: Boolean(sharedSessionToken()), tornId: identity?.tornId ?? null };
   }
 
-  // ReviveRelay 1.0: one engine (scheduler, tab leadership, /v1/state) drives the header pill.
-  // The panel below has no timers of its own; it refreshes while open when the pill's state changes.
+  // ReviveRelay 1.0: one engine (scheduler, tab leadership, /v1/state) drives the sidebar dock.
+  // The panel below has no timers of its own; it refreshes while open when the engine's state changes.
   function startLite() {
     const boot = LiteBoot.createLiteBoot({
       platform,
@@ -1935,15 +1968,14 @@
     checkUpdates(false).catch(() => {});
   }
 
-  // A failed init (e.g. TornPDA storage timeout) leaves a "tap to retry" pill (no storage needed) and
+  // A failed init (e.g. TornPDA storage timeout) leaves a dock that retries on a tap (no storage needed) and
   // retries on a tap and whenever the page is shown again, until init starts. No timers.
   function retryInitWhenShown() {
     if (liteBoot) return;
     try {
-      if (!retryPill?.host.isConnected) retryPill = globalThis.ReviveRelayLitePillView.mountPill({ document, window, onActivate: start });
-      retryPill.update({ label: 'ReviveRelay', detail: 'tap to retry', text: 'ReviveRelay · tap to retry', tone: 'attention', icon: 'alert' });
+      if (!retryPill?.host.isConnected) retryPill = globalThis.ReviveRelayLitePillView.mountDock({ document, window, onActivate: start, pda: isTornPdaNow() });
     } catch (error) {
-      console.error('[ReviveRelay] Retry pill unavailable.', error);
+      console.error('[ReviveRelay] Retry dock unavailable.', error);
     }
     if (initRetry) return;
     initRetry = () => { if (!pageHidden()) start(); };
