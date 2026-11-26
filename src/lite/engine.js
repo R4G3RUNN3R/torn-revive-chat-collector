@@ -64,6 +64,8 @@
     let sheetOpen = false;
     let lastFetchedAt = null;
     let resyncSoon = false;
+    // A follower asked for a refresh: poll once the minimum interval since the last poll allows.
+    let refreshSoon = false;
     let jobsAddedAt = 0;
     // Set at boot when the cached snapshot is younger than the cadence: the first poll waits for it.
     let deferredPollAt = null;
@@ -135,7 +137,8 @@
         clearTimeout: clearTimer,
         onChange: onLeaderChange,
         onSnapshot: onBroadcast,
-        onStateRequest
+        onStateRequest,
+        onRefreshRequest
       });
       leader.start();
     }
@@ -274,7 +277,7 @@
     function pollDelay() {
       // A gated or session-changed leader still gets one poll slot: poll() makes it step out.
       if (!isLeader()) return null;
-      if (resyncSoon && !isHidden()) return Scheduler.POLL_BOUNDS_MS.min;
+      if ((resyncSoon || refreshSoon) && !isHidden()) return Scheduler.POLL_BOUNDS_MS.min;
       if (deferredPollAt !== null && !isHidden()) return deferredPollAt - jobsAddedAt;
       return cadenceMs(isHidden());
     }
@@ -297,6 +300,7 @@
       if (!started || !isLeader()) return;
       if (leaderSessionCheck()) return;
       deferredPollAt = null;
+      refreshSoon = false;
       const runEpoch = epoch;
       const requestedAt = now();
       let result;
@@ -359,6 +363,14 @@
       if (!started || !isLeader()) return;
       if (leaderSessionCheck()) return;
       leader.broadcast(statePayload(current.snapshot, current.freshness, lastFetchedAt));
+    }
+
+    // A follower changed server state: poll no sooner than the minimum after the last poll.
+    function onRefreshRequest() {
+      if (!started || !isLeader() || !scheduler) return;
+      refreshSoon = true;
+      deferredPollAt = null;
+      scheduler.reschedule('poll');
     }
 
     function onBroadcast(payload) {
@@ -427,6 +439,7 @@
       epoch += 1;
       lastFetchedAt = null;
       resyncSoon = false;
+      refreshSoon = false;
       authExpired = false;
       knownSession = session();
       const gate = sessionGate();
@@ -491,8 +504,11 @@
       rescheduleLocal();
     }
 
+    // A follower cannot poll, so it asks the leader; gated and hidden tabs ask nothing.
     function refresh() {
-      if (scheduler && isLeader()) scheduler.trigger('poll');
+      if (!scheduler) return;
+      if (isLeader()) scheduler.trigger('poll');
+      else if (leader && !sessionGate() && !isHidden()) leader.requestRefresh();
     }
 
     // Torn re-renders its header on SPA navigation: re-attach the pill and re-read the theme.

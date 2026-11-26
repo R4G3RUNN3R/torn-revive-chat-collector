@@ -36,7 +36,8 @@
     electionMs = DEFAULTS.electionMs,
     onChange = () => {},
     onSnapshot = () => {},
-    onStateRequest = () => {}
+    onStateRequest = () => {},
+    onRefreshRequest = () => {}
   } = {}) {
     const id = String(tabId);
     let mode = 'solo';
@@ -100,14 +101,16 @@
       stateChannel = null;
     }
 
-    // rr-state carries two messages: { type: 'state', payload } from the leader, and
-    // { type: 'state-request' } from a joining follower, which only the leader answers.
+    // rr-state carries three messages: { type: 'state', payload } from the leader, and
+    // { type: 'state-request' } from a joining follower or { type: 'refresh-request' } from a
+    // follower that changed server state, which only the leader answers.
     function onStateMessage(event) {
       const message = event && event.data;
       if (!message || typeof message !== 'object' || message.from === id || !started) return;
-      if (message.type === 'state-request') {
+      if (message.type === 'state-request' || message.type === 'refresh-request') {
         if (!leader) return;
-        try { onStateRequest(); } catch (_) { /* listener errors stay local */ }
+        const listener = message.type === 'state-request' ? onStateRequest : onRefreshRequest;
+        try { listener(); } catch (_) { /* listener errors stay local */ }
         return;
       }
       if (message.type !== 'state' || leader) return;
@@ -437,11 +440,19 @@
       return true;
     }
 
+    // A follower asks the leader to poll soon (e.g. after this tab created a request).
+    function requestRefresh() {
+      if (!started || leader || !stateChannel) return false;
+      post(stateChannel, { type: 'refresh-request' });
+      return true;
+    }
+
     return Object.freeze({
       start,
       stop,
       onVisibilityChange,
       broadcast,
+      requestRefresh,
       isLeader: () => leader,
       mode: () => mode,
       tabId: () => id

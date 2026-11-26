@@ -689,3 +689,44 @@ test('a leader hand-off between running tabs still polls promptly despite a fres
   a.engine.stop();
   b.engine.stop();
 });
+
+test('a follower\'s refresh() asks the leader to poll, bounded by the minimum poll interval', async () => {
+  const clock = createFakeTimers();
+  const hub = createChannelHub();
+  const locks = createLockManager();
+  function BroadcastChannel(name) { return hub.createChannel(name); }
+  const storage = memoryStorage();
+  const tabs = ['a', 'b'].map(tabId => {
+    const api = fakeApi([{ notModified: false, snapshot: snapshot() }]);
+    const window = createFakeWindow({ BroadcastChannel, locks });
+    window.AbortController = function AbortController() { return createAbortController(); };
+    return { api, ...makeEngine({ clock, api, storage, window, tabId }) };
+  });
+  tabs.forEach(tab => tab.engine.start());
+  await clock.advance(0);
+  assert.deepEqual(tabs.map(tab => tab.engine.isLeader()), [true, false]);
+  assert.equal(tabs[0].api.calls, 1);
+
+  // Straight after a poll: the leader waits out the 3 s minimum, then polls once.
+  tabs[1].engine.refresh();
+  tabs[1].engine.refresh();
+  await clock.advance(0);
+  assert.equal(tabs[0].api.calls, 1);
+  await clock.advance(3000);
+  assert.equal(tabs[0].api.calls, 2);
+  assert.equal(tabs[1].api.calls, 0);
+
+  // Later: the request polls at once.
+  await clock.advance(10000);
+  tabs[1].engine.refresh();
+  await clock.advance(0);
+  assert.equal(tabs[0].api.calls, 3);
+
+  // A hidden follower posts nothing.
+  const before = hub.log.filter(entry => entry.data.type === 'refresh-request').length;
+  tabs[1].document.setVisibility('hidden');
+  tabs[1].engine.refresh();
+  await clock.advance(0);
+  assert.equal(hub.log.filter(entry => entry.data.type === 'refresh-request').length, before);
+  tabs.forEach(tab => tab.engine.stop());
+});
