@@ -312,6 +312,32 @@ async function getTransactionForUser(pool, { transactionId, userId }) {
   };
 }
 
+// Closed transactions the client still has to show: an outcome (Revived / Refunded) for
+// 30 s after it closed, and a reportable failure (Needs attention) for one hour.
+const RECENTLY_CLOSED_WINDOW_MS = Object.freeze({ OUTCOME: 30 * 1000, REPORTABLE: 60 * 60 * 1000 });
+const RECENT_OUTCOME_STATES = Object.freeze(['COMPLETED', 'REFUNDED']);
+const RECENT_REPORTABLE_STATES = Object.freeze(['REPORTABLE_NO_ATTEMPT', 'REPORTABLE_MISSING_REFUND']);
+
+async function listRecentlyClosedTransactionIdsForUser(pool, userId, { now = new Date() } = {}) {
+  if (!(now instanceof Date) || Number.isNaN(now.getTime())) throw new Error('now must be a valid Date');
+  const outcomeSince = new Date(now.getTime() - RECENTLY_CLOSED_WINDOW_MS.OUTCOME);
+  const reportableSince = new Date(now.getTime() - RECENTLY_CLOSED_WINDOW_MS.REPORTABLE);
+  const result = await pool.query(`
+    SELECT id
+    FROM transactions
+    WHERE (requester_id = $1 OR reviver_id = $1)
+      AND closed_at IS NOT NULL
+      AND closed_at <= $2
+      AND (
+        (state = ANY($3::text[]) AND closed_at > $4)
+        OR (state = ANY($5::text[]) AND closed_at > $6)
+      )
+    ORDER BY closed_at DESC, id ASC
+    LIMIT 10
+  `, [userId, now, RECENT_OUTCOME_STATES, outcomeSince, RECENT_REPORTABLE_STATES, reportableSince]);
+  return result.rows.map(row => row.id);
+}
+
 async function listOpenTransactionIdsForUser(pool, userId) {
   const result = await pool.query(`
     SELECT id
@@ -339,16 +365,21 @@ function createTransactionRepository(pool) {
     },
     listOpenTransactionIdsForUser(userId) {
       return listOpenTransactionIdsForUser(pool, userId);
+    },
+    listRecentlyClosedTransactionIdsForUser(userId, options) {
+      return listRecentlyClosedTransactionIdsForUser(pool, userId, options);
     }
   };
 }
 
 module.exports = {
   REQUESTER_STATUS_STALE_MS,
+  RECENTLY_CLOSED_WINDOW_MS,
   acceptRequest,
   listAvailableRequests,
   countAvailableRequests,
   getTransactionForUser,
   listOpenTransactionIdsForUser,
+  listRecentlyClosedTransactionIdsForUser,
   createTransactionRepository
 };
