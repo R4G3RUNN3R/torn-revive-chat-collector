@@ -10,26 +10,12 @@
   const TORN_ID_PATTERN = /^[1-9][0-9]{0,11}$/;
   const BADGE_CACHE = Object.freeze({ ttlMs: 10 * 60 * 1000, maxEntries: 200 });
 
-  function directApi() {
-    if (typeof globalThis !== 'undefined' &&
-        globalThis.ReviveRelayDirectApiClient &&
-        typeof globalThis.ReviveRelayDirectApiClient.mapHttpError === 'function') {
-      return globalThis.ReviveRelayDirectApiClient;
-    }
-    if (typeof require === 'function') return require('../direct-api-client');
-    throw new Error('ReviveRelay direct API client unavailable');
-  }
+
+  const directApi = () => globalThis.ReviveRelayDirectApiClient || require('../direct-api-client');
 
   function clientError(code, options) {
     const { DirectApiClientError } = directApi();
     return new DirectApiClientError(code, options);
-  }
-
-  function parseBody(response) {
-    if (response && response.body && typeof response.body === 'object') return response.body;
-    const raw = response && typeof response.responseText === 'string' ? response.responseText : '';
-    if (!raw) return {};
-    try { return JSON.parse(raw); } catch (_) { return {}; }
   }
 
   function createStateClient({ baseUrl, request, getToken = () => '', clientVersion = '', releaseChannel = '', now = () => Date.now() } = {}) {
@@ -70,7 +56,7 @@
         if (!sentVersion) throw clientError('INVALID_STATE_RESPONSE', { status, retryable: true });
         return Object.freeze({ notModified: true, stateVersion: sentVersion });
       }
-      const body = parseBody(response);
+      const body = directApi().safeParseBody(response);
       if (status < 200 || status >= 300) throw directApi().mapHttpError(status, body);
       if (!body || typeof body !== 'object' || Array.isArray(body) || !STATE_VERSION_PATTERN.test(String(body.stateVersion || ''))) {
         throw clientError('INVALID_STATE_RESPONSE', { status, retryable: true });
@@ -97,7 +83,7 @@
       if (cached) badges.delete(key);
       const response = await send(`/v1/players/${key}/badge`);
       const status = Number(response && response.status) || 0;
-      const body = parseBody(response);
+      const body = directApi().safeParseBody(response);
       if (status < 200 || status >= 300) throw directApi().mapHttpError(status, body);
       const badge = Object.freeze({
         tornId: Number(key),

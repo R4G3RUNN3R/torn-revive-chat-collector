@@ -17,12 +17,8 @@
     return hash;
   }
 
-  function defaultTabId() {
-    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-  }
-
   function createTabLeader({
-    tabId = defaultTabId(),
+    tabId,
     locks = null,
     createChannel = null,
     createAbortController = typeof AbortController === 'function' ? () => new AbortController() : null,

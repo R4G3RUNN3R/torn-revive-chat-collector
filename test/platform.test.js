@@ -369,3 +369,11 @@ test('late native write failure cannot roll back a newer GM fallback write', asy
   assert.equal(gm.preset,'preset-b');
   assert.equal(gm[Platform.FALLBACK_DIRTY_KEY],true);
 });
+
+test('the platform has no panel-only addStyle; MAIN styles its own panel', () => {
+  const platform = Platform.createPlatform({ globalObject: {}, window: null, document: null, gm: { xmlHttpRequest: () => {} } });
+  assert.equal('addStyle' in platform, false);
+  const main = require('node:fs').readFileSync(require('node:path').resolve(__dirname, '..', 'torn-revive-chat-collector.user.js'), 'utf8');
+  assert.match(main, /function addPanelStyle\(css\)/);
+  assert.doesNotMatch(main, /platform\.addStyle/);
+});

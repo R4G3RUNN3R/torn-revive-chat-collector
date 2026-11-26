@@ -353,15 +353,6 @@
       onError
     });
 
-    function addStyle(css) {
-      if (typeof gm.addStyle === 'function') return gm.addStyle(css);
-      if (!document || !document.head) return null;
-      const style = document.createElement('style');
-      style.textContent = String(css || '');
-      document.head.appendChild(style);
-      return style;
-    }
-
     function openUrl(url) {
       if (!window) return false;
       let target;
@@ -389,7 +380,6 @@
       storage,
       request,
       notify,
-      addStyle,
       openUrl,
       initialize: () => storage.initialize()
     });

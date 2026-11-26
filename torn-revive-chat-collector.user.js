@@ -84,7 +84,6 @@
       getValue: typeof GM_getValue === 'function' ? GM_getValue : null,
       setValue: typeof GM_setValue === 'function' ? GM_setValue : null,
       xmlHttpRequest: typeof GM_xmlhttpRequest === 'function' ? GM_xmlhttpRequest : null,
-      addStyle: typeof GM_addStyle === 'function' ? GM_addStyle : null,
       notification: typeof GM_notification === 'function' ? GM_notification : null
     },
     storageKeys: Object.values(KEYS),
@@ -1728,8 +1727,17 @@
     try { return Platform.detectRuntime(globalThis).isTornPda; } catch (_) { return false; }
   }
 
+  // Panel-only: GM_addStyle, or a <style> in <head>.
+  function addPanelStyle(css) {
+    if (typeof GM_addStyle === 'function') return GM_addStyle(css);
+    const style = document.createElement('style');
+    style.textContent = css;
+    document.head.appendChild(style);
+    return style;
+  }
+
   function createPanel() {
-    platform.addStyle(`
+    addPanelStyle(`
       #rr-panel{position:fixed;z-index:999999;width:min(420px,calc(100vw - 16px));max-height:calc(100vh - 16px);background:#11161b;color:#d9e0e6;border:1px solid #3e4851;border-radius:9px;box-shadow:0 14px 40px rgba(0,0,0,.45);font:12px/1.45 Arial,sans-serif;overflow:hidden}
       #rr-header{display:flex;align-items:center;gap:9px;padding:9px 10px;background:#171d23;border-bottom:1px solid #343d45;cursor:move;user-select:none}
       .rr-brand{font-weight:800;letter-spacing:.06em}.rr-brand small{display:block;font-size:9px;color:#7f8b95;font-weight:500}.rr-spacer{flex:1}

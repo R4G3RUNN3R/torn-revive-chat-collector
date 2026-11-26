@@ -42,11 +42,7 @@
 
   let current = null;
 
-  function dependency(globalName, path) {
-    if (typeof globalThis !== 'undefined' && globalThis[globalName]) return globalThis[globalName];
-    if (typeof require === 'function') return require(path);
-    throw new Error(`${globalName} unavailable`);
-  }
+  const dependency = (globalName, path) => globalThis[globalName] || require(path);
 
   function mediaMatches(window, query) {
     try {

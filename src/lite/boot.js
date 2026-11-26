@@ -7,11 +7,7 @@
 
   const RELAYOUT_DELAYS_MS = Object.freeze([150, 1000, 3000]);
 
-  function dependency(globalName, path) {
-    if (typeof globalThis !== 'undefined' && globalThis[globalName]) return globalThis[globalName];
-    if (typeof require === 'function') return require(path);
-    throw new Error(`${globalName} unavailable`);
-  }
+  const dependency = (globalName, path) => globalThis[globalName] || require(path);
 
   function createLiteBoot({
     platform,
