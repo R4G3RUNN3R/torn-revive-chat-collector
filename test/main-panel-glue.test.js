@@ -359,3 +359,23 @@ test('a Pro or role change between renders lets the next refresh reload slow dat
   await harness.clock.flush();
   assert.deepEqual(slowCounts(harness), [3, 3, 3], 'role change reloads');
 });
+
+test('a tab switch during an in-flight refresh loads the newly selected tab once afterwards', async () => {
+  const harness = await bootMain();
+  harness.view = { sheet: 'reviver-queue' };
+  await openPanel(harness);
+  let release;
+  harness.pending = new Promise(resolve => { release = resolve; });
+  // Slow data is throttled, so this Reviver refresh is held on its queue request, after the tab was read.
+  harness.main.handlePillRender({ snapshot: { stateVersion: 'next' } });
+  await harness.clock.flush();
+  assert.equal(harness.main.state.panelTab, 'reviver');
+  harness.main.activatePanelTab('request');
+  harness.main.activatePanelTab('reviver');
+  harness.main.activatePanelTab('request');
+  harness.pending = null;
+  release();
+  await harness.clock.flush();
+  assert.equal(harness.count('GET /v1/requests/active'), 1);
+  assert.match(requesterMarkup(harness), /id="rr-request-revive"/);
+});

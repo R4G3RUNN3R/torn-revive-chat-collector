@@ -941,6 +941,8 @@
   // On each pill state change the open panel refreshes what its visible tab shows; hidden pages nothing.
   function refreshPanelData() {
     if (pageHidden()) return Promise.resolve();
+    // The tab this call's flight loaded; a tab switch during the flight gets one follow-up refresh.
+    let loadedTab = null;
     return runSingleFlightPoll('panel', async () => {
       syncPanelSession();
       if (!state.sessionToken) return;
@@ -954,6 +956,7 @@
       }
       if (!runtimeCompatible()) return;
       const tab = state.panelTab;
+      loadedTab = tab;
       const reviverSide = tab === 'reviver' || tab === 'activity';
       if (tab === 'request' || tab === 'activity') await refreshActiveRequest();
       if (reviverSide) await refreshReviverQueue();
@@ -963,7 +966,10 @@
       if (Number(error?.status) === 401) clearSession('Your ReviveRelay session expired. Verify & connect again.');
       else handleApiFailure(error, 'panel.refresh', 'Could not refresh ReviveRelay.');
     // Live sections only: never rebuild Settings form controls while someone types in them.
-    }).then(() => renderLiveState());
+    }).then(() => {
+      renderLiveState();
+      if (loadedTab && loadedTab !== state.panelTab && panel && !state.minimized) return refreshPanelData();
+    });
   }
 
   function setPanelOpen(open) {
