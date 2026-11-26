@@ -69,6 +69,12 @@
     let deferredPollAt = null;
     // Set when the server rejected the session: no polling until resetSession() or a restart.
     let authExpired = false;
+    // The session this run started with; a different one seen later restarts the engine.
+    let knownSession = null;
+    // When resetSession() last ran: an expiry of a request sent before it is about the old session.
+    let sessionSince = null;
+    // While gated, a passive listener on the state channel (gated tabs never lead).
+    let gatedChannel = null;
 
     function session() {
       if (typeof getSession !== 'function') return { signedIn: true, tornId: null };
@@ -102,6 +108,89 @@
 
     function isLeader() {
       return Boolean(leader && leader.isLeader());
+    }
+
+    function sessionChanged() {
+      if (!knownSession) return false;
+      const value = session();
+      return value.signedIn !== knownSession.signedIn || value.tornId !== knownSession.tornId;
+    }
+
+    // Every broadcast names the session it belongs to, so other users' tabs can ignore it.
+    function statePayload(snapshot, freshness, fetchedAt, extra = {}) {
+      return { snapshot, freshness, fetchedAt, tornId: session().tornId, ...extra };
+    }
+
+    function joinLeadership() {
+      if (leader || !started) return;
+      leader = TabLeader.createTabLeader({
+        tabId,
+        locks,
+        createChannel,
+        createAbortController: AbortControllerCtor ? () => new AbortControllerCtor() : null,
+        isHidden,
+        setTimeout: setTimer,
+        clearTimeout: clearTimer,
+        onChange: onLeaderChange,
+        onSnapshot: onBroadcast,
+        onStateRequest
+      });
+      leader.start();
+    }
+
+    // Releases the Web Lock / resigns, so a tab that can poll takes over.
+    function leaveLeadership() {
+      if (!leader) return;
+      const old = leader;
+      leader = null;
+      old.stop();
+      epoch += 1;
+      deferredPollAt = null;
+      if (!scheduler) return;
+      scheduler.reschedule('poll');
+      scheduler.reschedule('freshness');
+    }
+
+    function onGatedMessage(event) {
+      const message = event && event.data;
+      if (!message || typeof message !== 'object' || message.type !== 'state') return;
+      if (!message.payload || typeof message.payload !== 'object') return;
+      onBroadcast(message.payload);
+    }
+
+    // A gated tab still hears the leader's state so it notices a sign-in made elsewhere.
+    function listenWhileGated() {
+      if (gatedChannel || !started || typeof createChannel !== 'function') return;
+      try {
+        gatedChannel = createChannel(TabLeader.STATE_CHANNEL);
+      } catch (_) {
+        gatedChannel = null;
+      }
+      if (!gatedChannel) return;
+      gatedChannel.addEventListener('message', onGatedMessage);
+      try { gatedChannel.postMessage({ type: 'state-request', from: `${tabId}:gated` }); } catch (_) { /* closed */ }
+    }
+
+    function stopListening() {
+      if (!gatedChannel) return;
+      const channel = gatedChannel;
+      gatedChannel = null;
+      try {
+        channel.removeEventListener('message', onGatedMessage);
+        channel.close();
+      } catch (_) { /* already closed */ }
+    }
+
+    // Gated tabs (signed out, or session expired) never hold leadership.
+    function syncLeadership() {
+      if (!started) return;
+      if (sessionGate()) {
+        leaveLeadership();
+        listenWhileGated();
+      } else {
+        stopListening();
+        joinLeadership();
+      }
     }
 
     function render() {
@@ -178,11 +267,11 @@
       return started && runEpoch === epoch && isLeader();
     }
 
-    function apply(snapshot, freshness, fetchedAt) {
+    function apply(snapshot, freshness, fetchedAt, extra) {
       current = { snapshot, freshness };
       if (freshness === 'live' && fetchedAt !== null) lastFetchedAt = fetchedAt;
       if (snapshot && fetchedAt !== null) cache.write(snapshot, fetchedAt);
-      if (isLeader()) leader.broadcast({ snapshot, freshness, fetchedAt });
+      if (isLeader()) leader.broadcast(statePayload(snapshot, freshness, fetchedAt, extra));
       render();
       rescheduleLocal();
     }
@@ -203,7 +292,8 @@
           authExpired = true;
           cache.clear();
           if (typeof api.reset === 'function') api.reset();
-          apply(null, 'expired', null);
+          apply(null, 'expired', null, { requestedAt });
+          syncLeadership();
           return;
         }
         apply(current.snapshot, 'offline', null);
@@ -246,23 +336,45 @@
     }
 
     // A joining follower asked for the current state: answer with what this leader shows.
+    // Even without a snapshot (e.g. offline before the first success), so the joiner learns it.
     function onStateRequest() {
-      if (!started || !isLeader() || !current.snapshot) return;
-      leader.broadcast({ snapshot: current.snapshot, freshness: current.freshness, fetchedAt: lastFetchedAt });
+      if (!started || !isLeader()) return;
+      leader.broadcast(statePayload(current.snapshot, current.freshness, lastFetchedAt));
     }
 
     function onBroadcast(payload) {
       if (!started || isLeader() || !payload || typeof payload !== 'object') return;
+      // Another tab may have signed in, out or as someone else: start over with that session.
+      if (sessionChanged()) {
+        resetSession();
+        return;
+      }
+      const own = session();
+      if (!own.signedIn) return;
       // Never paint another Torn user's state (a tab still holding an older session).
-      if (sessionGate() === 'signed-out' || !ownedBySession(payload.snapshot)) return;
-      // Another tab is leading, so a later hand-off to this tab must poll promptly.
-      deferredPollAt = null;
+      const sender = Number(payload.tornId);
+      if (own.tornId !== null && Number.isSafeInteger(sender) && sender > 0 && sender !== own.tornId) return;
+      if (!ownedBySession(payload.snapshot)) return;
+      if (authExpired) {
+        // Live state for this user from another tab: the shared session works again.
+        if (payload.freshness === 'live' && payload.snapshot) resetSession();
+        return;
+      }
       if (payload.freshness === 'expired') {
+        // An expiry of a request sent before this tab's re-authentication is about the old session.
+        if (sessionSince !== null && Number.isFinite(payload.requestedAt) && payload.requestedAt < sessionSince) return;
+        authExpired = true;
+        deferredPollAt = null;
+        cache.clear();
+        if (typeof api.reset === 'function') api.reset();
         current = { snapshot: null, freshness: 'expired' };
+        syncLeadership();
         render();
         rescheduleLocal();
         return;
       }
+      // Another tab is leading, so a later hand-off to this tab must poll promptly.
+      deferredPollAt = null;
       const freshness = PillState.FRESHNESS.includes(payload.freshness) ? payload.freshness : 'syncing';
       current = { snapshot: payload.snapshot || current.snapshot, freshness };
       if (freshness === 'live' && Number.isFinite(payload.fetchedAt)) lastFetchedAt = payload.fetchedAt;
@@ -273,7 +385,12 @@
 
     function onVisibilityChange() {
       if (!started) return;
-      leader.onVisibilityChange();
+      // getSession() is re-read here and on broadcasts, never on a timer.
+      if (!isHidden() && sessionChanged()) {
+        resetSession();
+        return;
+      }
+      if (leader) leader.onVisibilityChange();
       scheduler.onVisibilityChange();
       if (isHidden()) return;
       // Coming back after longer than the poll cadence: what is shown may be out of date.
@@ -292,6 +409,7 @@
       lastFetchedAt = null;
       resyncSoon = false;
       authExpired = false;
+      knownSession = session();
       const gate = sessionGate();
       let cached = gate ? null : cache.read();
       if (cached && !ownedBySession(cached.snapshot)) {
@@ -311,7 +429,6 @@
         }
       }
       view = PillView.mountPill({ document, window, onActivate, headerSelectors });
-      render();
       scheduler = Scheduler.createScheduler({ setTimeout: setTimer, clearTimeout: clearTimer, now, random, isHidden });
       jobsAddedAt = now();
       scheduler.addJob('poll', { delay: pollDelay, run: poll });
@@ -324,21 +441,12 @@
           if (scheduler) scheduler.reschedule('tick');
         }
       });
-      leader = TabLeader.createTabLeader({
-        tabId,
-        locks,
-        createChannel,
-        createAbortController: AbortControllerCtor ? () => new AbortControllerCtor() : null,
-        isHidden,
-        setTimeout: setTimer,
-        clearTimeout: clearTimer,
-        onChange: onLeaderChange,
-        onSnapshot: onBroadcast,
-        onStateRequest
-      });
       document.addEventListener('visibilitychange', onVisibilityChange);
       scheduler.start();
-      leader.start();
+      syncLeadership();
+      // First paint only after setup: an onRender listener may stop() or resetSession() here.
+      render();
+      rescheduleLocal();
     }
 
     function stop() {
@@ -346,9 +454,10 @@
       started = false;
       epoch += 1;
       document.removeEventListener('visibilitychange', onVisibilityChange);
-      leader.stop();
-      scheduler.clear();
-      view.destroy();
+      stopListening();
+      if (leader) leader.stop();
+      if (scheduler) scheduler.clear();
+      if (view) view.destroy();
       leader = null;
       scheduler = null;
       view = null;
@@ -378,6 +487,7 @@
     function resetSession() {
       const wasStarted = started;
       stop();
+      sessionSince = now();
       authExpired = false;
       current = { snapshot: null, freshness: 'syncing' };
       lastFetchedAt = null;
