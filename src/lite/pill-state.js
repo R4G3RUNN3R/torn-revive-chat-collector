@@ -7,6 +7,9 @@
 
   const TONES = Object.freeze(['neutral', 'waiting', 'action', 'progress', 'success', 'attention']);
   const FRESHNESS = Object.freeze(['live', 'syncing', 'offline']);
+  // Session states replace the snapshot entirely: nothing cached is ever painted under them.
+  const SESSION_STATES = Object.freeze(['signed-out', 'expired']);
+  const MAX_CLOCK_SKEW_MS = 24 * 60 * 60 * 1000;
   const NON_AUTHORITATIVE_TONES = new Set(['success', 'attention']);
   const COMPLETED_FADE_MS = 5000;
 
@@ -180,6 +183,18 @@
     return null;
   }
 
+  // Recently closed transactions arrive newest first. Only outcomes that still map (Revived
+  // within its fade, Refunded, Needs attention) drive the pill; unknown states are skipped.
+  function firstClosed(transactions, role, now) {
+    const mapper = role === 'requester' ? requesterMapping : reviverMapping;
+    for (const transaction of transactions) {
+      if (!transaction || transaction.participantRole !== role || !TRANSACTION_STATES.includes(transaction.state)) continue;
+      const mapped = mapper(transaction.state, transaction, now);
+      if (mapped) return { mapped, transaction };
+    }
+    return null;
+  }
+
   function hasRole(me, role) {
     return Boolean(me && Array.isArray(me.roles) && me.roles.includes(role));
   }
@@ -230,6 +245,10 @@
     const reviver = firstMapped(transactions, 'reviver', now);
     if (reviver) return fromMapped('reviver', reviver.mapped, reviver.transaction.state, reviver.transaction.id, now);
 
+    const closed = Array.isArray(snapshot.recentlyClosed) ? snapshot.recentlyClosed : [];
+    const outcome = firstClosed(closed, 'requester', now) || firstClosed(closed, 'reviver', now);
+    if (outcome) return fromMapped(outcome.transaction.participantRole, outcome.mapped, outcome.transaction.state, outcome.transaction.id, now);
+
     const idle = idleMapping(snapshot);
     return { ...idle, state: null, transactionId: null, timer: null, refreshAt: null };
   }
@@ -249,9 +268,35 @@
     };
   }
 
+  // The engine stores the measured server-minus-client offset on the snapshot it received.
+  function serverNow(snapshot, now) {
+    const skew = snapshot && typeof snapshot === 'object' ? Number(snapshot.clockSkewMs) : NaN;
+    return Number.isFinite(skew) && Math.abs(skew) <= MAX_CLOCK_SKEW_MS ? now + skew : now;
+  }
+
+  function sessionView(state) {
+    const expired = state === 'expired';
+    return Object.freeze({
+      role: 'none',
+      state: null,
+      transactionId: null,
+      label: expired ? 'Sign in again' : 'Set up revives',
+      detail: '',
+      tone: 'attention',
+      icon: 'shield',
+      sheet: expired ? 'session-expired' : 'requester-setup',
+      timer: null,
+      refreshAt: null,
+      syncing: false,
+      offline: false,
+      text: expired ? 'Sign in again' : 'Set up revives'
+    });
+  }
+
   function derivePill(snapshot, freshness, now) {
+    if (SESSION_STATES.includes(freshness)) return sessionView(freshness);
     const mode = FRESHNESS.includes(freshness) ? freshness : 'syncing';
-    const at = Number.isFinite(Number(now)) ? Number(now) : 0;
+    const at = serverNow(snapshot, Number.isFinite(Number(now)) ? Number(now) : 0);
     const view = baseView(snapshot, at);
     view.syncing = mode === 'syncing';
     view.offline = mode === 'offline';
@@ -270,6 +315,7 @@
   return Object.freeze({
     TONES,
     FRESHNESS,
+    SESSION_STATES,
     TRANSACTION_STATES,
     COMPLETED_FADE_MS,
     derivePill,

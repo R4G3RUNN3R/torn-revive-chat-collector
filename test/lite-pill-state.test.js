@@ -384,3 +384,70 @@ test('queue count accepts only finite numbers or numeric strings', () => {
   assert.equal(derivePill(snapshot({ me: reviver, queue: { count: ' 2 ' } }), 'live', NOW).text, 'Queue · 2');
   assert.equal(derivePill(snapshot({ me: reviver, queue: { count: 0 } }), 'live', NOW).text, 'Queue · 0');
 });
+
+test('a recently closed COMPLETED transaction shows "Revived" for 5 s after closing, then idle', () => {
+  const closed = transaction('COMPLETED', 'requester', { closedAt: iso(-2000) });
+  const view = derivePill(snapshot({ recentlyClosed: [closed] }), 'live', NOW);
+  assert.equal(view.text, 'Revived');
+  assert.equal(view.tone, 'success');
+  assert.equal(view.transactionId, 'tx-requester-COMPLETED');
+  assert.equal(view.refreshAt, NOW + 3000);
+  assert.equal(derivePill(snapshot({ recentlyClosed: [closed] }), 'live', NOW + 3000).text, 'Revive me · 3 online');
+});
+
+test('recently closed REFUNDED and REPORTABLE_* show "Refunded" and "Needs attention" from real data', () => {
+  const refunded = transaction('REFUNDED', 'requester', { closedAt: iso(-20000) });
+  const reportable = transaction('REPORTABLE_MISSING_REFUND', 'requester', { closedAt: iso(-600000) });
+  assert.equal(derivePill(snapshot({ recentlyClosed: [refunded] }), 'live', NOW).text, 'Refunded');
+  const attention = derivePill(snapshot({ recentlyClosed: [reportable] }), 'live', NOW);
+  assert.equal(attention.text, 'Needs attention');
+  assert.equal(attention.tone, 'attention');
+  assert.equal(derivePill(snapshot({ recentlyClosed: [reportable] }), 'syncing', NOW).tone, 'neutral');
+});
+
+test('recently closed outcomes never hide an open request or transaction, and the newest one wins', () => {
+  const revived = transaction('COMPLETED', 'requester', { id: 'tx-new', closedAt: iso(-1000) });
+  const attention = transaction('REPORTABLE_NO_ATTEMPT', 'requester', { id: 'tx-old', closedAt: iso(-900000) });
+  const request = { id: 'req-2', state: 'AVAILABLE', paymentMethod: 'cash', offerAmount: 1, createdAt: iso(-5000), transactionId: null };
+  assert.equal(derivePill(snapshot({ activeRequest: request, recentlyClosed: [revived] }), 'live', NOW).label, 'Waiting');
+  const reviving = transaction('WAITING_FOR_REVIVE', 'reviver', deadlinesFor('WAITING_FOR_REVIVE'));
+  assert.equal(derivePill(snapshot({ activeTransactions: [reviving], recentlyClosed: [revived] }), 'live', NOW).label, 'Revive Patient now');
+  assert.equal(derivePill(snapshot({ recentlyClosed: [revived, attention] }), 'live', NOW).transactionId, 'tx-new');
+  assert.equal(derivePill(snapshot({ recentlyClosed: [revived, attention] }), 'live', NOW + 6000).transactionId, 'tx-old');
+});
+
+test('recently closed states that do not map (cancelled, expired, unknown) leave the pill idle', () => {
+  const closed = [
+    transaction('PAYMENT_EXPIRED', 'requester', { closedAt: iso(-1000) }),
+    transaction('CLOSED_NATURAL_EXPIRY', 'reviver', { closedAt: iso(-1000) }),
+    transaction('SOMETHING_NEW', 'requester', { closedAt: iso(-1000) })
+  ];
+  assert.equal(derivePill(snapshot({ recentlyClosed: closed }), 'live', NOW).text, 'Revive me · 3 online');
+});
+
+test('the snapshot clock skew corrects the fade and countdowns', () => {
+  const closed = transaction('COMPLETED', 'requester', { closedAt: iso(-2000) });
+  // The client clock is 10 s ahead of the server: without the skew "Revived" would never show.
+  const ahead = NOW + 10000;
+  assert.equal(derivePill(snapshot({ recentlyClosed: [closed] }), 'live', ahead).text, 'Revive me · 3 online');
+  assert.equal(derivePill(snapshot({ recentlyClosed: [closed], clockSkewMs: -10000 }), 'live', ahead).text, 'Revived');
+  const paying = transaction('WAITING_FOR_PAYMENT', 'requester');
+  assert.equal(derivePill(snapshot({ activeTransactions: [paying], clockSkewMs: -10000 }), 'live', ahead).detail, '1:30 left');
+  assert.equal(derivePill(snapshot({ activeTransactions: [paying], clockSkewMs: 'x' }), 'live', NOW).detail, '1:30 left');
+  assert.equal(derivePill(snapshot({ activeTransactions: [paying], clockSkewMs: 48 * 3600 * 1000 }), 'live', NOW).detail, '1:30 left');
+});
+
+test('signed-out and expired sessions ignore the snapshot and are never "Offline"', () => {
+  const busy = snapshot({ activeTransactions: [transaction('WAITING_FOR_PAYMENT', 'requester')] });
+  const signedOut = derivePill(busy, 'signed-out', NOW);
+  assert.equal(signedOut.text, 'Set up revives');
+  assert.equal(signedOut.sheet, 'requester-setup');
+  assert.equal(signedOut.offline, false);
+  assert.equal(signedOut.syncing, false);
+  const expired = derivePill(busy, 'expired', NOW);
+  assert.equal(expired.text, 'Sign in again');
+  assert.equal(expired.tone, 'attention');
+  assert.equal(expired.sheet, 'session-expired');
+  assert.equal(expired.transactionId, null);
+  assert.equal(Object.isFrozen(expired), true);
+});
