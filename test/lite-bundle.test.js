@@ -101,3 +101,13 @@ test('bundled exactly as build.js would, the lite modules resolve each other thr
   engine.stop();
   assert.equal(clock.pending(), 0);
 });
+
+test('Lite-core sources carry no comments; their rationale lives in docs/lite/ENGINE-NOTES.md', () => {
+  for (const modulePath of [...LITE_ENGINE_MODULES, 'src/platform.js', 'src/direct-api-client.js']) {
+    const source = read(modulePath);
+    assert.doesNotMatch(source, /^\s*\/\//m, modulePath);
+    assert.doesNotMatch(source, /[;{},)\]] \/\/ /, modulePath);
+    assert.doesNotMatch(source, /\/\*/, modulePath);
+  }
+  assert.match(read('docs/lite/ENGINE-NOTES.md'), /^# ReviveRelay Lite engine notes/);
+});

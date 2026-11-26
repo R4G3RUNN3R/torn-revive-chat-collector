@@ -5,7 +5,6 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
 
-  // After a start or a Torn SPA navigation the header renders late: re-place the pill a few times.
   const RELAYOUT_DELAYS_MS = Object.freeze([150, 1000, 3000]);
 
   function dependency(globalName, path) {
@@ -22,7 +21,6 @@
     clientVersion = '',
     releaseChannel = '',
     getToken = () => '',
-    // () => { signedIn, tornId }. MUST read shared platform.storage on every call, never tab memory.
     getSession = null,
     onActivate = () => {},
     onRender = null,
@@ -39,7 +37,6 @@
     const setTimer = typeof clock.setTimeout === 'function' ? clock.setTimeout : (fn, ms) => globalThis.setTimeout(fn, ms);
     const clearTimer = typeof clock.clearTimeout === 'function' ? clock.clearTimeout : handle => globalThis.clearTimeout(handle);
 
-    // One id per page load, kept across BFCache restarts.
     const tabId = `rr-${now().toString(36)}-${random().toString(36).slice(2, 10)}`;
     const api = createStateClient({ baseUrl, request: platform.request, getToken, clientVersion, releaseChannel });
     const engine = createLiteEngine({
@@ -81,7 +78,6 @@
     }
 
     function onPageShow(event) {
-      // Only a BFCache restore needs a restart; a normal load already started.
       if (!event || event.persisted !== true) return;
       engine.stop();
       engine.start();

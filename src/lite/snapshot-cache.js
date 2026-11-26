@@ -72,7 +72,7 @@
     }
 
     function clear() {
-      try { storage.set(key, null); } catch (_) { /* storage unavailable: nothing to clear */ }
+      try { storage.set(key, null); } catch (_) { }
     }
 
     return Object.freeze({ read, write, clear });
