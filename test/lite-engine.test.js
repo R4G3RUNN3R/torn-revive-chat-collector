@@ -917,3 +917,36 @@ test('opening and closing the panel sets aria-expanded on the dock, nothing else
   engine.stop();
   engine.setSheetOpen(true);
 });
+
+test('a sidebar that appears after boot takes the dock from the launcher on the next render or visibility, with no new timer', async () => {
+  const clock = createFakeTimers();
+  const { engine, document } = makeEngine({ clock, api: fakeApi([{ notModified: false, snapshot: snapshot() }]) });
+  engine.start();
+  await clock.advance(0);
+  const host = document.getElementById(HOST_ID);
+  assert.equal(host.getAttribute('data-rr-placement'), 'launcher');
+  const sidebar = document.createElement('div');
+  sidebar.setAttribute('id', 'sidebar');
+  document.body.appendChild(sidebar);
+  const pending = clock.pending();
+  document.setVisibility('hidden');
+  document.setVisibility('visible');
+  assert.equal(host.parentNode, sidebar);
+  assert.equal(host.getAttribute('data-rr-placement'), 'sidebar');
+  assert.equal(clock.pending(), pending, 'no new timers');
+  engine.stop();
+});
+
+test('on TornPDA the dock stays the launcher even when a sidebar appears', async () => {
+  const clock = createFakeTimers();
+  const { engine, document } = makeEngine({ clock, platform: { runtime: { isTornPda: true } }, api: fakeApi([{ notModified: false, snapshot: snapshot() }]) });
+  engine.start();
+  await clock.advance(0);
+  const sidebar = document.createElement('div');
+  sidebar.setAttribute('id', 'sidebar');
+  document.body.appendChild(sidebar);
+  document.setVisibility('hidden');
+  document.setVisibility('visible');
+  assert.equal(document.getElementById(HOST_ID).getAttribute('data-rr-placement'), 'launcher');
+  engine.stop();
+});

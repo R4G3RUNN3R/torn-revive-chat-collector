@@ -151,6 +151,7 @@
   let liteBoot = null;
   let latestPillStateVersion = null;
   let lastPillView = null;
+  let dockedAt = null;
   let panelStateVersion = null;
   let statusMessage = '';
   let statusIsError = false;
@@ -969,7 +970,10 @@
     if (open && !panel) createPanel();
     state.minimized = !open;
     if (panel) panel.style.display = open ? '' : 'none';
-    if (open) applyPanelPosition(dockedPanelPosition() || state.panelPosition);
+    if (open) {
+      dockedAt = dockedPanelPosition();
+      applyPanelPosition();
+    }
     if (liteBoot) liteBoot.setPanelOpen(open);
   }
 
@@ -987,7 +991,7 @@
     if (!line) return;
     const view = lastPillView;
     const text = view && (view.state || view.offline || view.sheet === 'session-expired') ? String(view.text || '') : '';
-    line.textContent = text;
+    line.textContent = text && view.syncing ? `${text} · updating` : text;
     line.hidden = !text;
   }
 
@@ -1650,7 +1654,9 @@
     return { width: rect.width || 420, height: rect.height || 560 };
   }
 
-  function applyPanelPosition(position = state.panelPosition) {
+  // A docked open (dockedAt) never replaces the user's saved drag position. The panel's height is
+  // capped to the viewport below its top, so growing content scrolls inside #rr-body.
+  function applyPanelPosition(position = dockedAt || state.panelPosition) {
     if (!panel) return;
     if (isTornPdaNow()) {
       state.panelPosition = null;
@@ -1662,9 +1668,10 @@
     }
     const fallback = { x: Math.max(8, (window.innerWidth || 1200) - 438), y: 90 };
     const next = Core.clampPanelPosition(position || fallback, panelViewport(), panelSize(), 8);
-    state.panelPosition = next;
+    if (!dockedAt) state.panelPosition = next;
     panel.style.left = `${Math.round(next.x)}px`;
     panel.style.top = `${Math.round(next.y)}px`;
+    panel.style.maxHeight = `calc(100vh - ${Math.round(next.y) + 8}px)`;
     panel.style.right = 'auto';
     panel.style.bottom = 'auto';
   }
@@ -1677,7 +1684,8 @@
   function resetPanelPosition() {
     state.panelPosition = null;
     storage.set(KEYS.panelPosition, null);
-    applyPanelPosition(null);
+    dockedAt = dockedPanelPosition();
+    applyPanelPosition(dockedAt);
     persistPanelPosition();
   }
 
@@ -1692,7 +1700,8 @@
       dragging = true;
       startX = event.clientX;
       startY = event.clientY;
-      origin = state.panelPosition || { x: panel.offsetLeft, y: panel.offsetTop };
+      origin = { x: parseFloat(panel.style.left) || 0, y: parseFloat(panel.style.top) || 0 };
+      dockedAt = null;
       try { header.setPointerCapture(event.pointerId); } catch (_) {}
     });
     header.addEventListener('pointermove', event => {
@@ -1776,13 +1785,13 @@
 
   function createPanel() {
     addPanelStyle(`
-      #rr-panel{position:fixed;z-index:999999;width:min(420px,calc(100vw - 16px));max-height:calc(100vh - 16px);background:#11161b;color:#d9e0e6;border:1px solid #3e4851;border-radius:9px;box-shadow:0 14px 40px rgba(0,0,0,.45);font:12px/1.45 Arial,sans-serif;overflow:hidden}
+      #rr-panel{position:fixed;z-index:999999;display:flex;flex-direction:column;width:min(420px,calc(100vw - 16px));max-height:calc(100vh - 16px);background:#11161b;color:#d9e0e6;border:1px solid #3e4851;border-radius:9px;box-shadow:0 14px 40px rgba(0,0,0,.45);font:12px/1.45 Arial,sans-serif;overflow:hidden}
       #rr-header{display:flex;align-items:center;gap:9px;padding:9px 10px;background:#171d23;border-bottom:1px solid #343d45;cursor:move;user-select:none}
       .rr-brand{font-weight:800;letter-spacing:.06em}.rr-brand small{display:block;font-size:9px;color:#7f8b95;font-weight:500}.rr-spacer{flex:1}
       #rr-connection-pill{font-size:9px;padding:2px 6px;border-radius:8px;background:#3a2424;color:#eaa}.rr-connected{background:#21382d!important;color:#9ed8b6!important}
       #rr-settings-toggle,#rr-minimize{border:1px solid #46515b;background:#20272e;color:#d9e0e6;border-radius:5px;padding:2px 7px;cursor:pointer}
       #rr-settings-toggle{font-size:14px;line-height:1.2;padding:3px 7px}
-      #rr-body{overflow:auto;max-height:calc(100vh - 58px)}.rr-tabs{display:grid;grid-template-columns:repeat(4,1fr);border-bottom:1px solid #303840;background:#12171c}
+      #rr-body{overflow:auto;min-height:0;flex:1 1 auto}.rr-tabs{display:grid;grid-template-columns:repeat(4,1fr);border-bottom:1px solid #303840;background:#12171c}
       .rr-tabs button{border:0;border-right:1px solid #2a3239;background:transparent;color:#87939d;padding:8px 4px;font:inherit}.rr-tabs button:last-child{border-right:0}.rr-tabs .rr-tab-active{color:#f0f4f7;background:#1d252c}
       .rr-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:#303840}.rr-summary>div{background:#151b20;padding:7px;text-align:center}.rr-summary span{display:block;color:#76838d;font-size:9px}.rr-summary strong{font-size:11px}
       .rr-panel-content{display:none!important;padding:8px}.rr-panel-content.rr-panel-active{display:block!important}.rr-card{background:#171d22;border:1px solid #303a42;border-radius:7px;padding:9px;margin-bottom:8px}.rr-card-title{font-weight:800;margin-bottom:6px;color:#eef2f5}
@@ -1897,7 +1906,8 @@
     });
 
     window.addEventListener('resize', () => {
-      applyPanelPosition(state.panelPosition);
+      if (dockedAt) dockedAt = dockedPanelPosition() || dockedAt;
+      applyPanelPosition();
       persistPanelPosition();
     });
     renderAll();
@@ -1963,7 +1973,7 @@
   function retryInitWhenShown() {
     if (liteBoot) return;
     try {
-      if (!retryPill?.host.isConnected) retryPill = globalThis.ReviveRelayLitePillView.mountDock({ document, window, onActivate: start });
+      if (!retryPill?.host.isConnected) retryPill = globalThis.ReviveRelayLitePillView.mountDock({ document, window, onActivate: start, pda: isTornPdaNow() });
     } catch (error) {
       console.error('[ReviveRelay] Retry dock unavailable.', error);
     }

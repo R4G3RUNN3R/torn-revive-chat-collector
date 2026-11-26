@@ -213,7 +213,7 @@
       lastView = PillState.derivePill(current.snapshot, current.freshness, at, id => firstSeen.get(id));
       const id = lastView.transactionId;
       if (lastView.refreshAt !== null && id && !firstSeen.has(id) && !isHidden()) firstSeen.set(id, at);
-      if (!view.host.isConnected) view.place();
+      if (!view.host.isConnected || (!isTornPda && view.placement() === 'launcher')) view.place();
       if (typeof onRender === 'function') {
         try { onRender({ view: lastView, snapshot: current.snapshot, freshness: current.freshness }); } catch (_) { }
       }

@@ -108,7 +108,7 @@
     function useLauncher(sidebar) {
       if (pda || (window && window.flutter_inappwebview) || !sidebar) return true;
       if (typeof sidebar.getBoundingClientRect === 'function' && sidebar.getBoundingClientRect().width < MIN_SIDEBAR_WIDTH) return true;
-      return mediaMatches(window, '(pointer: coarse)') && Number(window.innerWidth) <= 900;
+      return mediaMatches(window, '(pointer: coarse)') || Number(window.innerWidth) <= 900;
     }
 
     function observe(sidebar) {

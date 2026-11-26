@@ -824,3 +824,60 @@ test('with the launcher (no sidebar row) the panel keeps the floating position',
   assert.equal(harness.main.panel.style.left, '300px');
   assert.equal(harness.main.panel.style.top, '100px');
 });
+
+// ---- 1.0.2 review fixes -------------------------------------------------------------
+
+test('I1: data that is syncing (cache, quiet leader, failed poll) is marked " · updating" on the status line, never shown as live', async () => {
+  const harness = await bootMain();
+  await openPanel(harness);
+  for (const snapshot of [pillSnapshot({ transactions: [txOf('WAITING_FOR_PAYMENT')] }), pillSnapshot({ request: { id: 'r1', state: 'AVAILABLE', createdAt: new Date(NOW_1_0_2).toISOString() } })]) {
+    const live = PillState.derivePill(snapshot, 'live', NOW_1_0_2);
+    harness.main.handlePillRender({ view: live, snapshot, freshness: 'live' });
+    assert.equal(stateLine(harness).textContent, live.text);
+    const syncing = PillState.derivePill(snapshot, 'syncing', NOW_1_0_2);
+    harness.main.handlePillRender({ view: syncing, snapshot, freshness: 'syncing' });
+    assert.equal(stateLine(harness).textContent, `${live.text} · updating`);
+    assert.equal(stateLine(harness).hidden, false);
+  }
+  const offline = PillState.derivePill(pillSnapshot({ transactions: [txOf('WAITING_FOR_PAYMENT')] }), 'offline', NOW_1_0_2);
+  harness.main.handlePillRender({ view: offline, snapshot: null, freshness: 'offline' });
+  assert.equal(stateLine(harness).textContent, 'Offline · retrying');
+});
+
+test('I2: the docked panel is capped to the viewport space below its top (scrollable), re-capped on resize', async () => {
+  const harness = await bootMain();
+  harness.dockHost = dockStub({ sidebarRight: 172, rowTop: 120 });
+  await openPanel(harness);
+  assert.equal(harness.main.panel.style.top, '120px');
+  assert.equal(harness.main.panel.style.maxHeight, 'calc(100vh - 128px)');
+  harness.dockHost = dockStub({ sidebarRight: 172, rowTop: 200 });
+  harness.window.dispatch('resize');
+  assert.equal(harness.main.panel.style.top, '200px');
+  assert.equal(harness.main.panel.style.maxHeight, 'calc(100vh - 208px)');
+});
+
+test('M4: a resize while docked never overwrites the saved drag position with the docked spot', async () => {
+  const harness = await bootMain({ store: { reviverelay_panel_position: { x: 700, y: 200 } } });
+  harness.dockHost = dockStub({ sidebarRight: 172, rowTop: 120 });
+  await openPanel(harness);
+  harness.window.dispatch('resize');
+  assert.deepEqual(plain(harness.store.reviverelay_panel_position), { x: 700, y: 200 });
+  assert.equal(harness.main.panel.style.left, '180px', 'still docked');
+  harness.main.handlePillActivate();
+  harness.dockHost = dockStub({ placement: 'launcher' });
+  await openPanel(harness);
+  assert.equal(harness.main.panel.style.left, '700px', 'the saved position is intact for the launcher');
+});
+
+test('M5: the failed-init retry dock passes the TornPDA flag', async () => {
+  const harness = loadMain({ store: { ...SIGNED_IN }, initialize: async () => { throw new Error('TORNPDA_STORAGE_TIMEOUT'); } });
+  harness.context.__PDA_platformReadyPromise = Promise.resolve();
+  harness.run();
+  await harness.clock.flush();
+  assert.equal(harness.pills.length, 1);
+  assert.equal(harness.pills[0].options.pda, true);
+  const desktop = loadMain({ store: { ...SIGNED_IN }, initialize: async () => { throw new Error('boom'); } });
+  desktop.run();
+  await desktop.clock.flush();
+  assert.equal(desktop.pills[0].options.pda, false);
+});

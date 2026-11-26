@@ -154,11 +154,11 @@ test('on a TornPDA runtime the launcher is used even when Torn renders a sidebar
   assert.equal(bridged.placement(), 'launcher');
 });
 
-test('a narrow touch screen uses the launcher (0.7.3 recovery-launcher rule)', () => {
-  const touch = setup({ media: { '(pointer: coarse)': true }, width: 800 });
-  assert.equal(touch.view.placement(), 'launcher');
-  const wideTouch = setup({ media: { '(pointer: coarse)': true }, width: 1280 });
-  assert.equal(wideTouch.view.placement(), 'sidebar');
+test('0.7.3 recovery-launcher rule: a coarse pointer OR a viewport of 900 px or less uses the launcher', () => {
+  assert.equal(setup({ media: { '(pointer: coarse)': true }, width: 1280 }).view.placement(), 'launcher', 'wide touch screen');
+  assert.equal(setup({ width: 900 }).view.placement(), 'launcher', 'narrow fine-pointer window');
+  assert.equal(setup({ media: { '(pointer: coarse)': true }, width: 800 }).view.placement(), 'launcher');
+  assert.equal(setup({ width: 901 }).view.placement(), 'sidebar');
 });
 
 test('the launcher is a 44 px touch target labelled RR; the sidebar row reads ReviveRelay', () => {
