@@ -28,6 +28,8 @@
   const BUILD_TIMESTAMP = '__REVIVERELAY_BUILD_TIMESTAMP__';
   const API_BASE = 'https://reviverelay.voidsmithindustries.com/review';
   const REVIVER_ELIGIBILITY_TIMEOUT_MS = 12_000;
+  // An open panel re-reads /me, Pro status (and plans) and Torn eligibility at most this often.
+  const PANEL_SLOW_REFRESH_MS = 60_000;
   const MAX_SEEN_REQUEST_IDS = 200;
   const REVIVERELAY_API_KEY_URL = 'https://www.torn.com/preferences.php#tab=api?step=addNewKey&title=ReviveRelay&user=basic,profile,revives,log,perks&logIds=14,15,16,17';
   const MASKED_VERIFICATION_KEY = '••••••••••••••••';
@@ -98,6 +100,8 @@
     identity: null,
     preset: null,
     activeRequest: null,
+    // No "Request" button until this session's active request was read.
+    activeRequestLoaded: false,
     activeTransaction: null,
     verificationCredential: null,
     verificationEditing: false,
@@ -125,7 +129,6 @@
   };
 
   let panel = null;
-  let body = null;
   let connectionPill = null;
   let initPromise = null;
   let liteBoot = null;
@@ -133,7 +136,9 @@
   let panelStateVersion = null;
   let statusMessage = '';
   let statusIsError = false;
-  let lastRequestError = null;
+  let panelSlowRefreshAt = null;
+  let errorHooksInstalled = false;
+  let initRetryArmed = false;
   let updateResult = null;
   const pollFlights = new Map();
   const mutationFlights = new Set();
@@ -337,7 +342,7 @@
   }
 
   async function runMutation(key, operation) {
-    if (mutationFlights.has(key)) return null;
+    if (!syncPanelSession() || mutationFlights.has(key)) return null;
     mutationFlights.add(key);
     try {
       renderLiveState();
@@ -415,33 +420,36 @@
     setStatus(userFacingApiErrorMessage(error, userMessage), true);
   }
 
-  function clearSession(message = 'Disconnected from ReviveRelay.') {
+  // Forgets this tab's per-user panel state (memory only).
+  function resetPanelUserState() {
     state.api.clearBoundToken();
-    invalidateAuthoritativeState('pro');
-    invalidateAuthoritativeState('queue');
-    invalidateAuthoritativeState('invoice');
-    state.sessionToken = '';
-    state.identity = null;
-    state.activeRequest = null;
-    state.activeTransaction = null;
-    state.verificationCredential = null;
-    state.verificationEditing = false;
-    state.reviverEligibility = null;
-    state.reviverQueue = [];
-    state.proStatus = null;
-    state.runtime = null;
-    state.runtimeCompatibility = 'unknown';
-    state.runtimeCompatibilityReason = null;
-    state.subscription = null;
-    state.proPlans = [];
-    state.currentInvoice = null;
-    state.submittingRequest = false;
-    lastRequestError = null;
+    for (const key of ['pro', 'queue', 'eligibility', 'invoice']) invalidateAuthoritativeState(key);
+    Object.assign(state, {
+      sessionToken: '', identity: null, activeRequest: null, activeRequestLoaded: false, activeTransaction: null,
+      verificationCredential: null, verificationEditing: false, reviverEligibility: null, reviverQueue: [],
+      proStatus: null, runtime: null, runtimeCompatibility: 'unknown', runtimeCompatibilityReason: null,
+      subscription: null, proPlans: [], currentInvoice: null, submittingRequest: false
+    });
+    panelSlowRefreshAt = null;
+  }
+
+  function clearSession(message = 'Disconnected from ReviveRelay.') {
+    resetPanelUserState();
     storage.set(KEYS.sessionToken, '');
     storage.set(KEYS.publicIdentity, null);
     setStatus(message, false);
     resetLiteSession();
     renderAll();
+  }
+
+  // Another tab may have signed out or switched account: follow shared storage before sending
+  // anything. Returns false when this tab's session was stale.
+  function syncPanelSession() {
+    if (sharedSessionToken() === state.sessionToken) return true;
+    resetPanelUserState();
+    hydrateSession();
+    renderAll();
+    return false;
   }
 
   async function refreshMe() {
@@ -455,7 +463,8 @@
       };
       const runtimeResult = applyRuntimeContract(me?.runtime || null);
       state.proStatus = runtimeResult.compatible && me?.pro ? me.pro : null;
-      storage.set(KEYS.publicIdentity, publicIdentity());
+      // A stale tab never overwrites the identity another tab signed in with.
+      if (state.sessionToken === sharedSessionToken()) storage.set(KEYS.publicIdentity, publicIdentity());
     });
     return me;
   }
@@ -492,16 +501,6 @@
     }
   }
 
-  async function restoreSession() {
-    if (!state.sessionToken) return;
-    try {
-      await refreshMarketplaceState({ includePlans: true });
-    } catch (error) {
-      if (Number(error && error.status) === 401) clearSession('Your ReviveRelay session expired. Verify & connect again.');
-      else handleApiFailure(error, 'session.restore', 'Could not restore ReviveRelay state.');
-    }
-  }
-
   async function refreshProState({ includePlans = false } = {}) {
     return runSingleFlightPoll('pro', async () => {
       if (!state.sessionToken) {
@@ -526,10 +525,12 @@
     return runSingleFlightPoll('request', async () => {
       if (!state.sessionToken || !runtimeCompatible()) {
         state.activeRequest = null;
+        state.activeRequestLoaded = false;
         return;
       }
       const result = await state.api.getActiveRequest();
       state.activeRequest = result?.request || null;
+      state.activeRequestLoaded = true;
       if (state.activeRequest?.transactionId) await refreshActiveTransaction(state.activeRequest.transactionId);
       else if (state.activeTransaction?.participantRole === 'requester') state.activeTransaction = null;
     });
@@ -677,10 +678,9 @@
 
   async function requestRevive() {
     const validation = RequestPreset.validatePreset(state.preset);
-    if (!state.sessionToken || !runtimeCompatible() || !validation.ok || state.submittingRequest || state.activeRequest) return;
+    if (!state.sessionToken || !runtimeCompatible() || !validation.ok || state.submittingRequest || !state.activeRequestLoaded || state.activeRequest) return;
     return runMutation('request-create', async () => {
       state.submittingRequest = true;
-      lastRequestError = null;
       renderAll();
       try {
         const result = await state.api.createRequest(validation.preset);
@@ -689,7 +689,6 @@
           ? 'Certified revive request submitted.'
           : 'Certified revive request submitted. Requester verification is required before a reviver can accept it.');
       } catch (error) {
-        lastRequestError = apiErrorCode(error);
         handleApiFailure(error, 'request.create', 'Could not create revive request.');
       } finally {
         state.submittingRequest = false;
@@ -705,7 +704,6 @@
         await state.api.cancelRequest(state.activeRequest.id);
         state.activeRequest = null;
         state.activeTransaction = null;
-        lastRequestError = null;
         setStatus('Revive request cancelled.');
         await refreshActiveRequest();
         renderAll();
@@ -724,27 +722,8 @@
     return runMutation('account-delete', async () => {
       try {
         await state.api.deleteAccount();
-        state.api.clearBoundToken();
-        invalidateAuthoritativeState('pro');
-        invalidateAuthoritativeState('queue');
-        invalidateAuthoritativeState('eligibility');
-        invalidateAuthoritativeState('invoice');
-        state.sessionToken = '';
-        state.identity = null;
+        resetPanelUserState();
         state.preset = null;
-        state.activeRequest = null;
-        state.activeTransaction = null;
-        state.verificationCredential = null;
-        state.verificationEditing = false;
-        state.reviverEligibility = null;
-        state.reviverQueue = [];
-        state.proStatus = null;
-        state.runtime = null;
-        state.runtimeCompatibility = 'unknown';
-        state.runtimeCompatibilityReason = null;
-        state.subscription = null;
-        state.proPlans = [];
-        state.currentInvoice = null;
         storage.set(KEYS.sessionToken, '');
         storage.set(KEYS.publicIdentity, null);
         storage.set(KEYS.requestPreset, null);
@@ -776,7 +755,6 @@
     }
     state.preset = validation.preset;
     storage.set(KEYS.requestPreset, validation.preset);
-    lastRequestError = null;
     setStatus('Revive Me preset saved.');
     renderAll();
   }
@@ -925,7 +903,7 @@
   }
 
   async function runTransactionAction(action, decision = null) {
-    if (!runtimeCompatible() || !state.activeTransaction?.id) return;
+    if (!syncPanelSession() || !runtimeCompatible() || !state.activeTransaction?.id) return;
     const id = state.activeTransaction.id;
     try {
       if (action === 'check-payment') await state.api.checkPayment(id);
@@ -955,14 +933,36 @@
     if (liteBoot) liteBoot.resetSession();
   }
 
-  // The open panel refreshes itself only when the pill's /v1/state snapshot changes.
+  function pageHidden() {
+    return document.visibilityState === 'hidden' || document.hidden === true;
+  }
+
+  // On each pill state change the open panel refreshes what its visible tab shows; hidden pages nothing.
   function refreshPanelData() {
+    if (pageHidden()) return Promise.resolve();
     return runSingleFlightPoll('panel', async () => {
-      await restoreSession();
+      syncPanelSession();
+      if (!state.sessionToken) return;
+      if (panelSlowRefreshAt === null || Date.now() - panelSlowRefreshAt >= PANEL_SLOW_REFRESH_MS) {
+        panelSlowRefreshAt = Date.now();
+        await refreshMe();
+        if (!runtimeCompatible()) return;
+        await refreshProState();
+        await refreshVerificationCredential();
+        await refreshReviverEligibility();
+      }
+      if (!runtimeCompatible()) return;
+      const tab = state.panelTab;
+      const reviverSide = tab === 'reviver' || tab === 'activity';
+      if (tab === 'request' || tab === 'activity') await refreshActiveRequest();
+      if (reviverSide) await refreshReviverQueue();
+      if (reviverSide && state.activeTransaction?.participantRole === 'reviver') await refreshActiveTransaction();
       if (state.currentInvoice?.state === 'PENDING') await refreshCurrentInvoice();
-      // Live sections only: never rebuild Settings form controls while someone types in them.
-      renderLiveState();
-    }).catch(error => handleApiFailure(error, 'panel.refresh'));
+    }).catch(error => {
+      if (Number(error?.status) === 401) clearSession('Your ReviveRelay session expired. Verify & connect again.');
+      else handleApiFailure(error, 'panel.refresh', 'Could not refresh ReviveRelay.');
+    // Live sections only: never rebuild Settings form controls while someone types in them.
+    }).then(() => renderLiveState());
   }
 
   function setPanelOpen(open) {
@@ -987,6 +987,7 @@
       return;
     }
     const view = liteBoot ? liteBoot.engine.viewModel() : null;
+    syncPanelSession();
     setPanelOpen(true);
     if (view?.sheet === 'requester-setup' && state.sessionToken) openSettingsDrawer('verification');
     else activatePanelTab(panelTabForPill(view));
@@ -998,7 +999,8 @@
   // Runs after every pill render (each poll, and every second while the panel is open).
   function handlePillRender({ snapshot }) {
     latestPillStateVersion = snapshot?.stateVersion || null;
-    if (!panel || state.minimized) return;
+    // A hidden page keeps its old version, so it catches up once visible.
+    if (!panel || state.minimized || pageHidden()) return;
     if (latestPillStateVersion && latestPillStateVersion !== panelStateVersion) {
       panelStateVersion = latestPillStateVersion;
       refreshPanelData();
@@ -1084,7 +1086,7 @@
       <div class="rr-card-title">Revive Me</div>
       <div class="rr-kv"><span>Saved preset</span><strong>${presetText}</strong></div>
       ${validation.ok ? '' : '<button data-rr-open-settings="preset">Configure Revive Me preset</button>'}
-      ${validation.ok && !request ? `<button id="rr-request-revive"${disabledAttr('request-create')}>Request certified revive</button>` : ''}
+      ${validation.ok && !request && state.activeRequestLoaded ? `<button id="rr-request-revive"${disabledAttr('request-create')}>Request certified revive</button>` : ''}
     </div>
     <div class="rr-card" id="rr-request-card">
       <div class="rr-card-title">Active certified request</div>
@@ -1750,13 +1752,14 @@
       <div id="rr-status" class="rr-status"></div>
     </div>`;
     document.body.appendChild(panel);
-    body = panel.querySelector('#rr-body');
     connectionPill = panel.querySelector('#rr-connection-pill');
     panel.style.display = state.minimized ? 'none' : '';
     installPanelDrag(panel.querySelector('#rr-header'));
     applyPanelPosition(state.panelPosition);
 
     panel.addEventListener('click', event => {
+      // A stale panel re-renders instead of acting.
+      if (!syncPanelSession()) return;
       const target = event.target;
       const tab = target.closest?.('[data-rr-tab]');
       if (tab) return activatePanelTab(tab.dataset.rrTab);
@@ -1827,6 +1830,8 @@
   }
 
   function installGlobalErrorHooks() {
+    if (errorHooksInstalled) return;
+    errorHooksInstalled = true;
     window.addEventListener('error', event => {
       if (event?.error) captureClientError(event.error, 'window.error');
     });
@@ -1849,7 +1854,7 @@
   // ReviveRelay 1.0: one engine (scheduler, tab leadership, /v1/state) drives the header pill.
   // The panel below has no timers of its own; it refreshes while open when the pill's state changes.
   function startLite() {
-    liteBoot = LiteBoot.createLiteBoot({
+    const boot = LiteBoot.createLiteBoot({
       platform,
       window,
       document,
@@ -1861,13 +1866,18 @@
       onActivate: handlePillActivate,
       onRender: handlePillRender
     });
-    liteBoot.start();
+    boot.start();
+    liteBoot = boot;
+  }
+
+  function hydrateSession() {
+    state.sessionToken = sharedSessionToken();
+    state.identity = storage.get(KEYS.publicIdentity, null) || null;
+    state.preset = storage.get(KEYS.requestPreset, null) || null;
   }
 
   function hydratePersistentState() {
-    state.sessionToken = String(storage.get(KEYS.sessionToken, '') || '');
-    state.identity = storage.get(KEYS.publicIdentity, null) || null;
-    state.preset = storage.get(KEYS.requestPreset, null) || null;
+    hydrateSession();
     state.panelPosition = isTornPdaNow() ? null : (storage.get(KEYS.panelPosition, null) || null);
     state.panelTab = Core.normalizePanelTab(storage.get(KEYS.panelTab, 'request'));
   }
@@ -1885,10 +1895,26 @@
     checkUpdates(false).catch(error => captureClientError(error, 'update.initial'));
   }
 
+  // A failed init (e.g. TornPDA storage timeout) is retried once, when the page is next shown.
+  function retryInitWhenShown() {
+    if (initRetryArmed) return;
+    initRetryArmed = true;
+    const retry = () => {
+      if (pageHidden()) return;
+      document.removeEventListener('visibilitychange', retry);
+      window.removeEventListener('pageshow', retry);
+      start();
+    };
+    document.addEventListener('visibilitychange', retry);
+    window.addEventListener('pageshow', retry);
+  }
+
   function start() {
     if (initPromise || liteBoot) return initPromise;
     initPromise = init().catch(error => {
       console.error('[ReviveRelay] Initialization failed.', error);
+      captureClientError(error, 'init');
+      retryInitWhenShown();
     }).finally(() => { initPromise = null; });
     return initPromise;
   }

@@ -53,7 +53,8 @@ test('state-driven panel refresh updates live state without rebuilding Settings 
   const onRender = source.match(/function handlePillRender\(\{ snapshot \}\)\s*\{([\s\S]*?)\n  \}/)?.[1] || '';
   assert.ok(refresh.length > 0);
   assert.ok(onRender.length > 0);
-  assert.match(refresh, /await restoreSession\(\)/);
+  assert.match(refresh, /syncPanelSession\(\)/);
+  assert.match(refresh, /refreshActiveRequest\(\)/);
   assert.match(refresh, /refreshCurrentInvoice\(\)/);
   assert.match(refresh, /renderLiveState\(\)/);
   assert.match(onRender, /refreshPanelData\(\)/);
@@ -222,7 +223,7 @@ test('player-facing credential copy calls the credential a Torn API key', () => 
 
 
 test('disconnect clears the direct client in-memory bound token as well as persisted session state', () => {
-  const start = source.indexOf('function clearSession(');
+  const start = source.indexOf('function resetPanelUserState(');
   const end = source.indexOf('async function refreshMe()', start);
   const fn = start >= 0 && end > start ? source.slice(start, end) : '';
   assert.ok(fn.length > 0);

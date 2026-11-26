@@ -82,5 +82,6 @@ test('About & Privacy repeats diagnostics opt-in state and no Torn password disc
 test('account deletion clears the direct client in-memory bound token',()=>{
   const deletion=functionSlice('deleteReviveRelayAccount','saveRequestPreset');
   assert.ok(deletion.length>0);
-  assert.match(deletion,/state\.api\.clearBoundToken\(\)/);
+  assert.match(deletion,/resetPanelUserState\(\)/);
+  assert.match(functionSlice('resetPanelUserState','clearSession'),/state\.api\.clearBoundToken\(\)/);
 });

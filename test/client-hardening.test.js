@@ -178,8 +178,11 @@ test('authoritative state revisions reject stale cached and delayed response wri
   assert.equal(applyState('queue',older,()=>{ state.queue=['old']; }),false,'a delayed older response loses to a newer response');
   assert.equal(applyState('queue',newer,()=>{ state.queue=[]; }),true);
   assert.deepEqual(state.queue,[]);
-  const clear=functionSlice('clearSession','refreshMe');
-  for (const key of ['pro','queue','invoice']) assert.match(clear,new RegExp(`invalidateAuthoritativeState\\('${key}'\\)`));
+  const clear=functionSlice('clearSession','syncPanelSession');
+  assert.match(clear,/resetPanelUserState\(\)/);
+  const reset=functionSlice('resetPanelUserState','clearSession');
+  assert.match(reset,/for \(const key of \[[^\]]*\]\) invalidateAuthoritativeState\(key\)/);
+  for (const key of ['pro','queue','eligibility','invoice']) assert.match(reset.match(/for \(const key of (\[[^\]]*\])/)[1],new RegExp(`'${key}'`));
 });
 
 test('queue transport failures and authoritative empty queues have distinct state transitions',()=>{
@@ -233,6 +236,7 @@ test('real delayed queue responses lose to verification revocation and account d
   const queue=functionSlice('refreshReviverQueue','refreshCurrentInvoice');
   const revoke=functionSlice('revokeVerificationKey','registerMarketplaceReviver');
   const deletion=functionSlice('deleteReviveRelayAccount','saveRequestPreset');
+  const reset=functionSlice('resetPanelUserState','clearSession');
   const outcomes=[];
   for (const action of [revoke,deletion]) {
     const pending=deferred();
@@ -248,8 +252,9 @@ test('real delayed queue responses lose to verification revocation and account d
     const refresh=new Function('state','runSingleFlightPoll','hasReviverSubscriptionAccess','hasRole','hasCredentialCapability','hasConfirmedReviveAbility','beginAuthoritativeRefresh','applyAuthoritativeState','notifyNewQueueRequests',`${queue}; return refreshReviverQueue;`)(
       state,h.flight,h.access,role=>state.identity.roles.includes(role),h.credential,()=>state.reviverEligibility?.canRevive===true,h.begin,h.apply,()=>{}
     );
-    const invoke=new Function('state','runtimeCompatible','runMutation','window','GM_setValue','KEYS','setStatus','refreshSidebarState','renderAll','handleApiFailure','invalidateAuthoritativeState',`${action}; return ${action.includes('revokeVerificationKey')?'revokeVerificationKey':'deleteReviveRelayAccount'};`)(
-      state,()=>true,(_key,operation)=>operation(),{confirm:()=>true},()=>{}, {},()=>{},()=>{},()=>{},()=>{},h.invalidate
+    const resetPanelUserState=new Function('state','invalidateAuthoritativeState',`let panelSlowRefreshAt=null;${reset}; return resetPanelUserState;`)(state,h.invalidate);
+    const invoke=new Function('state','runtimeCompatible','runMutation','window','GM_setValue','KEYS','setStatus','refreshSidebarState','renderAll','handleApiFailure','invalidateAuthoritativeState','resetPanelUserState',`${action}; return ${action.includes('revokeVerificationKey')?'revokeVerificationKey':'deleteReviveRelayAccount'};`)(
+      state,()=>true,(_key,operation)=>operation(),{confirm:()=>true},()=>{}, {},()=>{},()=>{},()=>{},()=>{},h.invalidate,resetPanelUserState
     );
     const inFlight=refresh();
     await invoke();
