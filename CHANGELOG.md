@@ -21,9 +21,11 @@
 
 - New-request desktop notifications for revivers only fire while the panel is open.
 - "Update available" is only visible inside the panel.
-- The pill does not re-mount if Torn replaces its header without navigating.
 - A Pro invoice that expires keeps showing PENDING until the panel is reopened.
-- The whole file is 227.6 KB in 1.0; the light core is 108 KB. 1.1 targets 110 KB or less for the whole file, once the old panel is replaced.
+- "Revived" shows for 5 s from when each tab first displays it; this is kept per tab and in memory, so a tab opened or reloaded within 30 s of the revive shows it again for up to 5 s.
+- For a reviver, a failed transaction that needs reporting shows "Needs attention" on the pill only while the Queue count is not shown; with the queue visible the pill keeps showing Queue · n.
+- There is no in-app way to report a problem yet: when the pill opens on "Needs attention", the panel says what happened and asks you to report it to the ReviveRelay operator.
+- The whole file is 230.5 KB in 1.0; the light core is 109.7 KB. 1.1 targets 110 KB or less for the whole file, once the old panel is replaced.
 
 ### Release status
 

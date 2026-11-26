@@ -93,3 +93,13 @@ test('README, PRIVACY and the rev006 workflows describe the current release, not
     assert.match(text,/require\('\.\/package\.json'\)\.version/,`${file} derives the artifact from package.json`);
   }
 });
+
+test('the 1.0.0 known limitations list what the final fixes left, and nothing they fixed',()=>{
+  const entry=read('CHANGELOG.md').split('\n## ')[1];
+  assert.match(entry,/^1\.0\.0 /);
+  const limitations=entry.split('### Known limitations')[1].split('\n### ')[0];
+  assert.match(limitations,/"Revived".*per tab/i,'I3: first sight is per tab and in memory');
+  assert.match(limitations,/reviver.*"Needs attention".*Queue/i,'I4: a reviver\'s reportable ranks below the queue');
+  assert.match(limitations,/operator/i,'I4: no in-app reporting');
+  assert.doesNotMatch(limitations,/does not re-mount/i,'I5 fixed the pill re-mount');
+});
