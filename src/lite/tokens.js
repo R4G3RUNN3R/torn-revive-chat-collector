@@ -15,12 +15,6 @@
     text: '#333333',
     'text-muted': '#666666',
     border: '#cccccc',
-    'tone-neutral': '#666666',
-    'tone-waiting': '#965f0f',
-    'tone-action': '#6b46c1',
-    'tone-progress': '#2b6cb0',
-    'tone-success': '#276749',
-    'tone-attention': '#a84a1a',
     elevation: '0 4px 12px rgba(0,0,0,.18)'
   });
 
@@ -31,12 +25,6 @@
     text: '#dddddd',
     'text-muted': '#999999',
     border: '#444444',
-    'tone-neutral': '#999999',
-    'tone-waiting': '#f6c453',
-    'tone-action': '#b794f4',
-    'tone-progress': '#63b3ed',
-    'tone-success': '#68d391',
-    'tone-attention': '#f6ad55',
     elevation: '0 4px 12px rgba(0,0,0,.5)'
   });
 

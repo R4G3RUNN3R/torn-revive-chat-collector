@@ -85,7 +85,7 @@ test('current review bundle contains direct support exactly once and zero legacy
   assert.match(built, /const UPDATE_CHANNEL = 'review'/);
 });
 
-test('ReviveRelay 1.0 is versioned 1.0.1', () => {
-  assert.equal(require('../package.json').version, '1.0.1');
+test('ReviveRelay 1.0 is versioned 1.0.2', () => {
+  assert.equal(require('../package.json').version, '1.0.2');
 });
 

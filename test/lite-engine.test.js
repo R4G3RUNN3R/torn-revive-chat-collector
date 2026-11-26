@@ -45,7 +45,7 @@ function fakeApi(responses) {
 }
 
 function makeEngine({ clock, api, storage = memoryStorage(), window = createFakeWindow(), document = createFakeDocument(), tabId = 'tab', platform = null }) {
-  const engine = createLiteEngine({ platform, api, window, document, storage, clock, tabId, headerSelectors: ['#rr-none'] });
+  const engine = createLiteEngine({ platform, api, window, document, storage, clock, tabId });
   return { engine, document, window, storage };
 }
 
@@ -857,4 +857,63 @@ test('rapid hand-offs between two visible tabs within one idle cadence make at m
   await clock.advance(0);
   assert.equal(calls(), 3);
   tabs.forEach(tab => tab.engine.stop());
+});
+
+// ---- 1.0.2: the dock button never carries status ------------------------------------
+
+test('the dock button text, name and attributes never change across every former pill state', async () => {
+  const at = Date.parse('2026-11-25T12:00:00.000Z');
+  const deadline = new Date(at + 120000).toISOString();
+  const tx = (state, participantRole = 'requester') => snapshot({
+    nextPollMs: 5000,
+    activeTransactions: [{ id: `tx-${state}`, state, participantRole, reviver: { name: 'Medic' }, requester: { name: 'Patient' }, paymentDeadline: deadline, reviveDeadline: deadline }]
+  });
+  const states = ['WAITING_FOR_PAYMENT', 'PAYMENT_RECONCILING', 'WAITING_FOR_REVIVE', 'FAILED_ATTEMPT_CHOICE', 'RETRY_OFFERED', 'REFUND_REQUIRED', 'REPORTABLE_NO_ATTEMPT', 'SOMETHING_NEW'];
+  const responses = [
+    { notModified: false, snapshot: snapshot() },
+    { notModified: false, snapshot: snapshot({ activeRequest: { id: 'r1', state: 'AVAILABLE', createdAt: new Date(at).toISOString() } }) },
+    ...states.map(state => ({ notModified: false, snapshot: tx(state) })),
+    { notModified: false, snapshot: tx('WAITING_FOR_REVIVE', 'reviver') },
+    new DirectApiClientError('NETWORK_ERROR', { retryable: true }),
+    Object.assign(new Error('expired'), { status: 401, code: 'AUTH_REQUIRED' })
+  ];
+  const clock = createFakeTimers();
+  const api = { calls: 0, async getState() { api.calls += 1; const next = responses.shift(); if (next instanceof Error) throw next; return next; } };
+  const { engine, document } = makeEngine({ clock, api });
+  engine.start();
+  const button = () => document.getElementById(HOST_ID).attachedShadow.querySelector('button');
+  const face = () => JSON.stringify([button().textContent, [...button().attributes.entries()].sort()]);
+  const first = face();
+  assert.match(first, /"ReviveRelayRR"/);
+  const labels = new Set();
+  let total = responses.length;
+  while (total > 0) {
+    total -= 1;
+    engine.refresh();
+    await clock.advance(0);
+    labels.add(engine.viewModel().text);
+    assert.equal(face(), first, engine.viewModel().text);
+    assert.equal(button().getAttribute('aria-label'), 'ReviveRelay');
+  }
+  for (const expected of ['Revive me · 2 online', 'Checking payment', 'Revive failed · choose', 'Needs attention', 'Updating', 'Sign in again']) {
+    assert.ok([...labels].some(label => label.startsWith(expected)), `${expected} in ${[...labels].join(' | ')}`);
+  }
+  assert.ok([...labels].some(label => label.startsWith('Offline')));
+  engine.stop();
+});
+
+test('opening and closing the panel sets aria-expanded on the dock, nothing else', async () => {
+  const clock = createFakeTimers();
+  const { engine, document } = makeEngine({ clock, api: fakeApi([{ notModified: false, snapshot: snapshot() }]) });
+  engine.start();
+  await clock.advance(0);
+  const button = document.getElementById(HOST_ID).attachedShadow.querySelector('button');
+  assert.equal(button.getAttribute('aria-expanded'), 'false');
+  engine.setSheetOpen(true);
+  assert.equal(button.getAttribute('aria-expanded'), 'true');
+  assert.equal(button.getAttribute('aria-label'), 'ReviveRelay');
+  engine.setSheetOpen(false);
+  assert.equal(button.getAttribute('aria-expanded'), 'false');
+  engine.stop();
+  engine.setSheetOpen(true);
 });

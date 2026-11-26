@@ -488,7 +488,7 @@ test('opening the pill on a reportable transaction shows a one-line status sayin
 
 // ---- a failed init stays visible and retryable ----------------------------------
 
-test('a failed init mounts a "tap to retry" pill; taps and every visible return retry until init starts', async () => {
+test('a failed init mounts a retry dock (no status on it); taps and every visible return retry until init starts', async () => {
   let attempts = 0;
   let failing = true;
   const harness = loadMain({
@@ -502,11 +502,9 @@ test('a failed init mounts a "tap to retry" pill; taps and every visible return 
   harness.run();
   await harness.clock.flush();
   assert.equal(attempts, 1);
-  assert.equal(harness.pills.length, 1, 'a retry pill is visible');
+  assert.equal(harness.pills.length, 1, 'a retry dock is visible');
   const pill = harness.pills[0];
-  const shown = pill.views[pill.views.length - 1];
-  assert.equal(shown.text, 'ReviveRelay · tap to retry');
-  assert.equal(shown.tone, 'attention');
+  assert.equal(pill.views.length, 0, 'the dock is never given status text');
 
   pill.options.onActivate();
   await harness.clock.flush();
@@ -695,7 +693,7 @@ test('M4: reopening the pill on an idle state clears a stale "Needs attention" l
   assert.doesNotMatch(statusLine(harness), /Needs attention/);
 });
 
-test('M5/M6: once the Lite boot runs, the retry path never mounts over it, and the engine pill replaces the retry pill', async () => {
+test('M5/M6: once the Lite boot runs, the retry path never mounts over it, and the engine dock replaces the retry dock', async () => {
   const harness = await bootMain();
   const before = harness.pills.length;
   harness.main.retryInitWhenShown();
@@ -718,4 +716,111 @@ test('Bug 1: the TornPDA toast styles are installed once at init, before the pan
   await openPanel(harness);
   assert.ok(harness.main.panel);
   assert.equal(toastStyles().length, 1, 'opening the panel does not install the toast CSS again');
+});
+
+// ---- 1.0.2: status lives in the panel; the panel docks beside the sidebar ----------
+
+const PillState = require('../src/lite/pill-state');
+const stateLine = harness => harness.document.getElementById('rr-state-line');
+const NOW_1_0_2 = Date.parse('2026-11-26T12:00:00.000Z');
+
+function pillSnapshot({ transactions = [], request = null, roles = ['requester'], queue = null } = {}) {
+  return {
+    stateVersion: 'abcdef0123456789',
+    me: { tornId: 1001, name: 'Player1001', roles, verification: { usable: true, requester: true, reviver: true } },
+    activeRequest: request,
+    activeTransactions: transactions,
+    recentlyClosed: [],
+    revivers: { online: 2 },
+    queue
+  };
+}
+
+const txOf = (state, participantRole = 'requester') => ({
+  id: `tx-${state}`, state, participantRole, reviver: { name: 'Medic' }, requester: { name: 'Patient' },
+  paymentDeadline: new Date(NOW_1_0_2 + 90000).toISOString(), reviveDeadline: new Date(NOW_1_0_2 + 90000).toISOString(),
+  retryResponseDeadline: new Date(NOW_1_0_2 + 90000).toISOString(), refundDeadline: new Date(NOW_1_0_2 + 90000).toISOString()
+});
+
+test('the panel shows the former pill status at the top, as text, for every former pill state', async () => {
+  const requesterStates = ['WAITING_FOR_PAYMENT', 'PAYMENT_RECONCILING', 'WAITING_FOR_REVIVE', 'FAILED_ATTEMPT_CHOICE', 'RETRY_OFFERED', 'REFUND_REQUIRED', 'REFUND_RECONCILING', 'REFUNDED', 'REPORTABLE_NO_ATTEMPT', 'REPORTABLE_MISSING_REFUND', 'SOMETHING_NEW'];
+  const reviverStates = ['WAITING_FOR_PAYMENT', 'PAYMENT_RECONCILING', 'WAITING_FOR_REVIVE', 'FAILED_ATTEMPT_CHOICE', 'RETRY_OFFERED', 'REFUND_REQUIRED', 'REFUND_RECONCILING', 'REFUNDED', 'REPORTABLE_NO_ATTEMPT'];
+  const cases = [
+    ...requesterStates.map(state => [pillSnapshot({ transactions: [txOf(state)] }), 'live']),
+    ...reviverStates.map(state => [pillSnapshot({ roles: ['requester', 'reviver'], transactions: [txOf(state, 'reviver')] }), 'live']),
+    [pillSnapshot({ request: { id: 'r1', state: 'AVAILABLE', createdAt: new Date(NOW_1_0_2 - 65000).toISOString() } }), 'live'],
+    [pillSnapshot(), 'offline'],
+    [null, 'expired']
+  ];
+  const harness = await bootMain();
+  await openPanel(harness);
+  const shown = [];
+  for (const [snapshot, freshness] of cases) {
+    const view = PillState.derivePill(snapshot, freshness, NOW_1_0_2);
+    harness.view = view;
+    harness.main.handlePillRender({ view, snapshot, freshness });
+    const line = stateLine(harness);
+    assert.equal(line.textContent, view.text, `${view.state} ${freshness}`);
+    assert.equal(line.hidden, false, view.text);
+    assert.equal(line.innerHTML, '', 'written with textContent');
+    shown.push(view.text);
+  }
+  for (const expected of ['Checking payment', 'Pay Medic · 1:30 left', 'Revive failed · choose', 'Needs attention', 'Updating', 'Offline · retrying', 'Sign in again', 'Waiting · 1:05', 'Revive Patient now · 1:30 left', 'Refund owed to Patient · 1:30 left']) {
+    assert.ok(shown.includes(expected), `${expected} in ${shown.join(' | ')}`);
+  }
+});
+
+test('idle states the panel already shows (Revive Me card, queue, setup) leave the status line hidden', async () => {
+  const harness = await bootMain();
+  await openPanel(harness);
+  for (const snapshot of [pillSnapshot(), pillSnapshot({ roles: ['requester', 'reviver'], queue: { count: 4 } })]) {
+    const view = PillState.derivePill(snapshot, 'live', NOW_1_0_2);
+    harness.main.handlePillRender({ view, snapshot, freshness: 'live' });
+    assert.equal(stateLine(harness).hidden, true, view.text);
+    assert.equal(stateLine(harness).textContent, '');
+  }
+  const signedOut = PillState.derivePill(null, 'signed-out', NOW_1_0_2);
+  harness.main.handlePillRender({ view: signedOut, snapshot: null, freshness: 'signed-out' });
+  assert.equal(stateLine(harness).hidden, true, 'the onboarding card already says to connect');
+});
+
+test('the status line is filled when the panel opens, from the last render, before any new render', async () => {
+  const harness = await bootMain();
+  const snapshot = pillSnapshot({ transactions: [txOf('PAYMENT_RECONCILING')] });
+  const view = PillState.derivePill(snapshot, 'live', NOW_1_0_2);
+  harness.main.handlePillRender({ view, snapshot, freshness: 'live' });
+  harness.view = view;
+  await openPanel(harness);
+  assert.equal(stateLine(harness).textContent, 'Checking payment');
+  assert.equal(stateLine(harness).hidden, false);
+});
+
+function dockStub({ placement = 'sidebar', sidebarRight = 172, rowTop = 120 } = {}) {
+  return {
+    getAttribute: name => (name === 'data-rr-placement' ? placement : null),
+    getBoundingClientRect: () => ({ top: rowTop, bottom: rowTop + 28, left: 0, right: sidebarRight, width: sidebarRight, height: 28 }),
+    parentNode: { getBoundingClientRect: () => ({ top: 50, bottom: 750, left: 0, right: sidebarRight, width: sidebarRight, height: 700 }) }
+  };
+}
+
+test('on desktop the panel opens docked beside the sidebar row, even over a saved floating position', async () => {
+  const harness = await bootMain({ store: { reviverelay_panel_position: { x: 700, y: 300 } } });
+  harness.dockHost = dockStub({ sidebarRight: 172, rowTop: 120 });
+  await openPanel(harness);
+  assert.equal(harness.main.panel.style.left, '180px');
+  assert.equal(harness.main.panel.style.top, '120px');
+  assert.equal(harness.main.panel.style.right, 'auto');
+  harness.main.handlePillActivate();
+  harness.dockHost = dockStub({ sidebarRight: 200, rowTop: 400 });
+  await openPanel(harness);
+  assert.equal(harness.main.panel.style.left, '208px', 'it re-docks on each open');
+  assert.equal(harness.main.panel.style.top, '232px', 'kept inside the viewport (800 - 560 - 8)');
+});
+
+test('with the launcher (no sidebar row) the panel keeps the floating position', async () => {
+  const harness = await bootMain({ store: { reviverelay_panel_position: { x: 300, y: 100 } } });
+  harness.dockHost = dockStub({ placement: 'launcher' });
+  await openPanel(harness);
+  assert.equal(harness.main.panel.style.left, '300px');
+  assert.equal(harness.main.panel.style.top, '100px');
 });

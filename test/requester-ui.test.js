@@ -50,7 +50,7 @@ test('state-driven panel refresh updates live state without rebuilding Settings 
   assert.match(source, /function renderLiveState\(\)/);
   assert.match(source, /id=[\"']rr-invoice-status[\"'][^>]*>\$\{renderInvoice\(\)\}<\/div>/);
   const refresh = source.match(/function refreshPanelData\(\)\s*\{([\s\S]*?)\n  \}/)?.[1] || '';
-  const onRender = source.match(/function handlePillRender\(\{ snapshot \}\)\s*\{([\s\S]*?)\n  \}/)?.[1] || '';
+  const onRender = source.match(/function handlePillRender\(\{ view, snapshot \}\)\s*\{([\s\S]*?)\n  \}/)?.[1] || '';
   assert.ok(refresh.length > 0);
   assert.ok(onRender.length > 0);
   assert.match(refresh, /syncPanelSession\(\)/);

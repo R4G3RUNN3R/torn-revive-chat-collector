@@ -121,7 +121,8 @@ function loadMain({ store = {}, initialize = null, clock = createFakeTimers(), r
     body,
     head: stubElement('head'),
     createElement: tag => stubElement(tag),
-    getElementById: id => (panelMounted ? body.mounted.querySelector(`#${id}`) : null)
+    // The engine's dock host (a stub the test sets as harness.dockHost), else the panel's elements.
+    getElementById: id => (id === 'reviverelay-lite-root' ? harness.dockHost || null : (panelMounted ? body.mounted.querySelector(`#${id}`) : null))
   });
   const harness = {
     window,
@@ -134,6 +135,7 @@ function loadMain({ store = {}, initialize = null, clock = createFakeTimers(), r
     lastToken: '',
     boots: [],
     pills: [],
+    dockHost: null,
     view: null,
     pending: null,
     tornIdForToken: token => (String(token).startsWith('token-') ? Number(String(token).slice(6)) : 1001),
@@ -174,7 +176,7 @@ function loadMain({ store = {}, initialize = null, clock = createFakeTimers(), r
         notifier: { notes: [], notifyOnce(id, text) { boot.notifier.notes.push([id, text]); return true; } },
         start() {
           boot.calls.push('start');
-          context.ReviveRelayLitePillView.mountPill({ lite: true });
+          context.ReviveRelayLitePillView.mountDock({ lite: true });
         },
         stop() { boot.calls.push('stop'); },
         resetSession() { boot.calls.push('resetSession'); },
@@ -210,10 +212,10 @@ function loadMain({ store = {}, initialize = null, clock = createFakeTimers(), r
     ReviveRelayUpdateManager: { createUpdateManager: () => ({ check: async () => ({}), openUpdate: () => false }) },
     ReviveRelayRequestPreset: RequestPreset,
     ReviveRelayLiteBoot: liteBootModule,
-    // Records every pill mounted (MAIN's retry pill, the engine's pill on boot.start()); like the real
-    // pill-view module it is a singleton: mounting destroys the previous pill.
+    // Records every dock mounted (MAIN's retry dock, the engine's dock on boot.start()); like the real
+    // pill-view module it is a singleton: mounting destroys the previous dock.
     ReviveRelayLitePillView: {
-      mountPill(options) {
+      mountDock(options) {
         const previous = harness.pills[harness.pills.length - 1];
         if (previous && !previous.destroyed) previous.destroy();
         const pill = { options, views: [], destroyed: false, host: { isConnected: true }, update(view) { pill.views.push(view); }, destroy() { pill.destroyed = true; pill.host.isConnected = false; } };

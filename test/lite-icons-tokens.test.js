@@ -43,19 +43,18 @@ test('createIcon builds SVG nodes without parsing markup', () => {
   assert.equal(svg.childNodes.every(path => path.namespaceURI === SVG_NS), true);
 });
 
-test('tokens: brand accent, every tone in light and dark, motion 120–250 ms', () => {
+test('tokens: brand accent, light and dark surfaces, motion 120–250 ms, no tone colours (1.0.2)', () => {
   assert.equal(ACCENT, '#a4161a');
   assert.equal(LIGHT.accent, '#a4161a');
   assert.notEqual(DARK.accent, '#a4161a');
-  for (const tone of ['neutral', 'waiting', 'action', 'progress', 'success', 'attention']) {
-    assert.ok(LIGHT[`tone-${tone}`], tone);
-    assert.ok(DARK[`tone-${tone}`], tone);
-    assert.match(TOKENS_CSS, new RegExp(`--rr-tone-${tone}:`));
+  for (const name of ['surface', 'surface-raised', 'text', 'border']) {
+    assert.ok(LIGHT[name], name);
+    assert.ok(DARK[name], name);
   }
   assert.deepEqual(MOTION, { fast: '120ms', slow: '250ms' });
   assert.match(TOKENS_CSS, /:host\(\[data-theme="dark"\]\)/);
   assert.match(TOKENS_CSS, /prefers-reduced-motion: reduce/);
-  assert.doesNotMatch(TOKENS_CSS, /--rr-tone-attention:#a4161a|--rr-tone-attention:#e5484d/);
+  assert.doesNotMatch(TOKENS_CSS, /--rr-tone-/, 'the dock shows no state, so there are no tone colours');
 });
 
 function luminance(hex) {
@@ -69,9 +68,10 @@ function contrast(a, b) {
   return (hi + 0.05) / (lo + 0.05);
 }
 
-test('tokens: accent and every tone reach WCAG AA (4.5:1) on both surfaces in both themes', () => {
+test('tokens: accent and text reach WCAG AA (4.5:1) on both surfaces in both themes; launcher white on brand red', () => {
+  assert.ok(contrast('#ffffff', ACCENT) >= 4.5, 'RR launcher label');
   for (const [theme, set] of [['light', LIGHT], ['dark', DARK]]) {
-    const colours = ['accent', ...['neutral', 'waiting', 'action', 'progress', 'success', 'attention'].map(t => `tone-${t}`)];
+    const colours = ['accent', 'text'];
     for (const name of colours) {
       for (const surface of ['surface', 'surface-raised']) {
         assert.match(set[name], /^#[0-9a-f]{6}$/i, `${theme} ${name}`);
