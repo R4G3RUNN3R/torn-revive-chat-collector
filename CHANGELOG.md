@@ -1,5 +1,45 @@
 # Changelog
 
+## 1.0.1 - Notifications, sound and profile badges (review)
+
+### Added
+
+- Notifications no longer need the panel: one visible Torn tab per browser (the one that polls) notifies once per event. Requesters are told when a reviver accepts (time to pay), when payment is verified, when they are revived, when a revive fails and when a refund is verified. Revivers are told when payment arrives (revive now) and when a refund is owed.
+- A short, soft chime plays for accepted, revived, refund verified, payment received and refund owed. One Settings toggle turns all sound off.
+- Settings → Notifications adds notifications on/off, one toggle per event type, sound, quiet hours, opt-in silent new-queue-request notices for revivers (at most one a minute, count only) and an opt-out for profile badges. A 0.7 "desktop notifications off" choice carries over.
+- An "RR verified requester/reviver" chip appears next to a player's name on their Torn profile when ReviveRelay has verified them. It is looked up only while you are signed in and the profile is visible, and cached for 10 minutes across page loads.
+- A newer ReviveRelay version is announced once by notification, even with the panel closed.
+- An open panel re-checks a Pro invoice as soon as it expires.
+
+### Changed
+
+- New-request notifications for revivers are now opt-in and silent (0.7 had them on by default), and they give only the queue count.
+
+### Removed
+
+- The opt-in Diagnostics option (off by default in 0.7.x and 1.0.0) and its error reports. ReviveRelay 1.0.1 sends no diagnostics.
+
+### Fixed
+
+- After a failed poll, a new polling tab polls at once instead of waiting a full cadence.
+- A background tab no longer uses up the 5 s "Revived" display before you look at it.
+- The panel no longer re-fetches a reviver transaction that has closed, and reopening it on an idle pill clears an old "Needs attention" line.
+
+### Known limitations
+
+- Notifications and sound need a visible Torn tab (or TornPDA in the foreground): hidden tabs do no work, so with every Torn tab in the background nothing is checked or announced until one is shown again. There is no tab-title fallback.
+- Duplicate notifications are possible only if two tabs poll at once (a browser without BroadcastChannel, or several TornPDA tabs).
+- The new requester and reviver sheets, and hospital-list "RR" badges, come in 1.1. Everyday requests, the reviver queue and transactions still open in the panel from the pill.
+- "Revived" shows for 5 s from when each tab first displays it; this is kept per tab and in memory, so a tab opened or reloaded within 30 s of the revive shows it again for up to 5 s.
+- For a reviver, a failed transaction that needs reporting shows "Needs attention" on the pill only while the Queue count is not shown.
+- There is no in-app way to report a problem yet: the panel says what happened and asks you to report it to the ReviveRelay operator.
+- Browsers may block the first chime until you have clicked the page once.
+- The whole file is 228.0 KB; the light core is 107.9 KB.
+
+### Release status
+
+1.0.1 is a Beta/Review candidate on the review channel. Stable remains 0.4.4; 0.7.3 remains the rollback.
+
 ## 1.0.0 - Lite engine and header pill (review)
 
 ### Changed

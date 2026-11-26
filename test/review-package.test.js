@@ -16,7 +16,7 @@ const requiredDocs=[
 
 test('Torn review package contains all 19 approved evidence classes',()=>{
   const artifact=`dist/review/ReviveRelay-${pkg.version}.user.js`;
-  assert.equal(pkg.version,'1.0.0');
+  assert.equal(pkg.version,'1.0.1');
   assert.ok(exists(artifact),'1 review artifact');
   for(const module of require('../scripts/client-modules').DIRECT_SUPPORT_MODULES) assert.ok(exists(module),`2 modular source ${module}`);
   for(const doc of requiredDocs) assert.ok(exists(doc),doc);
@@ -94,12 +94,15 @@ test('README, PRIVACY and the rev006 workflows describe the current release, not
   }
 });
 
-test('the 1.0.0 known limitations list what the final fixes left, and nothing they fixed',()=>{
+test('the 1.0.1 notes close the 1.0.0 panel-only limitations and keep the ones still true',()=>{
   const entry=read('CHANGELOG.md').split('\n## ')[1];
-  assert.match(entry,/^1\.0\.0 /);
+  assert.match(entry,/^1\.0\.1 /);
   const limitations=entry.split('### Known limitations')[1].split('\n### ')[0];
-  assert.match(limitations,/"Revived".*per tab/i,'I3: first sight is per tab and in memory');
-  assert.match(limitations,/reviver.*"Needs attention".*Queue/i,'I4: a reviver\'s reportable ranks below the queue');
-  assert.match(limitations,/operator/i,'I4: no in-app reporting');
-  assert.doesNotMatch(limitations,/does not re-mount/i,'I5 fixed the pill re-mount');
+  assert.doesNotMatch(limitations,/only fire while the panel is open/i,'notifications work with the panel closed');
+  assert.doesNotMatch(limitations,/only visible inside the panel/i,'update notice outside the panel');
+  assert.doesNotMatch(limitations,/PENDING until the panel is reopened/i,'invoice expiry re-check');
+  assert.match(limitations,/"Revived".*per tab/i);
+  assert.match(limitations,/operator/i);
+  assert.match(limitations,/sheets/i,'the deferred sheets are disclosed');
+  assert.match(limitations,/visible Torn tab/i,'notifications need a visible tab (I-3)');
 });
