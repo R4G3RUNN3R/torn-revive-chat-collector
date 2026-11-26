@@ -298,3 +298,18 @@ test('a signed-out boot never looks up a badge', async () => {
   assert.equal(badgeRequests(platform), 0);
   boot.stop();
 });
+
+test('the leader notifies a live transaction event once, with the panel closed, through platform.notify', async () => {
+  const body = stateBody({ nextPollMs: 5000, activeTransactions: [{ id: 'tx9', participantRole: 'requester', state: 'WAITING_FOR_PAYMENT', paymentDeadline: '2026-11-25T12:10:00.000Z' }] });
+  const platform = fakePlatform({ body });
+  const notes = [];
+  platform.notify = options => { notes.push(options.text); return true; };
+  const { boot, clock } = setup({ platform });
+  boot.start();
+  await clock.advance(0);
+  await clock.advance(5000);
+  assert.deepEqual(notes, ['A reviver accepted: time to pay']);
+  assert.deepEqual(platform.values.reviverelay_notified_events_v1.ids, ['tx9:WAITING_FOR_PAYMENT']);
+  assert.equal(typeof boot.notifier.notifyOnce, 'function');
+  boot.stop();
+});

@@ -20,6 +20,7 @@ const EXPECTED = [
   'src/lite/tokens.js',
   'src/lite/pill-view.js',
   'src/lite/engine.js',
+  'src/lite/notify.js',
   'src/lite/badges.js',
   'src/lite/boot.js'
 ];
@@ -34,6 +35,7 @@ const GLOBALS = {
   'src/lite/tokens.js': 'ReviveRelayLiteTokens',
   'src/lite/pill-view.js': 'ReviveRelayLitePillView',
   'src/lite/engine.js': 'ReviveRelayLiteEngine',
+  'src/lite/notify.js': 'ReviveRelayLiteNotify',
   'src/lite/badges.js': 'ReviveRelayLiteBadges',
   'src/lite/boot.js': 'ReviveRelayLiteBoot'
 };

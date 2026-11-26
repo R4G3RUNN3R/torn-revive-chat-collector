@@ -28,6 +28,7 @@
     if (!window || typeof window.addEventListener !== 'function') throw new Error('window is required');
     const { createStateClient } = dependency('ReviveRelayLiteStateClient', './state-client');
     const { createLiteEngine } = dependency('ReviveRelayLiteEngine', './engine');
+    const { createNotifier } = dependency('ReviveRelayLiteNotify', './notify');
     const { createBadges } = dependency('ReviveRelayLiteBadges', './badges');
 
     const now = typeof clock.now === 'function' ? clock.now : () => Date.now();
@@ -37,6 +38,7 @@
 
     const tabId = `rr-${now().toString(36)}-${random().toString(36).slice(2, 10)}`;
     const api = createStateClient({ baseUrl, request: platform.request, getToken, clientVersion, releaseChannel, storage: platform.storage });
+    const notifier = createNotifier({ storage: platform.storage, notify: typeof platform.notify === 'function' ? platform.notify : () => false, window, now });
     const badges = createBadges({ document, window, api, enabled: () => Boolean(getToken()) && platform.storage.get(BADGES_KEY, true) !== false });
     const engine = createLiteEngine({
       platform,
@@ -49,7 +51,8 @@
       headerSelectors,
       onActivate,
       getSession,
-      onRender
+      onRender,
+      onLiveSnapshot: notifier.onSnapshot
     });
 
     let started = false;
@@ -122,7 +125,8 @@
       refresh: () => engine.refresh(),
       tabId,
       api,
-      engine
+      engine,
+      notifier
     });
   }
 

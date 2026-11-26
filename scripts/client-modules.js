@@ -1,7 +1,7 @@
 'use strict';
 
 // ReviveRelay 1.0 Lite engine, in load order. pill-state → scheduler → snapshot-cache →
-// tab-leader → state-client → icons → tokens → pill-view → engine → badges → boot.
+// tab-leader → state-client → icons → tokens → pill-view → engine → notify → badges → boot.
 const LITE_ENGINE_MODULES = Object.freeze([
   'src/lite/pill-state.js',
   'src/lite/scheduler.js',
@@ -12,6 +12,7 @@ const LITE_ENGINE_MODULES = Object.freeze([
   'src/lite/tokens.js',
   'src/lite/pill-view.js',
   'src/lite/engine.js',
+  'src/lite/notify.js',
   'src/lite/badges.js',
   'src/lite/boot.js'
 ]);
