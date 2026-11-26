@@ -6,6 +6,7 @@
   'use strict';
 
   const RELAYOUT_DELAYS_MS = Object.freeze([150, 1000, 3000]);
+  const BADGES_KEY = 'reviverelay_badges_enabled';
 
   const dependency = (globalName, path) => globalThis[globalName] || require(path);
 
@@ -27,6 +28,7 @@
     if (!window || typeof window.addEventListener !== 'function') throw new Error('window is required');
     const { createStateClient } = dependency('ReviveRelayLiteStateClient', './state-client');
     const { createLiteEngine } = dependency('ReviveRelayLiteEngine', './engine');
+    const { createBadges } = dependency('ReviveRelayLiteBadges', './badges');
 
     const now = typeof clock.now === 'function' ? clock.now : () => Date.now();
     const random = typeof clock.random === 'function' ? clock.random : Math.random;
@@ -34,7 +36,8 @@
     const clearTimer = typeof clock.clearTimeout === 'function' ? clock.clearTimeout : handle => globalThis.clearTimeout(handle);
 
     const tabId = `rr-${now().toString(36)}-${random().toString(36).slice(2, 10)}`;
-    const api = createStateClient({ baseUrl, request: platform.request, getToken, clientVersion, releaseChannel });
+    const api = createStateClient({ baseUrl, request: platform.request, getToken, clientVersion, releaseChannel, storage: platform.storage });
+    const badges = createBadges({ document, window, api, enabled: () => Boolean(getToken()) && platform.storage.get(BADGES_KEY, true) !== false });
     const engine = createLiteEngine({
       platform,
       api,
@@ -63,6 +66,7 @@
         const handle = setTimer(() => {
           relayoutTimers.delete(handle);
           engine.relayout();
+          badges.scan();
         }, delay);
         relayoutTimers.add(handle);
       }
@@ -80,6 +84,10 @@
       scheduleRelayout();
     }
 
+    function scanWhenVisible() {
+      if (!document.hidden) badges.scan();
+    }
+
     const WINDOW_EVENTS = Object.freeze([
       ['pagehide', onPageHide],
       ['pageshow', onPageShow],
@@ -92,6 +100,7 @@
       if (started) return;
       started = true;
       for (const [type, listener] of WINDOW_EVENTS) window.addEventListener(type, listener);
+      document.addEventListener('visibilitychange', scanWhenVisible);
       engine.start();
       scheduleRelayout();
     }
@@ -100,6 +109,7 @@
       if (!started) return;
       started = false;
       for (const [type, listener] of WINDOW_EVENTS) window.removeEventListener(type, listener);
+      document.removeEventListener('visibilitychange', scanWhenVisible);
       clearRelayout();
       engine.stop();
     }
@@ -116,5 +126,5 @@
     });
   }
 
-  return Object.freeze({ RELAYOUT_DELAYS_MS, createLiteBoot });
+  return Object.freeze({ RELAYOUT_DELAYS_MS, BADGES_KEY, createLiteBoot });
 });

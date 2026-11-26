@@ -15,6 +15,7 @@ This inventory describes the direct 0.7.0 runtime surface. Legacy candidate rout
 | Method | Route | Purpose |
 | --- | --- | --- |
 | GET | `/v1/me` | Public ReviveRelay identity/roles plus safe entitlement/subscription state. |
+| GET | `/v1/players/:tornId/badge` | Returns only `{ tornId, requesterVerified, reviverVerified }`. Called by the signed-in client only while a Torn profile page is visible, cached for 10 minutes; 60/min per session. |
 | DELETE | `/v1/account` | Legacy explicit account-data deletion flow retained for compatible desktop clients. |
 | POST | `/v1/account/delete` | PDA-safe explicit account-data deletion flow with the same authenticated exact-confirmation requirement. |
 | GET | `/v1/verification-credential` | Return safe masked/status/capability information only. |

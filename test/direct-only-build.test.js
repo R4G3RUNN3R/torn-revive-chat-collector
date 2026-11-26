@@ -21,6 +21,7 @@ const REQUIRED = [
   'src/lite/tokens.js',
   'src/lite/pill-view.js',
   'src/lite/engine.js',
+  'src/lite/badges.js',
   'src/lite/boot.js'
 ];
 

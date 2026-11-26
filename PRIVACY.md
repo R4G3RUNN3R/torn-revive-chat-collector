@@ -24,6 +24,7 @@ Within ReviveRelay, from 1.0:
 - revivers who can see the request queue also see a waiting requester's hospital time remaining and whether they are abroad;
 - any logged-in user sees only the **number** of revivers online, never who they are;
 - any logged-in user can check whether a given Torn ID is a verified ReviveRelay requester and/or reviver (the profile badge). Nothing else about that account is shown. The backend sends only the requests required to the official Torn API to perform the user-authorized identity, eligibility and evidence checks described in `TORN-API-DISCLOSURE.md`.
+- from 1.0.1, while you are signed in and a Torn profile page is visible, the client automatically sends that profile's Torn ID to ReviveRelay to look up its badge (opt out in Settings → Notifications). The result is cached in your browser for 10 minutes.
 
 ## Purpose of Use
 
