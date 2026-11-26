@@ -462,3 +462,27 @@ test('a new transaction id from /v1/state reaches the open panel and is kept cur
   await harness.clock.flush();
   assert.equal(harness.count('GET /v1/transactions/tx-7'), 2, 'the reviver-side refresh keeps it current');
 });
+
+// ---- "Needs attention" explains itself ------------------------------------------
+
+const statusLine = harness => harness.document.getElementById('rr-status').textContent;
+
+test('opening the pill on a reportable transaction shows a one-line status saying what happened and whom to tell', async () => {
+  const cases = [
+    ['REPORTABLE_NO_ATTEMPT', 'requester', /no revive attempt was made/i],
+    ['REPORTABLE_MISSING_REFUND', 'requester', /refund was not verified/i],
+    ['REPORTABLE_NO_ATTEMPT', 'reviver', /no revive attempt was made/i]
+  ];
+  for (const [txState, role, what] of cases) {
+    const harness = await bootMain();
+    harness.view = { role, state: txState, transactionId: 'tx-9', sheet: `${role === 'reviver' ? 'reviver' : 'request'}-report` };
+    await openPanel(harness);
+    assert.match(statusLine(harness), what, txState);
+    assert.match(statusLine(harness), /^Needs attention: .+ Report it to the ReviveRelay operator\.$/, txState);
+    assert.equal(harness.document.getElementById('rr-status').innerHTML, '', 'written with textContent');
+  }
+  const idle = await bootMain();
+  idle.view = { role: 'requester', state: null, transactionId: null, sheet: 'request' };
+  await openPanel(idle);
+  assert.doesNotMatch(statusLine(idle), /Needs attention/);
+});

@@ -489,3 +489,26 @@ test('non-numeric clockSkewMs values (true, [5], "5", null) are ignored', () => 
     assert.equal(view.text, 'Revived', String(clockSkewMs));
   }
 });
+
+test('a reviver\'s reportable ranks below the visible queue count; without a queue it still shows', () => {
+  const reviver = me({ roles: ['reviver'], verification: { usable: true, requester: false, reviver: true } });
+  for (const state of ['REPORTABLE_NO_ATTEMPT', 'REPORTABLE_MISSING_REFUND']) {
+    const reportable = transaction(state, 'reviver', { closedAt: iso(-600000) });
+    assert.equal(derivePill(snapshot({ me: reviver, queue: { count: 2 }, recentlyClosed: [reportable] }), 'live', NOW).text, 'Queue · 2', state);
+    const hidden = derivePill(snapshot({ me: reviver, queue: null, recentlyClosed: [reportable] }), 'live', NOW);
+    assert.equal(hidden.text, 'Needs attention', state);
+    assert.equal(hidden.sheet, 'reviver-report', state);
+  }
+  // A reviver's fresh outcome still outranks the queue for its 5 s.
+  const done = transaction('COMPLETED', 'reviver', { closedAt: iso(-1000) });
+  assert.equal(derivePill(snapshot({ me: reviver, queue: { count: 2 }, recentlyClosed: [done] }), 'live', NOW).text, 'Revive complete');
+});
+
+test('a requester\'s reportable stays above idle, also for a user who is a reviver with a queue', () => {
+  const reportable = transaction('REPORTABLE_NO_ATTEMPT', 'requester', { closedAt: iso(-600000) });
+  assert.equal(derivePill(snapshot({ recentlyClosed: [reportable] }), 'live', NOW).text, 'Needs attention');
+  const both = me({ roles: ['requester', 'reviver'], verification: { usable: true, requester: true, reviver: true } });
+  const view = derivePill(snapshot({ me: both, queue: { count: 5 }, recentlyClosed: [reportable] }), 'live', NOW);
+  assert.equal(view.text, 'Needs attention');
+  assert.equal(view.state, 'REPORTABLE_NO_ATTEMPT');
+});

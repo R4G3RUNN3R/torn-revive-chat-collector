@@ -1001,6 +1001,9 @@
     setPanelOpen(true);
     if (view?.sheet === 'requester-setup' && state.sessionToken) openSettingsDrawer('verification');
     else activatePanelTab(panelTabForPill(view));
+    // There is no reporting UI or endpoint yet: say what went wrong and whom to tell.
+    const problem = { REPORTABLE_NO_ATTEMPT: 'no revive attempt was made', REPORTABLE_MISSING_REFUND: 'the refund was not verified' }[view?.state];
+    if (problem) setStatus(`Needs attention: ${problem}. Report it to the ReviveRelay operator.`, true);
     panelStateVersion = latestPillStateVersion;
     refreshPanelData();
     if (storage.get(KEYS.clientDiagnosticsEnabled, false)) state.telemetry.drain().catch(() => {});

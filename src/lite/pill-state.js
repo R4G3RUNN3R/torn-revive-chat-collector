@@ -166,10 +166,11 @@
   }
 
   // Newest first; only outcomes that still map drive the pill, unknown states are skipped.
-  function firstClosed(transactions, role, now) {
+  function firstClosed(transactions, role, now, skipReportable) {
     const mapper = role === 'requester' ? requesterMapping : reviverMapping;
     for (const transaction of transactions) {
       if (!transaction || transaction.participantRole !== role || !TRANSACTION_STATES.includes(transaction.state)) continue;
+      if (skipReportable && transaction.state.startsWith('REPORTABLE_')) continue;
       const mapped = mapper(transaction.state, transaction, now);
       if (mapped) return { mapped, transaction };
     }
@@ -227,7 +228,8 @@
     if (reviver) return fromMapped('reviver', reviver.mapped, reviver.transaction.state, reviver.transaction.id, now);
 
     const closed = Array.isArray(snapshot.recentlyClosed) ? snapshot.recentlyClosed : [];
-    const outcome = firstClosed(closed, 'requester', now) || firstClosed(closed, 'reviver', now);
+    // A reviver's reportable ranks below a visible queue count.
+    const outcome = firstClosed(closed, 'requester', now) || firstClosed(closed, 'reviver', now, hasRole(snapshot.me, 'reviver') && snapshot.queue);
     if (outcome) return fromMapped(outcome.transaction.participantRole, outcome.mapped, outcome.transaction.state, outcome.transaction.id, now);
 
     const idle = idleMapping(snapshot);
