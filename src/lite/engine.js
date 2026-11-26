@@ -31,9 +31,9 @@
     tabId,
     headerSelectors,
     onActivate = () => {},
-    // () => ({ signedIn, tornId }). Omitted: always signed in, identity unknown.
+    // () => ({ signedIn, tornId }); omitted: signed in, identity unknown.
     getSession = null,
-    // Called after every render with { view, snapshot, freshness } (e.g. to refresh an open panel).
+    // Called after every render with { view, snapshot, freshness }.
     onRender = null
   } = {}) {
     if (!api || typeof api.getState !== 'function') throw new Error('api.getState is required');
@@ -64,19 +64,13 @@
     let sheetOpen = false;
     let lastFetchedAt = null;
     let resyncSoon = false;
-    // A follower asked for a refresh: poll once the minimum interval since the last poll allows.
-    let refreshSoon = false;
+    let refreshSoon = false; // a follower asked for a refresh
     let jobsAddedAt = 0;
-    // Set at boot when the cached snapshot is younger than the cadence: the first poll waits for it.
-    let deferredPollAt = null;
-    // Set when the server rejected the session: no polling until resetSession() or a restart.
-    let authExpired = false;
-    // The session this run started with; a different one seen later restarts the engine.
-    let knownSession = null;
-    // When resetSession() last ran: an expiry of a request sent before it is about the old session.
-    let sessionSince = null;
-    // While gated, a passive listener on the state channel (gated tabs never lead).
-    let gatedChannel = null;
+    let deferredPollAt = null; // first poll waits for a young cache
+    let authExpired = false; // no polling until resetSession() or a restart
+    let knownSession = null; // a different session seen later restarts the engine
+    let sessionSince = null; // expiries of requests sent before this are about the old session
+    let gatedChannel = null; // passive state listener while gated
 
     function session() {
       if (typeof getSession !== 'function') return { signedIn: true, tornId: null };
@@ -86,18 +80,27 @@
       return { signedIn: Boolean(value && value.signedIn), tornId };
     }
 
-    // 'signed-out' or 'expired' while the session cannot poll; otherwise null.
     function sessionGate() {
       if (!session().signedIn) return 'signed-out';
       return authExpired ? 'expired' : null;
     }
 
-    // A snapshot belongs to the signed-in Torn user, or to nobody known yet.
     function ownedBySession(snapshot) {
       const expected = session().tornId;
       if (expected === null || !snapshot || typeof snapshot !== 'object') return true;
       const owner = snapshot.me && Number(snapshot.me.tornId);
       return owner === expected;
+    }
+
+    function resetApi() {
+      if (typeof api.reset === 'function') api.reset();
+    }
+
+    function expire() {
+      authExpired = true;
+      deferredPollAt = null;
+      cache.clear();
+      resetApi();
     }
 
     function isAuthError(error) {
@@ -118,7 +121,7 @@
       return value.signedIn !== knownSession.signedIn || value.tornId !== knownSession.tornId;
     }
 
-    // Every broadcast names the session it belongs to, so other users' tabs can ignore it.
+    // Broadcasts name their session so other users' tabs can ignore them.
     function statePayload(snapshot, freshness, fetchedAt, extra = {}) {
       const owner = snapshot && snapshot.me ? Number(snapshot.me.tornId) : NaN;
       const tornId = Number.isSafeInteger(owner) && owner > 0 ? owner : (knownSession ? knownSession.tornId : null);
@@ -143,7 +146,6 @@
       leader.start();
     }
 
-    // Releases the Web Lock / resigns, so a tab that can poll takes over.
     function leaveLeadership() {
       if (!leader) return;
       const old = leader;
@@ -163,7 +165,7 @@
       onBroadcast(message.payload);
     }
 
-    // A gated tab still hears the leader's state so it notices a sign-in made elsewhere.
+    // A gated tab still hears the leader, to notice a sign-in made elsewhere.
     function listenWhileGated() {
       if (gatedChannel || !started || typeof createChannel !== 'function') return;
       try {
@@ -186,8 +188,7 @@
       } catch (_) { /* already closed */ }
     }
 
-    // A leader whose session ended or changed resets (which re-evaluates leadership); a gated
-    // leader without a change just steps out. Returns true when it acted.
+    // A leader whose session changed resets; a gated one steps out. True when it acted.
     function leaderSessionCheck() {
       if (sessionChanged()) {
         resetSession();
@@ -200,7 +201,7 @@
       return false;
     }
 
-    // Gated tabs (signed out, or session expired) never hold leadership.
+    // Gated tabs never hold leadership.
     function syncLeadership() {
       if (!started) return;
       if (sessionGate()) {
@@ -236,9 +237,7 @@
       });
     }
 
-    // A follower only knows when the leader last fetched. Past 2 × cadence without a broadcast,
-    // its "live" data is no longer known to be fresh. The leader's cadence does not depend on
-    // this tab's own sheet, so the open-sheet speed-up is ignored here.
+    // A follower's "live" goes stale 2 × the leader's cadence (sheet speed-up ignored) after its last fetch.
     function followerStaleAfter() {
       if (isLeader() || current.freshness !== 'live' || lastFetchedAt === null) return null;
       const cadence = cadenceMs(false, false);
@@ -252,7 +251,7 @@
       return true;
     }
 
-    // Evaluated on the 1 s tick while it runs; otherwise a one-shot job on the same scheduler.
+    // Handled by the 1 s tick while it runs; otherwise a one-shot job.
     function freshnessDelay(ctx) {
       if (needsTick()) return null;
       const limit = followerStaleAfter();
@@ -264,7 +263,6 @@
     function tick() {
       ageFollower();
       render();
-      // The tick may have just stopped itself; the one-shot freshness check then takes over.
       if (scheduler) scheduler.reschedule('freshness');
     }
 
@@ -275,14 +273,12 @@
     }
 
     function pollDelay() {
-      // A gated or session-changed leader still gets one poll slot: poll() makes it step out.
       if (!isLeader()) return null;
       if ((resyncSoon || refreshSoon) && !isHidden()) return Scheduler.POLL_BOUNDS_MS.min;
       if (deferredPollAt !== null && !isHidden()) return deferredPollAt - jobsAddedAt;
       return cadenceMs(isHidden());
     }
 
-    // A response is only acted on while this engine session still leads the poll it started.
     function stillCurrent(runEpoch) {
       return started && runEpoch === epoch && isLeader();
     }
@@ -307,13 +303,9 @@
       try {
         result = await api.getState();
       } catch (error) {
-        // A stale session or a tab that lost leadership neither renders "Offline" nor backs off.
         if (!stillCurrent(runEpoch)) return;
         if (isAuthError(error)) {
-          // Expired or revoked session: show it as such, forget this user's cache, stop polling.
-          authExpired = true;
-          cache.clear();
-          if (typeof api.reset === 'function') api.reset();
+          expire();
           apply(null, 'expired', null, { requestedAt });
           syncLeadership();
           return;
@@ -326,9 +318,8 @@
       if (result && result.notModified) {
         const shown = current.snapshot && current.snapshot.stateVersion;
         if (!shown || result.stateVersion !== shown) {
-          // The 304 confirms a version we are not showing (e.g. a broadcast replaced it):
-          // drop the client's ETag and fetch a full body soon. Until then, the state is unknown.
-          if (typeof api.reset === 'function') api.reset();
+          // A 304 for a version we are not showing: drop the ETag and refetch soon.
+          resetApi();
           resyncSoon = true;
           apply(current.snapshot, 'syncing', null);
           return;
@@ -344,28 +335,25 @@
     }
 
     function onLeaderChange(nowLeader) {
-      // Losing leadership invalidates any poll still in flight.
       if (!nowLeader) {
         epoch += 1;
         deferredPollAt = null;
       }
       if (!scheduler) return;
-      // The first leadership of a fresh page load honours a young cache; a hand-off polls at once.
+      // A fresh load honours a young cache; a hand-off polls at once.
       if (nowLeader && deferredPollAt !== null) scheduler.reschedule('poll');
       else if (nowLeader) scheduler.trigger('poll');
       else scheduler.reschedule('poll');
       scheduler.reschedule('freshness');
     }
 
-    // A joining follower asked for the current state: answer with what this leader shows.
-    // Even without a snapshot (e.g. offline before the first success), so the joiner learns it.
+    // Answer a joining follower, even without a snapshot.
     function onStateRequest() {
       if (!started || !isLeader()) return;
       if (leaderSessionCheck()) return;
       leader.broadcast(statePayload(current.snapshot, current.freshness, lastFetchedAt));
     }
 
-    // A follower changed server state: poll no sooner than the minimum after the last poll.
     function onRefreshRequest() {
       if (!started || !isLeader() || !scheduler) return;
       refreshSoon = true;
@@ -375,37 +363,30 @@
 
     function onBroadcast(payload) {
       if (!started || isLeader() || !payload || typeof payload !== 'object') return;
-      // Another tab may have signed in, out or as someone else: start over with that session.
       if (sessionChanged()) {
         resetSession(true);
         return;
       }
       const own = session();
       if (!own.signedIn) return;
-      // Never paint another Torn user's state (a tab still holding an older session).
+      // Never paint another Torn user's state.
       const sender = Number(payload.tornId);
       if (own.tornId !== null && Number.isSafeInteger(sender) && sender > 0 && sender !== own.tornId) return;
       if (!ownedBySession(payload.snapshot)) return;
       if (authExpired) {
-        // Live state for this user from another tab: the shared session works again.
         if (payload.freshness === 'live' && payload.snapshot) resetSession(true);
         return;
       }
       if (payload.freshness === 'expired') {
-        // An expiry of a request sent before this tab's re-authentication is about the old session.
         if (sessionSince !== null && Number.isFinite(payload.requestedAt) && payload.requestedAt < sessionSince) return;
-        authExpired = true;
-        deferredPollAt = null;
-        cache.clear();
-        if (typeof api.reset === 'function') api.reset();
+        expire();
         current = { snapshot: null, freshness: 'expired' };
         syncLeadership();
         render();
         rescheduleLocal();
         return;
       }
-      // Another tab is leading, so a later hand-off to this tab must poll promptly.
-      deferredPollAt = null;
+      deferredPollAt = null; // a later hand-off must poll promptly
       const freshness = PillState.FRESHNESS.includes(payload.freshness) ? payload.freshness : 'syncing';
       current = { snapshot: payload.snapshot || current.snapshot, freshness };
       if (freshness === 'live' && Number.isFinite(payload.fetchedAt)) lastFetchedAt = payload.fetchedAt;
@@ -416,7 +397,6 @@
 
     function onVisibilityChange() {
       if (!started) return;
-      // getSession() is re-read here and on broadcasts, never on a timer.
       if (!isHidden() && sessionChanged()) {
         resetSession();
         return;
@@ -424,7 +404,6 @@
       if (leader) leader.onVisibilityChange();
       scheduler.onVisibilityChange();
       if (isHidden()) return;
-      // Coming back after longer than the poll cadence: what is shown may be out of date.
       const cadence = cadenceMs(false);
       if (current.freshness === 'live' && (lastFetchedAt === null || now() - lastFetchedAt > cadence)) {
         current = { snapshot: current.snapshot, freshness: 'syncing' };
@@ -449,9 +428,7 @@
         cached = null;
       }
       current = gate ? { snapshot: null, freshness: gate } : { snapshot: cached ? cached.snapshot : null, freshness: 'syncing' };
-      // Torn navigation is mostly full page loads: a cache younger than the cadence (the last
-      // successful poll in this profile) defers the first poll to fetchedAt + cadence, never
-      // sooner than the scheduler's minimum.
+      // A cache younger than the cadence defers the first poll to fetchedAt + cadence.
       deferredPollAt = null;
       if (cached) {
         const cadence = cadenceMs(false);
@@ -476,8 +453,7 @@
       document.addEventListener('visibilitychange', onVisibilityChange);
       scheduler.start();
       syncLeadership();
-      // First paint only after setup: an onRender listener may stop() or resetSession() here.
-      render();
+      render(); // after setup: onRender may stop() or resetSession()
       rescheduleLocal();
     }
 
@@ -504,24 +480,22 @@
       rescheduleLocal();
     }
 
-    // A follower cannot poll, so it asks the leader; gated and hidden tabs ask nothing.
+    // Followers ask the leader; gated and hidden tabs ask nothing.
     function refresh() {
       if (!scheduler) return;
       if (isLeader()) scheduler.trigger('poll');
       else if (leader && !sessionGate() && !isHidden()) leader.requestRefresh();
     }
 
-    // Torn re-renders its header on SPA navigation: re-attach the pill and re-read the theme.
     function relayout() {
       if (!view) return;
       view.place();
       view.refreshTheme();
     }
 
-    // Sign-in, sign-out or a different Torn user: forget everything tied to the old session.
+    // Forget everything tied to the old session (a new session's cache entry stays).
     function resetSession(fromBroadcast = false) {
       const wasStarted = started;
-      // A snapshot the leader just wrote for the new session stays in the shared cache.
       const nowSession = session();
       let keepCache = false;
       if (fromBroadcast === true && nowSession.signedIn && nowSession.tornId !== null) {
@@ -534,7 +508,7 @@
       current = { snapshot: null, freshness: 'syncing' };
       lastFetchedAt = null;
       if (!keepCache) cache.clear();
-      if (typeof api.reset === 'function') api.reset();
+      resetApi();
       if (wasStarted) start();
     }
 

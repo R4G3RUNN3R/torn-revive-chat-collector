@@ -32,8 +32,7 @@
     else if (isReviver) table = CADENCE_MS.REVIVER;
     const server = clampPollMs(nextPollMs);
     if (server === null) return table;
-    // The server may always slow polling down. An open reviver sheet keeps its 5 s cadence
-    // unless the server asked for more than the normal reviver cadence.
+    // The server may always slow polling; an open reviver sheet keeps 5 s unless it asks for > 20 s.
     if (isReviver && sheetOpen && !hasActive && server <= CADENCE_MS.REVIVER) return Math.min(server, CADENCE_MS.REVIVER_SHEET_OPEN);
     return server;
   }

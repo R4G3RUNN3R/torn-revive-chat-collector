@@ -22,10 +22,7 @@
     clientVersion = '',
     releaseChannel = '',
     getToken = () => '',
-    // getSession is supplied by MAIN and handed to the engine unchanged. It MUST read SHARED
-    // storage on every call (the persisted session token and persisted identity tornId via
-    // platform.storage), never one tab's in-memory state, so a sign-in/out in one tab is seen
-    // by the others. Returns { signedIn, tornId }.
+    // () => { signedIn, tornId }. MUST read shared platform.storage on every call, never tab memory.
     getSession = null,
     onActivate = () => {},
     onRender = null,
@@ -42,7 +39,7 @@
     const setTimer = typeof clock.setTimeout === 'function' ? clock.setTimeout : (fn, ms) => globalThis.setTimeout(fn, ms);
     const clearTimer = typeof clock.clearTimeout === 'function' ? clock.clearTimeout : handle => globalThis.clearTimeout(handle);
 
-    // One id per page load, kept across BFCache restarts so leadership logs stay readable.
+    // One id per page load, kept across BFCache restarts.
     const tabId = `rr-${now().toString(36)}-${random().toString(36).slice(2, 10)}`;
     const api = createStateClient({ baseUrl, request: platform.request, getToken, clientVersion, releaseChannel });
     const engine = createLiteEngine({

@@ -9,8 +9,7 @@
   const LEADER_CHANNEL = 'rr-leader';
   const STATE_CHANNEL = 'rr-state';
   const DEFAULTS = Object.freeze({ heartbeatMs: 2000, leaderTimeoutMs: 4000, electionMs: 500 });
-  // Candidates promote at electionMs + (hash(id) % STAGGER_MS), so simultaneous elections rarely tie.
-  // Worst-case hand-off after a crash: leaderTimeoutMs + electionMs + STAGGER_MS < 5 s.
+  // Staggered promotion (electionMs + hash(id) % STAGGER_MS); crash hand-off stays under 5 s.
   const STAGGER_MS = 200;
 
   function hashId(value) {
@@ -101,9 +100,7 @@
       stateChannel = null;
     }
 
-    // rr-state carries three messages: { type: 'state', payload } from the leader, and
-    // { type: 'state-request' } from a joining follower or { type: 'refresh-request' } from a
-    // follower that changed server state, which only the leader answers.
+    // rr-state: 'state' from the leader; 'state-request' / 'refresh-request' for the leader.
     function onStateMessage(event) {
       const message = event && event.data;
       if (!message || typeof message !== 'object' || message.from === id || !started) return;
@@ -124,8 +121,6 @@
       if (mode === 'locks') onLocksMessage(message);
       else if (mode === 'heartbeat') onHeartbeatMessage(message);
     }
-
-    // ---- Web Locks -------------------------------------------------------
 
     function requestLock() {
       if (leader || pending || !started) return;
@@ -172,10 +167,12 @@
 
     function onLocksMessage(message) {
       if (message.type === 'claim' && leader && isHidden()) releaseLeadership();
-      if (message.type === 'leader-hidden' && !leader && !isHidden()) {
-        requestLock();
-        post(control, { type: 'claim' });
-      }
+      if (message.type === 'leader-hidden' && !leader && !isHidden()) claimLock();
+    }
+
+    function claimLock() {
+      requestLock();
+      post(control, { type: 'claim' });
     }
 
     function locksVisibility() {
@@ -184,13 +181,8 @@
         else abortPending();
         return;
       }
-      if (!leader) {
-        requestLock();
-        post(control, { type: 'claim' });
-      }
+      if (!leader) claimLock();
     }
-
-    // ---- BroadcastChannel heartbeat election -----------------------------
 
     function cancel(handle) {
       if (handle !== null) clearTimer(handle);
@@ -244,9 +236,7 @@
       }, delay);
     }
 
-    // Another candidate is electing. A lower-id one is given time to promote and announce itself first.
-    // A higher-id one may have started after our own hello went out, so answer it once with a hello of
-    // our own: it then learns of us and yields.
+    // A lower-id candidate gets time to promote first; a higher-id one is answered once so it yields.
     function onCandidateHello(from) {
       if (electionTimer === null || yieldedTo === null || yieldedTo.has(from)) return;
       yieldedTo.add(from);
@@ -259,8 +249,7 @@
       claimTimer = setTimer(() => {
         claimTimer = null;
         if (leader || isHidden() || !started || !leaderHidden) return;
-        // The hidden leader never answered: it is gone, so elect among the visible tabs.
-        startElection();
+        startElection(); // the hidden leader never answered
       }, electionMs);
     }
 
@@ -276,25 +265,8 @@
       scheduleHeartbeat();
     }
 
-    function stepDown(newLeader, newLeaderHidden) {
-      heartbeatTimer = cancel(heartbeatTimer);
-      knownLeader = newLeader;
-      leaderHidden = Boolean(newLeaderHidden);
-      setLeader(false);
-      if (leaderHidden && !isHidden()) {
-        // A hidden leader never polls: claim from it rather than sit unled (armWatchdog skips hidden leaders).
-        watchdogTimer = cancel(watchdogTimer);
-        post(control, { type: 'claim', to: newLeader });
-        armClaimTimer();
-        return;
-      }
-      armWatchdog();
-    }
-
-    function followLeader(from, hidden) {
-      electionTimer = cancel(electionTimer);
-      claimTimer = cancel(claimTimer);
-      yieldedTo = null;
+    // A hidden leader never polls: a visible tab claims from it instead of sitting unled.
+    function trackLeader(from, hidden) {
       knownLeader = from;
       leaderHidden = Boolean(hidden);
       if (leaderHidden && !isHidden()) {
@@ -304,6 +276,19 @@
         return;
       }
       armWatchdog();
+    }
+
+    function stepDown(newLeader, newLeaderHidden) {
+      heartbeatTimer = cancel(heartbeatTimer);
+      setLeader(false);
+      trackLeader(newLeader, newLeaderHidden);
+    }
+
+    function followLeader(from, hidden) {
+      electionTimer = cancel(electionTimer);
+      claimTimer = cancel(claimTimer);
+      yieldedTo = null;
+      trackLeader(from, hidden);
     }
 
     function onHeartbeatMessage(message) {
@@ -377,8 +362,6 @@
       }
     }
 
-    // ---- public ------------------------------------------------------------
-
     function start() {
       if (started) return;
       const lockApi = locks && typeof locks.request === 'function';
@@ -392,14 +375,10 @@
         setLeader(true);
         return;
       }
-      // A joining tab asks the current leader (if any) for its state instead of waiting for the next poll.
-      post(stateChannel, { type: 'state-request' });
+      post(stateChannel, { type: 'state-request' }); // ask any leader for its state now
       if (lockApi) {
         mode = 'locks';
-        if (!isHidden()) {
-          requestLock();
-          post(control, { type: 'claim' });
-        }
+        if (!isHidden()) claimLock();
         return;
       }
       mode = 'heartbeat';
@@ -440,7 +419,7 @@
       return true;
     }
 
-    // A follower asks the leader to poll soon (e.g. after this tab created a request).
+    // Ask the leader to poll soon (e.g. after this tab created a request).
     function requestRefresh() {
       if (!started || leader || !stateChannel) return false;
       post(stateChannel, { type: 'refresh-request' });
