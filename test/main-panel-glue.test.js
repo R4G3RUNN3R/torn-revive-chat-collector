@@ -268,3 +268,94 @@ test('a Lite boot that throws is retried once on pageshow', async () => {
   assert.deepEqual(harness.boot.calls, ['start']);
   assert.equal(harness.window.count('error'), 1, 'global error hooks are installed once');
 });
+
+// ---- tab switch loads data ---------------------------------------------------
+
+test('switching Reviver -> Request loads the active request and shows the request button', async () => {
+  const harness = await bootMain();
+  harness.view = { sheet: 'reviver-queue' };
+  await openPanel(harness);
+  assert.equal(harness.main.state.panelTab, 'reviver');
+  assert.equal(harness.count('GET /v1/requests/active'), 0);
+  assert.doesNotMatch(requesterMarkup(harness), /rr-request-revive/);
+  harness.main.activatePanelTab('request');
+  await harness.clock.flush();
+  assert.equal(harness.count('GET /v1/requests/active'), 1);
+  assert.match(requesterMarkup(harness), /id="rr-request-revive"/);
+});
+
+test('switching Request -> Reviver fetches the queue', async () => {
+  const harness = await bootMain();
+  harness.view = { sheet: 'requester' };
+  await openPanel(harness);
+  assert.equal(harness.count('GET /v1/reviver/queue'), 0);
+  harness.main.activatePanelTab('reviver');
+  await harness.clock.flush();
+  assert.equal(harness.count('GET /v1/reviver/queue'), 1);
+  assert.deepEqual(slowCounts(harness), [1, 1, 1], 'the 60 s throttle for slow data still holds');
+});
+
+// ---- stale-session guards ----------------------------------------------------
+
+function switchAccountElsewhere(harness) {
+  harness.store.reviverelay_session_token = 'token-2002';
+  harness.store.reviverelay_public_identity = { tornId: 2002, name: 'Player2002' };
+}
+
+test('runTransactionAction on a stale session sends nothing', async () => {
+  const harness = await bootMain();
+  await openPanel(harness);
+  harness.main.state.activeTransaction = { id: 't1', state: 'REVIVE_FAILED', participantRole: 'requester' };
+  switchAccountElsewhere(harness);
+  const before = harness.requests.length;
+  await harness.main.runTransactionAction('check-payment');
+  await harness.clock.flush();
+  assert.equal(harness.requests.length, before);
+});
+
+test('the panel click handler on a stale session sends nothing', async () => {
+  const harness = await bootMain();
+  await openPanel(harness);
+  switchAccountElsewhere(harness);
+  const before = harness.requests.length;
+  const target = { id: 'rr-refresh-queue', closest: () => null };
+  harness.main.panel.listeners.get('click')({ target });
+  await harness.clock.flush();
+  assert.equal(harness.requests.length, before);
+  assert.equal(harness.main.state.identity.tornId, 2002, 'the panel followed the shared session instead');
+});
+
+test('handlePillActivate on a stale session never renders the old account', async () => {
+  const harness = await bootMain();
+  await openPanel(harness);
+  harness.main.handlePillActivate(); // close
+  harness.main.state.activeRequest = { id: 'old', state: 'OPEN', paymentMethod: 'cash', offerAmount: 1 };
+  switchAccountElsewhere(harness);
+  harness.main.handlePillActivate();
+  // Synchronously, before any await: the old session is already gone.
+  assert.equal(harness.main.state.sessionToken, 'token-2002');
+  assert.equal(harness.main.state.identity.tornId, 2002);
+  assert.equal(harness.main.state.activeRequest, null);
+  assert.doesNotMatch(requesterMarkup(harness), /Player1001/);
+});
+
+// ---- Pro / role changes reset the slow-refresh throttle ----------------------
+
+test('a Pro or role change between renders lets the next refresh reload slow data inside 60 s', async () => {
+  const harness = await bootMain();
+  harness.view = { sheet: 'reviver-queue' };
+  await openPanel(harness);
+  const render = (stateVersion, pro, roles) => harness.main.handlePillRender({ snapshot: { stateVersion, pro, me: { roles } } });
+  render('v1', { state: 'NONE' }, ['requester']);
+  await harness.clock.flush();
+  assert.deepEqual(slowCounts(harness), [1, 1, 1]);
+  render('v2', { state: 'NONE' }, ['requester']);
+  await harness.clock.flush();
+  assert.deepEqual(slowCounts(harness), [1, 1, 1], 'no change: throttled');
+  render('v3', { state: 'ACTIVE' }, ['requester']);
+  await harness.clock.flush();
+  assert.deepEqual(slowCounts(harness), [2, 2, 2], 'Pro change reloads');
+  render('v4', { state: 'ACTIVE' }, ['requester', 'reviver']);
+  await harness.clock.flush();
+  assert.deepEqual(slowCounts(harness), [3, 3, 3], 'role change reloads');
+});

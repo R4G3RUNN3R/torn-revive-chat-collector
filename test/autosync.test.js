@@ -14,7 +14,7 @@ test('legacy raw Google Sheets and chat autosync paths are absent from direct ru
 
 test('1.0 runtime has no timers of its own: the Lite engine polls, the open panel refreshes on state changes', () => {
   for (const token of [
-    'refreshActiveRequest()','refreshProState({ includePlans',
+    'refreshActiveRequest()','refreshProState()',
     'refreshReviverQueue()','refreshCurrentInvoice()','liteBoot.refresh()',
     'state.telemetry.drain()','function refreshPanelData()'
   ]) assert.ok(source.includes(token), token);

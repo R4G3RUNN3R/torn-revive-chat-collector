@@ -137,6 +137,7 @@
   let statusMessage = '';
   let statusIsError = false;
   let panelSlowRefreshAt = null;
+  let panelProRolesKey = null;
   let errorHooksInstalled = false;
   let initRetryArmed = false;
   let updateResult = null;
@@ -488,7 +489,7 @@
       storage.set(KEYS.sessionToken, state.sessionToken);
       storage.set(KEYS.publicIdentity, publicIdentity());
       resetLiteSession();
-      await refreshMarketplaceState({ includePlans: true });
+      await refreshMarketplaceState();
       setStatus(runtimeCompatible() ? 'ReviveRelay connected with your Torn API key.' : runtimeCompatibilityMessage(), !runtimeCompatible());
       renderAll();
     } catch (error) {
@@ -501,7 +502,7 @@
     }
   }
 
-  async function refreshProState({ includePlans = false } = {}) {
+  async function refreshProState() {
     return runSingleFlightPoll('pro', async () => {
       if (!state.sessionToken) {
         state.proStatus = null;
@@ -655,7 +656,7 @@
       });
       if (!applied) return;
       if (state.currentInvoice.state === 'PAID') {
-        await refreshProState({ includePlans: false });
+        await refreshProState();
         await refreshVerificationCredential();
         await refreshReviverEligibility();
         await refreshReviverQueue();
@@ -663,11 +664,11 @@
     });
   }
 
-  async function refreshMarketplaceState({ includePlans = false } = {}) {
+  async function refreshMarketplaceState() {
     if (!state.sessionToken) return;
     await refreshMe();
     if (!runtimeCompatible()) return;
-    await refreshProState({ includePlans });
+    await refreshProState();
     if (!runtimeCompatible()) return;
     await refreshActiveRequest();
     await refreshVerificationCredential();
@@ -999,6 +1000,10 @@
   // Runs after every pill render (each poll, and every second while the panel is open).
   function handlePillRender({ snapshot }) {
     latestPillStateVersion = snapshot?.stateVersion || null;
+    // Pro or role changes made elsewhere reach the panel promptly: drop the slow-refresh throttle.
+    const proRolesKey = JSON.stringify([snapshot?.pro ?? null, snapshot?.me?.roles ?? null]);
+    if (panelProRolesKey !== null && proRolesKey !== panelProRolesKey) panelSlowRefreshAt = null;
+    panelProRolesKey = proRolesKey;
     // A hidden page keeps its old version, so it catches up once visible.
     if (!panel || state.minimized || pageHidden()) return;
     if (latestPillStateVersion && latestPillStateVersion !== panelStateVersion) {
@@ -1595,6 +1600,8 @@
     if (state.minimized) setPanelOpen(true);
     updateTabVisibility();
     renderAll();
+    // The newly selected tab loads its own data (single-flight; slow data stays throttled).
+    if (panel && !state.minimized) refreshPanelData();
   }
 
   function panelViewport() {
@@ -1785,7 +1792,7 @@
       if (target.id === 'rr-revoke-verification') return revokeVerificationKey();
       if (target.id === 'rr-register-reviver') return registerMarketplaceReviver();
       if (target.id === 'rr-refresh-queue') return refreshReviverQueue().then(renderLiveState).catch(error => handleApiFailure(error, 'queue.manual', 'Queue refresh failed.'));
-      if (target.id === 'rr-refresh') return refreshMarketplaceState({ includePlans: true }).then(renderAll).catch(error => handleApiFailure(error, 'manual.refresh'));
+      if (target.id === 'rr-refresh') return refreshMarketplaceState().then(renderAll).catch(error => handleApiFailure(error, 'manual.refresh'));
       if (target.id === 'rr-disconnect') return clearSession();
       if (target.id === 'rr-delete-account') return deleteReviveRelayAccount();
       if (target.id === 'rr-update-check') return checkUpdates(true);
