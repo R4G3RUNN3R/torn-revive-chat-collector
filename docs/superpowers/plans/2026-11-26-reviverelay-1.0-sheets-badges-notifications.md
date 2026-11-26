@@ -2,7 +2,19 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Ship ReviveRelay 1.0.1: trim the Lite core, then add leader-only deduplicated notifications with sound, "RR verified" profile badges with a GM-persisted LRU, the Plan 3a carry-over fixes, and the three CHANGELOG limitations, all inside the unchanged size gates.
+**Goal:** Ship ReviveRelay 1.0.1: trim the Lite core, then add leader-only deduplicated notifications (per-type toggles, quiet hours, sound), "RR verified" profile badges with a GM-persisted LRU, the Plan 3a carry-over fixes, and the three CHANGELOG limitations, all inside the unchanged size gates.
+
+**Revision 2 (after `p3b-plan-review.md`):**
+
+| Finding | Fix | Task |
+| --- | --- | --- |
+| I-1 | The 0.7 toggle is migrated into the Lite settings at boot | 10 |
+| I-2 | No badge lookup without a session token | 8 |
+| I-3 | The unreachable `(!)` title fallback is dropped; the visible-tab requirement is disclosed | 9, 11, smoke 5 |
+| I-4 | Per-type toggles in Settings | 10 |
+| I-5 | Re-scan on visible | 8 |
+| I-6 | Update notice from the leader only | 10 |
+| Minor 1–12 | Fixed in place; each fix is noted in Appendix B | |
 
 **Architecture:** First, four trim tasks shrink the Lite core and make room. They move source comments into a notes document, move panel-only API code out of the core, collapse duplicated helpers, and remove the opt-in client telemetry. Then the features land as two new Lite modules. `src/lite/notify.js` is fed by the engine's leader inside `apply()` on live snapshots. `src/lite/badges.js` is scanned on the existing one-shot relayout timers. Both are wired in `src/lite/boot.js`; their settings live in the existing panel (decision 15).
 
@@ -10,15 +22,15 @@
 
 **Branch:** cut `feat/reviverelay-1.0-sheets` from `feat/reviverelay-1.0-integration` at `666ea60`.
 
-## Owner decisions (2026-11-26)
+## Owner decisions (2026-11-26, binding)
 
-- **D-1: sheets move to 1.1.** 1.0.1 ships without the new requester and reviver sheets. They land in 1.1 together with the panel replacement, which spec decision 14 already ties to 1.1.
-- **D-2: hospital-list badges move to 1.1, with the sheets.**
-- **D-3:** the synthesized chime is accepted for now. The owner will judge it during the smoke test.
+- The new requester and reviver sheets, and the hospital-list "RR" badges, move to **1.1**. They do not fit in the 110,000 B Lite core next to notifications and badges; the numbers are below and in Appendix A.
+- The synthesized chime is accepted for now (D-3).
+- The size gates are not raised.
 
 ## Size verdict (read first)
 
-**The full Plan 3b scope does not fit in the 110,000 B Lite core.** Everything except the new requester/reviver sheets fits with the required ≥ 2 KB margin. The sheets do not fit, even after every trim this plan found to be reasonable and justifiable. This plan does **not** drop them quietly: they are blocked on owner decision **D-1** (Appendix A), with a measured prototype.
+Everything in 1.0.1 fits with the required ≥ 2 KB Lite-core margin. That covers the trims, notifications with per-type toggles and sound, profile badges, the carry-over fixes and the review fixes I-1 to I-6. Per-type toggles cost 0 B of core: they are panel controls over settings that `notify.js` already reads.
 
 All numbers below are bytes, measured on prototype builds of this plan's code (scratch clone of `666ea60`), with `scripts/size-report.js` (Task 1).
 
@@ -28,28 +40,23 @@ All numbers below are bytes, measured on prototype builds of this plan's code (s
 | Task 2: move Lite-core comments to `docs/lite/ENGINE-NOTES.md` | 105,205 | −4,460 | 226,047 | −4,460 |
 | Task 3: panel-only API and `versioning.js` out of the core (`src/panel-api-client.js`) | 99,816 | −5,389 | 227,310 | +1,263 |
 | Task 4: one-line `dependency`, shared `safeParseBody`, dead `defaultTabId`, `addStyle` into MAIN | 98,235 | −1,581 | ≈ 226,000 | ≈ −1,300 |
-| Task 5: remove opt-in client telemetry (`src/telemetry-client.js` and its MAIN glue) | 98,235 | 0 | ≈ 216,000 | −10,038 |
+| Task 5: remove opt-in client telemetry (`src/telemetry-client.js` and its MAIN glue) | 98,235 | 0 | ≈ 216,030 | −9,991 |
 | **Trims total** | | **−11,430** | | **≈ −14,500** |
-| Task 6: engine/scheduler carry-overs and the `onLiveSnapshot` hook | | +315 | | +315 |
-| Task 7: badge LRU persistence, validation and the `reset`/`clearBadges` split | | +1,051 | | +1,051 |
-| Task 8: `src/lite/badges.js` (2,462 with its bundle markers) and its boot wiring | | ≈ +2,700 | | ≈ +2,700 |
-| Task 9: `src/lite/notify.js` (5,128 with its bundle markers) and its boot wiring | | ≈ +5,630 | | ≈ +5,630 |
-| Task 10: MAIN settings, update notice, invoice expiry, M2/M4/M5 (legacy panel only) | | 0 | | ≈ +1,340 |
-| **Projected 1.0.1 (measured on the prototype)** | **107,932** | | **227,016** | |
-| Headroom against the gates | **2,068** (≥ 2,000 ✔) | | **4,984** | |
+| Tasks 6–9: engine/scheduler carry-overs and hook, badge LRU, `badges.js`, `notify.js`, boot wiring | | +9,642 | | +9,642 |
+| Task 10: MAIN settings (incl. per-type toggles), boot settings migration, leader-only update notice, invoice expiry, deletion reset, M2/M4/M5 (legacy panel only) | | 0 | | ≈ +2,350 |
+| **Projected 1.0.1 (measured on the prototype, after review fixes I-1 to I-6)** | **107,877** | | **228,012** | |
+| Headroom against the gates | **2,123** (≥ 2,000 ✔) | | **3,988** | |
 
-**Feature arithmetic.** The core-side feature cost is 107,932 − 98,235 = 9,697 B:
+**Feature arithmetic.** The core-side feature cost is 107,877 − 98,235 = 9,642 B:
 
 | Part | Bytes |
 | --- | ---: |
-| notify.js block | 5,128 |
-| badges.js block | 2,462 |
-| engine | +335 |
-| scheduler | −20 |
-| boot | +741 |
-| state-client | +1,051 |
+| `notify.js` block, with markers and join | 4,870 |
+| `badges.js` block | 2,462 |
+| engine and scheduler changes (Task 6) | +315 |
+| state-client (Task 7) and boot wiring (Tasks 8–9) | +1,995 |
 
-**Sheets (blocked).** A deliberately compact prototype of the requester and reviver sheets measures 12,090 B, before its bundle markers and about 450 B of boot wiring. That would project the Lite core to ≈ 120,600 B, which is 10,600 B over the gate. Getting back to the 2 KB margin would need about 12,600 B of further core trims. Nothing left in the core can supply that without a spec-visible behaviour change (Appendix A). Therefore:
+**Sheets (moved to 1.1).** A compact prototype of the requester and reviver sheets measures 12,090 B, before its bundle markers and about 450 B of boot wiring. That would project the Lite core to ≈ 120,550 B, which is about 10,550 B over the gate and about 12,550 B short of the 2 KB margin. Therefore:
 
 - 1.0.1 keeps the 1.0.0 behaviour: the pill opens the existing panel for everyday flows.
 - The panel's request, queue and transaction code stays, because nothing replaces it yet.
@@ -60,7 +67,9 @@ All numbers below are bytes, measured on prototype builds of this plan's code (s
 - Spec decision 14 (Plan 3b note): new sheets, badges, notifications and sound fit by trimming older code out of the Lite core, never by raising a gate.
 - Spec decision 15: key setup, Pro invoices, settings and account deletion stay in the existing panel. Notification, sound, quiet-hours and badge settings therefore live in the panel's Settings drawer.
 - Spec decision 5: "Sound … on by default for key action/outcome events only; new queue requests silent; one toggle for all sound." Requester events with sound: accepted (time to pay), revived, refund resolved. Reviver events with sound: payment received (revive now), refund owed.
-- Single-actor invariant: "at most one tab fires a given notification." Notifications fire only from the leader, inside `apply()`, on a live snapshot, and are deduped by event id in GM storage (`reviverelay_notified_events_v1`).
+- Single-actor invariant: "at most one tab fires a given notification." Notifications fire only from the leader, inside `apply()`, on a live snapshot, and are deduped by event id in GM storage (`reviverelay_notified_events_v1`). The update notice also goes through the leader only.
+- Consequence of "hidden tab: zero work": notifications and sound need at least one visible Torn tab (or TornPDA in the foreground). This is disclosed in the CHANGELOG.
+- Dormancy: signed-out users make no badge lookups. The badge endpoint requires authentication, so the client never calls it without a session token.
 - Spec "Inline badges": "fetched only when that profile page is visible, cached for 10 minutes", "in memory and in GM storage (bounded at 200 entries, LRU)", "marked with `data-rr-badge`".
 - Bundled modules stay byte-identical to their sources: there is no build-time comment stripping or minification. Removing comments from a source file is allowed and is how Task 2 trims.
 - Lite sources must not use `innerHTML`/`outerHTML`/`insertAdjacentHTML`, `eval`/`new Function`, `fetch`/`XMLHttpRequest`, or `localStorage`/`sessionStorage`/`indexedDB` (`test/lite-bundle.test.js`). After Task 2, Lite-core sources carry no comments (new guard).
@@ -117,9 +126,9 @@ Size check after any task: `npm run build >/dev/null && node scripts/size-report
 - `createLiteEngine({ ..., onLiveSnapshot: snapshot => void })`. The hook is called only when `isLeader()` and the freshness is `'live'`. The engine calls `api.clearBadges()` (when present) on expiry and session reset; `api.reset()` alone drops only the ETag (Task 6).
 - `createStateClient({ ..., storage })`, with `BADGE_CACHE = { ttlMs: 600000, maxEntries: 200, key: 'reviverelay_badge_cache_v1' }`, returns `{ getState, getPlayerBadge, lastStateVersion, reset, clearBadges, badgeCacheSize }`. A badge 200 must have boolean `requesterVerified` and `reviverVerified` and `String(tornId)` equal to the requested id; otherwise it throws `INVALID_BADGE_RESPONSE` (retryable) and nothing is cached (Task 7).
 - `ReviveRelayLiteBadges.createBadges({ document, window, api, enabled, slots? }) → { scan(): Promise<boolean> }`. Also exports `PROFILE_PATTERN`, `PROFILE_SLOTS` and `badgeText` (Task 8).
-- `ReviveRelayLiteNotify.createNotifier({ storage, notify, window, document, now, chime? }) → { onSnapshot(snapshot): number, notifyOnce(id, text): boolean, restoreTitle() }`. Also exports `SEEN_KEY = 'reviverelay_notified_events_v1'`, `SETTINGS_KEY = 'reviverelay_notification_settings_v1'`, `EVENTS`, `allowed` and `playChime` (Task 9).
-- Notification settings object (GM `reviverelay_notification_settings_v1`): `{ enabled?: boolean, sound?: boolean, quietFrom?: 0–23|null, quietTo?: 0–23|null, types?: { accepted, paymentVerified, revived, failed, refundResolved, paymentReceived, refundOwed, newRequest } }`. A missing value means on, except `types.newRequest`, which must be `true` (Task 9).
-- `createLiteBoot(...)` returns `{ ..., notifier }`; `BADGES_KEY = 'reviverelay_badges_enabled'` (Tasks 8–9).
+- `ReviveRelayLiteNotify.createNotifier({ storage, notify, window, now, chime? }) → { onSnapshot(snapshot): number, notifyOnce(id, text): boolean }`. Also exports `SEEN_KEY = 'reviverelay_notified_events_v1'`, `SETTINGS_KEY = 'reviverelay_notification_settings_v1'`, `EVENTS`, `allowed` and `playChime` (Task 9).
+- Notification settings object (GM `reviverelay_notification_settings_v1`): `{ enabled?: boolean, sound?: boolean, quietFrom?: 0–23|null, quietTo?: 0–23|null, types?: { accepted, paymentVerified, revived, failed, refundResolved, paymentReceived, refundOwed, newRequest } }`. A missing value means on, except `types.newRequest`, which must be `true` (Task 9). MAIN writes the object once at boot when it is missing, seeded with `enabled` from the 0.7 `reviverelay_desktop_notifications_enabled` (Task 10).
+- `createLiteBoot(...)` returns `{ ..., notifier }`; `BADGES_KEY = 'reviverelay_badges_enabled'`. Badges are enabled only while `getToken()` is non-empty and the toggle is not `false`; the boot re-scans on `visibilitychange` to visible (Tasks 8–9).
 
 ---
 
@@ -347,7 +356,7 @@ The script keeps the code on each line and only drops the comment. For example, 
 - [ ] **Step 3: Check that nothing but comments changed**
 
 Run: `git diff -U0 src | grep -c '^+[^+]'`
-Expected: `25`. These are the lines that lost a trailing comment but kept their code; every other changed line is a deleted comment line.
+Expected: `23`. These are the lines that lost a trailing comment but kept their code; every other changed line is a deleted comment line.
 
 Run: `git diff -U0 src | grep '^+[^+]' | grep -E '//|/\*'`
 Expected: no output.
@@ -573,7 +582,7 @@ Expected: FAIL, `Cannot find module '../src/panel-api-client'`.
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
 
-  // Endpoints only the legacy 0.7 panel uses (setup, Pro, invoices, account, diagnostics).
+  // Endpoints only the legacy 0.7 panel uses (setup, Pro, invoices, account).
   // Measured with the legacy panel, outside the Lite core size budget.
   const PLAN_IDS = Object.freeze(['monthly', 'six_months', 'yearly']);
   const PRO_CURRENCIES = Object.freeze(['xanax', 'cash']);
@@ -890,7 +899,7 @@ git commit -m "refactor: collapse duplicated Lite helpers, drop dead tab-id defa
 ```
 ---
 
-### Task 5: Remove opt-in client telemetry (−10,038 B whole)
+### Task 5: Remove opt-in client telemetry (−9,991 B whole)
 
 **Sanction and behaviour change.**
 
@@ -998,17 +1007,22 @@ Then make these single-line edits:
 | `      captureClientError(error, 'init');` | (delete the line) |
 | `        <p><strong>Diagnostics consent.</strong> Sanitized diagnostics are off by default and are sent only when you enable the Diagnostics option.</p>` | `        <p><strong>Diagnostics.</strong> The old Diagnostics option (off by default) is removed: ReviveRelay sends no error diagnostics.</p>` |
 
-Delete the Diagnostics settings section and its change handler:
+Delete the Diagnostics settings section. It is the last section of the `renderSettingsDrawer` template, so the template must then end at the previous section's `    </details>`. Find:
 ```js
+    </details>
     <details class="rr-settings-section">
       <summary>Diagnostics / Advanced</summary>
       <div class="rr-settings-body">
         <label><input id="rr-diagnostics-enabled" type="checkbox" ${storage.get(KEYS.clientDiagnosticsEnabled, false) ? 'checked' : ''}> Send sanitized ReviveRelay error diagnostics</label>
         <p class="rr-muted">Diagnostics exclude API keys, bearer tokens, payment receiver credentials and public chat content.</p>
       </div>
-    </details>
+    </details>`;
 ```
-(the template string then ends at the preceding `    </details>` followed by `` `; ``)
+Replace with:
+```js
+    </details>`;
+```
+Then delete the change handler:
 ```js
       if (event.target?.id === 'rr-diagnostics-enabled') {
         storage.set(KEYS.clientDiagnosticsEnabled, Boolean(event.target.checked));
@@ -1028,16 +1042,20 @@ Expected: no output.
 | `SECURITY.md` | `Sanitized diagnostics are **off by default**.` | `Sanitized diagnostics are **off by default** in 0.7.x and absent from the 1.0.1 client.` |
 | `docs/review/ENDPOINT-INVENTORY.md` | `\| POST \| \`/v1/telemetry/errors\` \| Bounded sanitized technical error envelopes; client diagnostics are off by default. \|` | `\| POST \| \`/v1/telemetry/errors\` \| Bounded sanitized technical error envelopes from 0.7.x clients (diagnostics off by default); the 1.0.1 client never calls it. \|` |
 | `docs/review/REVIEW-CHECKLIST.md` | `keeps Diagnostics OFF by default` | `shows no Diagnostics option (removed in 1.0.1)` |
+| `docs/review/REVIEW-CHECKLIST.md` | `- [x] Confirm diagnostics are off by default and sanitized.` | `- [x] Confirm diagnostics are off by default and sanitized (0.7.x); the 1.0.1 client has no diagnostics.` |
+| `docs/review/SCREENSHOT-CHECKLIST.md` | `revoke guidance, diagnostics off by default, About & Privacy` | `revoke guidance, no Diagnostics option (1.0.1; 0.7.x had diagnostics off by default), About & Privacy` |
+| `docs/review/PAYMENT-VERIFICATION-FLOW.md` | `Sanitized diagnostics are off by default and do not include` | `Sanitized diagnostics (0.7.x only, off by default; the 1.0.1 client sends none) do not include` |
+| `src/panel-api-client.js` | `(setup, Pro, invoices, account, diagnostics)` | `(setup, Pro, invoices, account)` |
 
 - [ ] **Step 4: Run everything**
 
 Run: `npm run build >/dev/null && node --test test 2>&1 | grep -E '^# (pass|fail)' && node scripts/size-report.js | head -3`
-Expected: `# pass 615`, `# fail 3` (known trio). Size: `"liteCore": 98235`, and `"whole"` 10,038 lower than after Task 4.
+Expected: `# pass 615`, `# fail 3` (known trio). Size: `"liteCore": 98235`, and `"whole"` 9,991 lower than after Task 4 (±50 depending on blank lines).
 
 - [ ] **Step 5: Commit**
 ```bash
 git add -A src scripts torn-revive-chat-collector.user.js test PRIVACY.md README.md SECURITY.md docs/review
-git commit -m "feat!: remove opt-in client diagnostics to fund 1.0.1 features (-10038 B whole)" -m "The owner's Plan 3b brief lists telemetry as a trim candidate. The server endpoint stays for 0.7.x." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit -m "feat!: remove opt-in client diagnostics to fund 1.0.1 features (-9991 B whole)" -m "The owner's Plan 3b brief lists telemetry as a trim candidate. The server endpoint stays for 0.7.x." -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 ---
 
@@ -1138,14 +1156,15 @@ function tabs(count, clock, responsesFor) {
   });
 }
 
-test('onLiveSnapshot runs only in the leader, only for live data, including after a hand-off', async () => {
+test('onLiveSnapshot runs only in the leader of three tabs, only for live data, including after a hand-off', async () => {
   const clock = createFakeTimers();
-  const [a, b] = tabs(2, clock, () => [{ notModified: false, snapshot: snapshot() }, new Error('down')]);
+  const [a, b, c] = tabs(3, clock, () => [{ notModified: false, snapshot: snapshot() }, new Error('down')]);
   a.engine.start();
   b.engine.start();
+  c.engine.start();
   await clock.advance(0);
   assert.equal(a.live.length, 1);
-  assert.equal(b.live.length, 0, 'followers render broadcasts but never notify');
+  assert.equal(b.live.length + c.live.length, 0, 'followers render broadcasts but never notify');
   await clock.advance(60000);
   assert.equal(a.live.length, 1, 'an offline result is not live');
   a.document.setVisibility('hidden');
@@ -1153,9 +1172,10 @@ test('onLiveSnapshot runs only in the leader, only for live data, including afte
   assert.equal(b.engine.isLeader(), true);
   await clock.advance(60000);
   assert.equal(b.live.length, 1);
-  assert.equal(a.live.length, 1);
+  assert.equal(a.live.length + c.live.length, 1);
   a.engine.stop();
   b.engine.stop();
+  c.engine.stop();
 });
 
 test('M1: a hand-off after a failed poll polls at once instead of waiting a cadence', async () => {
@@ -1241,7 +1261,7 @@ Replace with:
 
 In `src/lite/engine.js`, make these edits in order:
 1. Accept the hook (`createLiteEngine` parameters).
-   Find:
+   Find (exactly one occurrence):
 ```js
     onRender = null
   } = {}) {
@@ -1253,7 +1273,7 @@ In `src/lite/engine.js`, make these edits in order:
   } = {}) {
 ```
 2. `reset()` alone now drops only the ETag; a session change also clears badges.
-   Find:
+   Find (exactly one occurrence):
 ```js
     function resetApi() {
       if (typeof api.reset === 'function') api.reset();
@@ -1267,7 +1287,7 @@ In `src/lite/engine.js`, make these edits in order:
     }
 ```
 3. In `expire()`.
-   Find:
+   Find (exactly one occurrence):
 ```js
       cache.clear();
       resetApi();
@@ -1280,7 +1300,7 @@ In `src/lite/engine.js`, make these edits in order:
     }
 ```
 4. In `resetSession()`. The 304-mismatch path keeps `resetApi()` (ETag only).
-   Find:
+   Find (exactly one occurrence):
 ```js
       if (!keepCache) cache.clear();
       resetApi();
@@ -1291,7 +1311,7 @@ In `src/lite/engine.js`, make these edits in order:
       resetApi(true);
 ```
 5. M3, in `render()`.
-   Find:
+   Find (exactly one occurrence):
 ```js
       if (lastView.refreshAt !== null && id && !firstSeen.has(id)) firstSeen.set(id, at);
 ```
@@ -1300,7 +1320,7 @@ In `src/lite/engine.js`, make these edits in order:
       if (lastView.refreshAt !== null && id && !firstSeen.has(id) && !isHidden()) firstSeen.set(id, at);
 ```
 6. Input 7, in `apply()`: leader only, live only.
-   Find:
+   Find (exactly one occurrence):
 ```js
       if (isLeader()) leader.broadcast(statePayload(snapshot, freshness, fetchedAt, extra));
       render();
@@ -1314,7 +1334,7 @@ In `src/lite/engine.js`, make these edits in order:
       render();
 ```
 7. M1, in `onLeaderChange()`.
-   Find:
+   Find (exactly one occurrence):
 ```js
       if (nowLeader && deferredPollAt === null) deferredPollAt = youngDataPollAt(lastFetchedAt);
 ```
@@ -1362,13 +1382,15 @@ test('a malformed badge 200 is rejected and never cached', async () => {
   const { api, calls } = client([
     { status: 200, body: { tornId: 42, requesterVerified: 'yes', reviverVerified: true } },
     { status: 200, body: { tornId: 43, requesterVerified: true, reviverVerified: true } },
+    { status: 200, responseText: 'null' },
     { status: 200, body: { tornId: 42, requesterVerified: true, reviverVerified: false } }
   ]);
   await assert.rejects(api.getPlayerBadge(42), error => error.code === 'INVALID_BADGE_RESPONSE' && error.retryable === true);
   await assert.rejects(api.getPlayerBadge(42), error => error.code === 'INVALID_BADGE_RESPONSE');
+  await assert.rejects(api.getPlayerBadge(42), error => error.code === 'INVALID_BADGE_RESPONSE', 'a JSON null body');
   assert.equal(api.badgeCacheSize(), 0);
   assert.deepEqual(await api.getPlayerBadge(42), { tornId: 42, requesterVerified: true, reviverVerified: false });
-  assert.equal(calls.length, 3);
+  assert.equal(calls.length, 4);
 });
 
 test('the badge LRU persists in storage and a new client (page load) reuses it', async () => {
@@ -1380,7 +1402,7 @@ test('the badge LRU persists in storage and a new client (page load) reuses it',
   const second = client([], { now: () => 1000, storage });
   assert.deepEqual(await second.api.getPlayerBadge(42), { tornId: 42, requesterVerified: true, reviverVerified: false });
   assert.equal(second.calls.length, 0);
-  values[BADGE_CACHE.key] = [['x', {}], 'junk', ['7', { badge: { tornId: 7 }, expiresAt: 'soon' }]];
+  values[BADGE_CACHE.key] = [['x', {}], 'junk', ['7', { badge: { tornId: 7 }, expiresAt: 'soon' }], ['8', { badge: { tornId: 8, requesterVerified: 'yes', reviverVerified: true }, expiresAt: 1e15 }]];
   assert.equal(client([], { storage }).api.badgeCacheSize(), 0, 'malformed stored entries are dropped');
 });
 
@@ -1415,8 +1437,8 @@ Run: `node --test test/lite-state-client.test.js 2>&1 | grep -E '^not ok|^# (pas
 Expected: `# fail 4`:
 
 - the LRU test (`BADGE_CACHE` has no `key` yet);
-- "a malformed badge 200…" (no `INVALID_BADGE_RESPONSE`);
-- "the badge LRU persists…" (nothing stored);
+- "a malformed badge 200…" (no `INVALID_BADGE_RESPONSE`; a `responseText: 'null'` body throws a `TypeError` today);
+- "the badge LRU persists…" (nothing stored; stored entries with non-boolean flags must be dropped);
 - "reset forgets only the ETag…" (`api.clearBadges is not a function`).
 
 The token test passes already; it pins existing behaviour.
@@ -1443,6 +1465,8 @@ The token test passes already; it pins existing behaviour.
     return new DirectApiClientError(code, options);
   }
 
+  const validBadge = body => Boolean(body && typeof body.requesterVerified === 'boolean' && typeof body.reviverVerified === 'boolean');
+
   function createStateClient({ baseUrl, request, getToken = () => '', clientVersion = '', releaseChannel = '', now = () => Date.now(), storage = null } = {}) {
     const base = String(baseUrl || '').trim().replace(/\/+$/, '');
     if (!/^https?:\/\//i.test(base)) throw new Error('A valid ReviveRelay baseUrl is required');
@@ -1458,7 +1482,7 @@ The token test passes already; it pins existing behaviour.
       try { stored = storage ? storage.get(BADGE_CACHE.key, null) : null; } catch (_) { stored = null; }
       for (const entry of Array.isArray(stored) ? stored.slice(-BADGE_CACHE.maxEntries) : []) {
         const [key, value] = Array.isArray(entry) ? entry : [];
-        if (TORN_ID_PATTERN.test(String(key)) && value && value.badge && Number.isFinite(value.expiresAt)) badges.set(String(key), value);
+        if (TORN_ID_PATTERN.test(String(key)) && value && validBadge(value.badge) && Number.isFinite(value.expiresAt)) badges.set(String(key), value);
       }
       return badges;
     }
@@ -1529,7 +1553,7 @@ The token test passes already; it pins existing behaviour.
       const status = Number(response && response.status) || 0;
       const body = directApi().safeParseBody(response);
       if (status < 200 || status >= 300) throw directApi().mapHttpError(status, body);
-      if (typeof body.requesterVerified !== 'boolean' || typeof body.reviverVerified !== 'boolean' || String(body.tornId) !== key) {
+      if (!validBadge(body) || String(body.tornId) !== key) {
         throw clientError('INVALID_BADGE_RESPONSE', { status, retryable: true });
       }
       const badge = Object.freeze({
@@ -1580,14 +1604,18 @@ git commit -m "feat(lite): persist the badge LRU in GM storage; never cache a ma
 **Scope:**
 
 - The chip appears only on `profiles.php?XID=…`, only while the page is visible, at most once per node (`data-rr-badge`), and is opt-out.
-- It is scanned on the boot's existing one-shot relayout timers (start, SPA navigation, BFCache restore), so there is no interval and no observer.
+- It is scanned on the boot's existing one-shot relayout timers (start, SPA navigation, BFCache restore), and again whenever the page becomes visible (I-5: profiles are usually opened in a background tab). There is no interval and no observer.
+- The relayout timers stand in for the spec's `requestIdleCallback` deferral (boot sequence step 4). They run 150 ms to 3 s after boot, off the boot path, with no new timer type.
+- It is dormant when signed out (I-2): `enabled()` also requires a session token, so no request is sent without one.
 - The 10-minute cache (Task 7) makes the repeated scans free.
 - The slot selectors are unverified guesses; the owner smoke test checks them (item 6).
-- **Hospital-list badges are not in this task.** See Appendix A, D-2.
+- **Hospital-list badges are not in this task.** The owner moved them to 1.1 (Appendix A, D-2).
+- Disclosures: `docs/review/ENDPOINT-INVENTORY.md` and `PRIVACY.md` now say the client sends the viewed profile's Torn ID.
 
 **Files:**
 - Create: `src/lite/badges.js`
 - Modify: `src/lite/boot.js`, `scripts/client-modules.js`, `test/lite-bundle.test.js`, `test/direct-only-build.test.js`, `test/helpers/fake-dom.js`
+- Modify docs: `docs/review/ENDPOINT-INVENTORY.md`, `PRIVACY.md`
 - Test: create `test/lite-badges.test.js`; `test/lite-boot.test.js`
 
 **Interfaces:**
@@ -1652,26 +1680,69 @@ test('badge text names each verified role', () => {
 ```
 Append to `test/lite-boot.test.js`:
 ```js
-test('profile badges are scanned on the relayout timers, not on an interval', async () => {
-  const platform = fakePlatform();
+function profilePage(platform) {
   const stateRequest = platform.request;
   platform.request = async input => (input.url.endsWith('/badge')
     ? (platform.requests.push(input), { status: 200, body: { tornId: 42, requesterVerified: true, reviverVerified: false } })
     : stateRequest(input));
-  const { boot, clock, document, window } = setup({ platform });
-  window.location = { href: 'https://www.torn.com/profiles.php?XID=42' };
+}
+
+function profileTitle(document) {
   const wrapper = document.createElement('div');
   wrapper.setAttribute('class', 'content-title');
   wrapper.appendChild(document.createElement('h4'));
   document.body.appendChild(wrapper);
+  return wrapper;
+}
+
+const badgeRequests = platform => platform.requests.filter(request => request.url.endsWith('/v1/players/42/badge')).length;
+
+test('profile badges are scanned on the relayout timers, not on an interval', async () => {
+  const platform = fakePlatform();
+  profilePage(platform);
+  const { boot, clock, document, window } = setup({ platform });
+  window.location = { href: 'https://www.torn.com/profiles.php?XID=42' };
+  const wrapper = profileTitle(document);
   boot.start();
   await clock.advance(3000);
-  const badgeCalls = platform.requests.filter(request => request.url.endsWith('/v1/players/42/badge'));
-  assert.equal(badgeCalls.length, 1, 'three scans, one request (then cached)');
+  assert.equal(badgeRequests(platform), 1, 'three scans, one request (then cached)');
   assert.equal(wrapper.querySelectorAll('[data-rr-badge]').length, 1);
   boot.stop();
 });
+
+test('a profile opened in a background tab gets its badge once the tab becomes visible', async () => {
+  const platform = fakePlatform();
+  profilePage(platform);
+  const { boot, clock, document, window } = setup({ platform });
+  window.location = { href: 'https://www.torn.com/profiles.php?XID=42' };
+  const wrapper = profileTitle(document);
+  document.visibilityState = 'hidden';
+  boot.start();
+  await clock.advance(3000);
+  assert.equal(badgeRequests(platform), 0, 'hidden: no lookup');
+  document.setVisibility('visible');
+  await clock.advance(0);
+  assert.equal(badgeRequests(platform), 1);
+  assert.equal(wrapper.querySelectorAll('[data-rr-badge]').length, 1);
+  boot.stop();
+});
+
+test('a signed-out boot never looks up a badge', async () => {
+  const platform = fakePlatform();
+  profilePage(platform);
+  const { boot, clock, document, window } = setup({ platform, session: { signedIn: false, tornId: null }, token: '' });
+  window.location = { href: 'https://www.torn.com/profiles.php?XID=42' };
+  profileTitle(document);
+  boot.start();
+  await clock.advance(3000);
+  document.setVisibility('hidden');
+  document.setVisibility('visible');
+  await clock.advance(0);
+  assert.equal(badgeRequests(platform), 0);
+  boot.stop();
+});
 ```
+In the existing test "start and stop are idempotent and stop removes every listener and timer", the boot now adds a document listener. Change `  assert.equal(document.listenerCount('visibilitychange'), 1);` to `  assert.equal(document.listenerCount('visibilitychange'), 2, 'the engine and the badge re-scan');`. The later `0` check after `stop()` stays.
 The boot test needs descendant selectors (`.content-title h4`) in the fake DOM. In `test/helpers/fake-dom.js`:
 <!-- op:find test/helpers/fake-dom.js -->
 Find:
@@ -1700,7 +1771,11 @@ function compileSelector(selector) {
 ```
 
 Run: `node --test test/lite-badges.test.js test/lite-boot.test.js 2>&1 | grep -E '^not ok|^# (pass|fail)'`
-Expected: `lite-badges` fails with `Cannot find module '../src/lite/badges'`; the boot badge test fails (`0 !== 1`).
+Expected:
+
+- `lite-badges` fails with `Cannot find module '../src/lite/badges'`;
+- in `lite-boot`, the relayout test and the background-tab test fail (`0 !== 1`), and so does the listener count (`1 !== 2`);
+- the signed-out test passes already, since nothing scans yet. It guards I-2 from here on.
 
 - [ ] **Step 2: Create `src/lite/badges.js`**
 <!-- op:file src/lite/badges.js -->
@@ -1773,21 +1848,31 @@ In `src/lite/boot.js`:
 | --- | --- |
 | `  const RELAYOUT_DELAYS_MS = Object.freeze([150, 1000, 3000]);` | the same line, then `  const BADGES_KEY = 'reviverelay_badges_enabled';` |
 | `    const { createLiteEngine } = dependency('ReviveRelayLiteEngine', './engine');` | the same line, then `    const { createBadges } = dependency('ReviveRelayLiteBadges', './badges');` |
-| `    const api = createStateClient({ baseUrl, request: platform.request, getToken, clientVersion, releaseChannel });` | `    const api = createStateClient({ baseUrl, request: platform.request, getToken, clientVersion, releaseChannel, storage: platform.storage });` then a new line `    const badges = createBadges({ document, window, api, enabled: () => platform.storage.get(BADGES_KEY, true) !== false });` |
+| `    const api = createStateClient({ baseUrl, request: platform.request, getToken, clientVersion, releaseChannel });` | `    const api = createStateClient({ baseUrl, request: platform.request, getToken, clientVersion, releaseChannel, storage: platform.storage });` then a new line `    const badges = createBadges({ document, window, api, enabled: () => Boolean(getToken()) && platform.storage.get(BADGES_KEY, true) !== false });` |
 | `          engine.relayout();` | the same line, then `          badges.scan();` |
+| `    const WINDOW_EVENTS = Object.freeze([` | `    function scanWhenVisible() {` / `      if (!document.hidden) badges.scan();` / `    }` / (blank line) / `    const WINDOW_EVENTS = Object.freeze([` |
+| `      for (const [type, listener] of WINDOW_EVENTS) window.addEventListener(type, listener);` | the same line, then `      document.addEventListener('visibilitychange', scanWhenVisible);` |
+| `      for (const [type, listener] of WINDOW_EVENTS) window.removeEventListener(type, listener);` | the same line, then `      document.removeEventListener('visibilitychange', scanWhenVisible);` |
 | `  return Object.freeze({ RELAYOUT_DELAYS_MS, createLiteBoot });` | `  return Object.freeze({ RELAYOUT_DELAYS_MS, BADGES_KEY, createLiteBoot });` |
 
 In `scripts/client-modules.js`, `test/lite-bundle.test.js` (`EXPECTED`) and `test/direct-only-build.test.js` (`REQUIRED`), insert `'src/lite/badges.js',` between `'src/lite/engine.js',` and `'src/lite/boot.js'`. In `scripts/client-modules.js`, also update the load-order comment to `… → engine → badges → boot`. In `test/lite-bundle.test.js` `GLOBALS`, add `  'src/lite/badges.js': 'ReviveRelayLiteBadges',` after the engine entry.
 
+Disclosures (review package, Minor 8):
+
+- In `docs/review/ENDPOINT-INVENTORY.md`, after the row ``| GET | `/v1/me` | … |``, add:
+  ``| GET | `/v1/players/:tornId/badge` | Returns only `{ tornId, requesterVerified, reviverVerified }`. Called by the signed-in client only while a Torn profile page is visible, cached for 10 minutes; 60/min per session. |``
+- In `PRIVACY.md`, after the line that starts `- any logged-in user can check whether a given Torn ID is a verified ReviveRelay requester`, add:
+  `- from 1.0.1, while you are signed in and a Torn profile page is visible, the client automatically sends that profile's Torn ID to ReviveRelay to look up its badge (opt out in Settings → Notifications). The result is cached in your browser for 10 minutes.`
+
 - [ ] **Step 4: Run the tests**
 
 Run: `npm run build >/dev/null && node --test test 2>&1 | grep -E '^# (pass|fail)'`
-Expected: `# pass 629`, `# fail 3`.
+Expected: `# pass 631`, `# fail 3`.
 
 - [ ] **Step 5: Commit**
 ```bash
-git add src/lite/badges.js src/lite/boot.js scripts/client-modules.js test
-git commit -m "feat(lite): RR verified badge on visible Torn profile pages" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git add src/lite/badges.js src/lite/boot.js scripts/client-modules.js test docs/review/ENDPOINT-INVENTORY.md PRIVACY.md
+git commit -m "feat(lite): RR verified badge on visible Torn profile pages, signed in only" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 ---
 
@@ -1808,8 +1893,11 @@ git commit -m "feat(lite): RR verified badge on visible Torn profile pages" -m "
 - **Event id:** `<transaction id>:<state>`, read from `activeTransactions` and `recentlyClosed`. The 100 most recent ids are kept in GM storage, which every tab shares.
 - **Quiet hours** suppress delivery but still mark the event seen.
 - **Delivery:**
-  - `platform.notify` uses `GM_notification` on desktop and the existing in-page toast on TornPDA;
-  - when nothing could be shown in a hidden tab, the tab title gets an `(!) ` badge, removed on the next visible render.
+  - `platform.notify` uses `GM_notification` on desktop and the existing in-page toast on TornPDA.
+  - A failing `notify` never blocks dedupe or sound.
+  - **No tab-title fallback (I-3).** Notifications come only from a live leader poll, and hidden tabs never poll, so a "hidden tab" title badge could never fire. On PDA the toast is always shown.
+  - The spec's "tab title badge as fallback on PDA" is therefore recorded as a deviation (Appendix B). The visible-tab requirement is disclosed in the CHANGELOG.
+- **Storage:** the dedupe record is written only when it changes, not on every poll (Minor 4).
 - **Sound:**
   - a ~0.4 s soft WebAudio chime, synthesized in the bundle (no asset, no network); see the D-3 note;
   - one toggle (`sound`) turns all sound off.
@@ -1915,15 +2003,25 @@ test('master switch, per-type toggles, sound toggle and quiet hours', () => {
   assert.equal(day.shownList.length, 1);
 });
 
-test('without a notification API a hidden tab gets a title badge, removed once visible', () => {
-  const { notifier, document } = setup({ shown: false, hidden: true });
-  notifier.onSnapshot({ activeTransactions: [tx('a', 'requester', 'COMPLETED')] });
-  assert.equal(document.title, '(!) Torn');
-  notifier.onSnapshot({ activeTransactions: [tx('b', 'requester', 'REFUNDED')] });
-  assert.equal(document.title, '(!) Torn');
-  document.hidden = false;
-  notifier.restoreTitle();
-  assert.equal(document.title, 'Torn');
+test('a failing notification API still marks the event seen and plays the chime', () => {
+  const storage = memoryStorage();
+  const chimes = [];
+  const notifier = createNotifier({ storage, notify: () => { throw new Error('denied'); }, chime: () => chimes.push(1) });
+  assert.equal(notifier.onSnapshot({ activeTransactions: [tx('a', 'requester', 'COMPLETED')] }), 1);
+  assert.equal(notifier.onSnapshot({ activeTransactions: [tx('a', 'requester', 'COMPLETED')] }), 0);
+  assert.equal(chimes.length, 1);
+});
+
+test('the dedupe store is written only when it changes, not on every poll', () => {
+  const writes = [];
+  const values = {};
+  const storage = { get: (key, fallback) => (key in values ? values[key] : fallback), set: (key, value) => { writes.push(key); values[key] = value; } };
+  const notifier = createNotifier({ storage, notify: () => true, chime: () => {} });
+  const snapshot = { activeTransactions: [tx('a', 'requester', 'WAITING_FOR_REVIVE')], queue: { count: 2 } };
+  notifier.onSnapshot(snapshot);
+  notifier.onSnapshot(snapshot);
+  notifier.onSnapshot(snapshot);
+  assert.equal(writes.length, 1);
 });
 
 test('notifyOnce delivers a system message once per id', () => {
@@ -1943,7 +2041,7 @@ test('a queue notification carries only the count, never request details', () =>
 ```
 Append to `test/lite-boot.test.js`:
 ```js
-test('the leader notifies a live transaction event once, with the panel closed, and the badge LRU uses platform storage', async () => {
+test('the leader notifies a live transaction event once, with the panel closed, through platform.notify', async () => {
   const body = stateBody({ nextPollMs: 5000, activeTransactions: [{ id: 'tx9', participantRole: 'requester', state: 'WAITING_FOR_PAYMENT', paymentDeadline: '2026-11-25T12:10:00.000Z' }] });
   const platform = fakePlatform({ body });
   const notes = [];
@@ -2022,18 +2120,18 @@ Expected: `Cannot find module '../src/lite/notify'`, and the boot notification t
     }
   }
 
-  function createNotifier({ storage, notify, window = null, document = null, now = () => Date.now(), chime = () => playChime(window) } = {}) {
+  function createNotifier({ storage, notify, window = null, now = () => Date.now(), chime = () => playChime(window) } = {}) {
     function deliver(type, text, sound, settings) {
       if (!allowed(settings, type, new Date(now()).getHours())) return false;
-      let shown = false;
-      try { shown = notify({ title: 'ReviveRelay', text, timeout: 12000, onclick: () => window && window.focus() }) !== false; } catch (_) {}
-      if (!shown && document && document.hidden && !String(document.title || '').startsWith('(!) ')) document.title = `(!) ${document.title || ''}`;
+      try { notify({ title: 'ReviveRelay', text, timeout: 12000, onclick: () => window && window.focus() }); } catch (_) {}
       if (sound && settings.sound !== false) chime();
       return true;
     }
 
-    function save(seen) {
-      try { storage.set(SEEN_KEY, { ...seen, ids: seen.ids.slice(-MAX_SEEN) }); } catch (_) {}
+    function save(seen, before) {
+      const next = { ...seen, ids: seen.ids.slice(-MAX_SEEN) };
+      if (JSON.stringify(next) === before) return;
+      try { storage.set(SEEN_KEY, next); } catch (_) {}
     }
 
     function seenState() {
@@ -2045,6 +2143,7 @@ Expected: `Cannot find module '../src/lite/notify'`, and the boot notification t
       if (!snapshot || typeof snapshot !== 'object') return 0;
       const settings = read(storage, SETTINGS_KEY);
       const seen = seenState();
+      const before = JSON.stringify(seen);
       let fired = 0;
       for (const tx of [].concat(snapshot.activeTransactions || [], snapshot.recentlyClosed || [])) {
         const event = tx && EVENTS[`${tx.participantRole}:${tx.state}`];
@@ -2062,7 +2161,7 @@ Expected: `Cannot find module '../src/lite/notify'`, and the boot notification t
         }
         seen.queueCount = count;
       }
-      save(seen);
+      save(seen, before);
       return fired;
     }
 
@@ -2074,11 +2173,7 @@ Expected: `Cannot find module '../src/lite/notify'`, and the boot notification t
       return deliver('system', text, false, read(storage, SETTINGS_KEY));
     }
 
-    function restoreTitle() {
-      if (document && !document.hidden && String(document.title || '').startsWith('(!) ')) document.title = document.title.slice(4);
-    }
-
-    return Object.freeze({ onSnapshot, notifyOnce, restoreTitle });
+    return Object.freeze({ onSnapshot, notifyOnce });
   }
 
   return Object.freeze({ SEEN_KEY, SETTINGS_KEY, EVENTS, allowed, playChime, createNotifier });
@@ -2092,8 +2187,8 @@ In `src/lite/boot.js`:
 | Find | Replace with |
 | --- | --- |
 | `    const { createBadges } = dependency('ReviveRelayLiteBadges', './badges');` | `    const { createNotifier } = dependency('ReviveRelayLiteNotify', './notify');` then the same badges line |
-| `    const badges = createBadges(` (the whole line) | `    const notifier = createNotifier({ storage: platform.storage, notify: typeof platform.notify === 'function' ? platform.notify : () => false, window, document, now });` then the same badges line |
-| `      getSession,` + next line `      onRender` + `    });` (inside `createLiteEngine({`) | `      getSession,` / `      onRender: event => {` / `        notifier.restoreTitle();` / `        if (typeof onRender === 'function') onRender(event);` / `      },` / `      onLiveSnapshot: notifier.onSnapshot` / `    });` |
+| `    const badges = createBadges(` (the whole line) | `    const notifier = createNotifier({ storage: platform.storage, notify: typeof platform.notify === 'function' ? platform.notify : () => false, window, now });` then the same badges line |
+| `      getSession,` + next line `      onRender` + `    });` (inside `createLiteEngine({`) | `      getSession,` / `      onRender,` / `      onLiveSnapshot: notifier.onSnapshot` / `    });` |
 | `      api,` + next line `      engine` + `    });` (the returned object) | `      api,` / `      engine,` / `      notifier` / `    });` |
 
 In `scripts/client-modules.js`, `test/lite-bundle.test.js` (`EXPECTED`) and `test/direct-only-build.test.js` (`REQUIRED`), insert `'src/lite/notify.js',` between `'src/lite/engine.js',` and `'src/lite/badges.js',`. Update the comment to `… → engine → notify → badges → boot`. In `GLOBALS`, add `  'src/lite/notify.js': 'ReviveRelayLiteNotify',`.
@@ -2101,7 +2196,7 @@ In `scripts/client-modules.js`, `test/lite-bundle.test.js` (`EXPECTED`) and `tes
 - [ ] **Step 4: Run the tests**
 
 Run: `npm run build >/dev/null && node --test test 2>&1 | grep -E '^# (pass|fail)' && node scripts/size-report.js | head -3`
-Expected: `# pass 637`, `# fail 3`; `"liteCore": 107932`.
+Expected: `# pass 640`, `# fail 3`; `"liteCore": 107877`.
 
 **If the Lite core reads above 108,000, stop.** The 2 KB margin is gone, so compare each module's size with the table in "Size verdict" before going on.
 
@@ -2118,17 +2213,31 @@ git commit -m "feat(lite): leader-only, deduplicated notifications with sound, w
 
 - **"Notifications only while the panel is open":** the panel's own queue notifier (`notifyNewQueueRequests`, `readSeenRequestIds`, `writeSeenRequestIds`, `MAX_SEEN_REQUEST_IDS`) is deleted; Task 9's notifier replaces it.
 - **"Update available only in the panel":** the update manager's existing background check (throttled to 12 h) now also sends one notification per new version through `boot.notifier.notifyOnce`.
+  - **I-6:** it is sent only when `liteBoot.engine.isLeader()`, so two tabs loaded together cannot both announce it.
+  - Trade-off: if the check finds the update in a follower tab, the notice waits until a leader tab's check (at the latest the next 12 h check). The panel's status line still shows it at once.
 - **"Invoice expiry shows PENDING until reopen":** while the panel is open, the 1 s pill render re-checks a PENDING invoice once, as soon as its `expiresAt` passes.
 
-**Settings (decision 15: they stay in the panel).** The Notifications section gets five controls:
+**Settings (decision 15: they stay in the panel).** The Notifications section gets:
 
-- notifications on/off (seeded from the 0.7 desktop toggle);
+- notifications on/off;
 - sound;
+- **one toggle per event type (I-4):**
+  - accepted;
+  - payment verified;
+  - revived;
+  - failed;
+  - refund verified;
+  - payment received;
+  - refund owed;
 - reviver new-request opt-in;
 - quiet hours from/to;
 - profile badges.
 
-The new GM keys join `KEYS`, so the TornPDA storage migration carries them.
+These cost 0 B of Lite core.
+
+**I-1:** at boot, before the Lite engine starts, `migrateNotificationSettings()` writes the Lite settings object once when it is missing, with `enabled` taken from the 0.7 desktop toggle. So `notify.js` honours a 0.7 "off" from the first poll, not only after the user saves a setting.
+
+The new GM keys join `KEYS`, so the TornPDA storage migration carries them. Account deletion resets the notification settings, the notified-event ids and the badge cache (Minor 11).
 
 **3a re-review fixes:**
 
@@ -2137,14 +2246,14 @@ The new GM keys join `KEYS`, so the TornPDA storage migration carries them.
 - **M5:** `retryInitWhenShown` returns at once while a Lite boot is live. Task 5 already removed the throwing drain that triggered it; the guard stays as a defence.
 - **M6:** the harness pill stub is a singleton like `pill-view.js`, and the stub boot mounts the engine pill, so "the Lite pill replaces the retry pill" is asserted directly.
 
-M7 (the 335 B headroom) is closed by the trims: 2,068 B of headroom now.
+M7 (the 335 B headroom) is closed by the trims: 2,123 B of headroom now.
 
 **Files:**
 - Modify: `torn-revive-chat-collector.user.js`, `test/helpers/main-harness.js`
 - Test: `test/main-panel-glue.test.js`; adjust `test/client-hardening.test.js`, `test/pro-ui.test.js`, `test/requester-ui.test.js`
 
 **Interfaces:**
-- Consumes: `boot.notifier.notifyOnce` (Task 9), `BADGES_KEY` (Task 8), `SETTINGS_KEY` (Task 9).
+- Consumes: `boot.notifier.notifyOnce` (Task 9), `boot.engine.isLeader()`, `BADGES_KEY` (Task 8), `SETTINGS_KEY` (Task 9).
 
 - [ ] **Step 1: Harness and failing tests**
 
@@ -2152,7 +2261,8 @@ In `test/helpers/main-harness.js`:
 
 | Find | Replace with |
 | --- | --- |
-| `  'refreshMe', 'requestRevive', 'cancelActiveRequest', 'runTransactionAction', 'activatePanelTab', 'renderAll'` | the same line followed by `,` and a new line `  'retryInitWhenShown'` |
+| `  'refreshMe', 'requestRevive', 'cancelActiveRequest', 'runTransactionAction', 'activatePanelTab', 'renderAll'` | the same line followed by `,` and a new line `  'retryInitWhenShown', 'deleteReviveRelayAccount'` |
+| `        engine: { viewModel: () => harness.view }` | `        engine: { viewModel: () => harness.view, isLeader: () => harness.leader !== false }` |
 | `        start() { boot.calls.push('start'); },` | `        notifier: { notes: [], notifyOnce(id, text) { boot.notifier.notes.push([id, text]); return true; } },` / `        start() {` / `          boot.calls.push('start');` / `          context.ReviveRelayLitePillView.mountPill({ lite: true });` / `        },` |
 | `    // Records the pills MAIN mounts itself (the retry pill after a failed init).` + `    ReviveRelayLitePillView: {` + `      mountPill(options) {` + `        const pill = {` | `    // Records every pill mounted (MAIN's retry pill, the engine's pill on boot.start()); like the real` / `    // pill-view module it is a singleton: mounting destroys the previous pill.` / `    ReviveRelayLitePillView: {` / `      mountPill(options) {` / `        const previous = harness.pills[harness.pills.length - 1];` / `        if (previous && !previous.destroyed) previous.destroy();` / `        const pill = {` |
 
@@ -2168,7 +2278,16 @@ Append to `test/main-panel-glue.test.js`:
 const plain = value => JSON.parse(JSON.stringify(value));
 const changeEvent = target => ({ type: 'change', target: { dataset: {}, ...target } });
 
-test('Settings saves the Lite notification and badge settings, seeded from the 0.7 desktop toggle', async () => {
+test('boot seeds the Lite notification settings once from the 0.7 desktop toggle, so the notifier honours it', async () => {
+  const off = await bootMain({ store: { reviverelay_desktop_notifications_enabled: false } });
+  assert.deepEqual(plain(off.store.reviverelay_notification_settings_v1), { enabled: false });
+  const on = await bootMain();
+  assert.deepEqual(plain(on.store.reviverelay_notification_settings_v1), { enabled: true });
+  const kept = await bootMain({ store: { reviverelay_desktop_notifications_enabled: false, reviverelay_notification_settings_v1: { enabled: true, sound: false } } });
+  assert.deepEqual(plain(kept.store.reviverelay_notification_settings_v1), { enabled: true, sound: false }, 'never overwrites saved settings');
+});
+
+test('Settings saves the Lite notification, per-type and badge settings', async () => {
   const harness = await bootMain({ store: { reviverelay_desktop_notifications_enabled: false } });
   harness.view = { sheet: 'request' };
   await openPanel(harness);
@@ -2176,21 +2295,36 @@ test('Settings saves the Lite notification and badge settings, seeded from the 0
   onChange(changeEvent({ type: 'checkbox', checked: false, dataset: { rrNotify: 'sound' } }));
   assert.deepEqual(plain(harness.store.reviverelay_notification_settings_v1), { enabled: false, sound: false });
   onChange(changeEvent({ type: 'checkbox', checked: true, dataset: { rrNotify: 'enabled' } }));
-  onChange(changeEvent({ type: 'checkbox', checked: true, dataset: { rrNotify: 'newRequest' } }));
+  onChange(changeEvent({ type: 'checkbox', checked: true, dataset: { rrNotify: 'type:newRequest' } }));
+  onChange(changeEvent({ type: 'checkbox', checked: false, dataset: { rrNotify: 'type:accepted' } }));
   onChange(changeEvent({ type: 'select-one', value: '22', dataset: { rrNotify: 'quietFrom' } }));
   onChange(changeEvent({ type: 'select-one', value: '', dataset: { rrNotify: 'quietTo' } }));
-  assert.deepEqual(plain(harness.store.reviverelay_notification_settings_v1), { enabled: true, sound: false, types: { newRequest: true }, quietFrom: 22, quietTo: null });
+  assert.deepEqual(plain(harness.store.reviverelay_notification_settings_v1), { enabled: true, sound: false, types: { newRequest: true, accepted: false }, quietFrom: 22, quietTo: null });
   onChange(changeEvent({ type: 'checkbox', checked: false, dataset: { rrBadges: '' } }));
   assert.equal(harness.store.reviverelay_badges_enabled, false);
 });
+test('a background update check announces a new version once, from the leader tab only', async () => {
+  for (const leader of [true, false]) {
+    const harness = loadMain({ store: { ...SIGNED_IN } });
+    harness.leader = leader;
+    harness.context.ReviveRelayUpdateManager = { createUpdateManager: () => ({ check: async () => ({ updateAvailable: true, latestVersion: '1.0.2' }), openUpdate: () => false }) };
+    harness.run();
+    await harness.clock.flush();
+    assert.deepEqual(harness.boot.notifier.notes.map(([id]) => id), leader ? ['update:1.0.2'] : [], `leader=${leader}`);
+    if (leader) assert.match(harness.boot.notifier.notes[0][1], /1\.0\.2 is available/);
+  }
+});
 
-test('a background update check announces a new version once through the Lite notifier', async () => {
-  const harness = loadMain({ store: { ...SIGNED_IN } });
-  harness.context.ReviveRelayUpdateManager = { createUpdateManager: () => ({ check: async () => ({ updateAvailable: true, latestVersion: '1.0.2' }), openUpdate: () => false }) };
-  harness.run();
+test('account deletion clears the Lite notification and badge storage', async () => {
+  const harness = await bootMain({ store: { ...SIGNED_IN, reviverelay_notified_events_v1: { ids: ['tx1:COMPLETED'] }, reviverelay_badge_cache_v1: [['42', {}]] } });
+  harness.view = { sheet: 'request' };
+  await openPanel(harness);
+  await harness.main.deleteReviveRelayAccount();
   await harness.clock.flush();
-  assert.deepEqual(harness.boot.notifier.notes.map(([id]) => id), ['update:1.0.2']);
-  assert.match(harness.boot.notifier.notes[0][1], /1\.0\.2 is available/);
+  assert.equal(harness.count('POST /v1/account/delete'), 1);
+  assert.equal(harness.store.reviverelay_notified_events_v1, null);
+  assert.equal(harness.store.reviverelay_badge_cache_v1, null);
+  assert.equal(harness.store.reviverelay_notification_settings_v1, null);
 });
 
 test('an open panel re-checks a PENDING invoice once when its expiry passes', async () => {
@@ -2250,10 +2384,13 @@ test('queue notifications come from the Lite notifier: opt-in, count-only and ne
 - In `test/requester-ui.test.js`, replace the whole test "desktop notifications can be disabled from Settings and default to enabled" with:
 ```js
 test('Settings holds the Lite notification, sound, quiet-hours and badge controls, seeded from the 0.7 toggle', () => {
-  for (const name of ['enabled', 'sound', 'newRequest', 'quietFrom', 'quietTo']) assert.match(source, new RegExp(`data-rr-notify="${name}"`));
+  for (const name of ['enabled', 'sound', 'type:newRequest', 'quietFrom', 'quietTo']) assert.match(source, new RegExp(`data-rr-notify="${name}"`));
+  assert.match(source, /data-rr-notify="type:\$\{type\}"/);
+  for (const type of ['accepted', 'paymentVerified', 'revived', 'failed', 'refundResolved', 'paymentReceived', 'refundOwed']) assert.match(source, new RegExp(`\\['${type}', '`));
   assert.match(source, /data-rr-badges/);
   assert.match(source, /notificationSettings: 'reviverelay_notification_settings_v1'/);
   assert.match(source, /storage\.get\(KEYS\.desktopNotificationsEnabled, true\) !== false/);
+  assert.match(source, /function migrateNotificationSettings\(\)/);
 });
 ```
 
@@ -2266,23 +2403,20 @@ In `test/client-hardening.test.js`, delete these three tests. They slice the del
 Then change every `'refreshReviverEligibility','readSeenRequestIds'` to `'refreshReviverEligibility','notificationSettings'` (four slices).
 
 Run: `node --test test/main-panel-glue.test.js 2>&1 | grep -E '^not ok|^# (pass|fail)'`
-Expected: the six new tests and the retry-pill test fail.
+Expected: the eight new tests fail. The retry-pill assertion passes already, because the harness singleton alone satisfies it (M6 is a test-fidelity fix); it stays as a guard.
+
+`bootMain(options)` spreads `options` after its own `store`, so a test that passes `store` must include `...SIGNED_IN` itself when it needs a session. The deletion test does.
 
 - [ ] **Step 2: MAIN edits**
 
 In `torn-revive-chat-collector.user.js`, make these edits in order:
 1. Delete the panel's seen-id bound.
-   Find:
+   Delete this whole line (exactly one occurrence):
 ```js
   const MAX_SEEN_REQUEST_IDS = 200;
-
-```
-   Replace with:
-```js
-
 ```
 2. Terminal states for M2.
-   Find:
+   Find (exactly one occurrence):
 ```js
   const MASKED_VERIFICATION_KEY = '••••••••••••••••';
 ```
@@ -2291,8 +2425,8 @@ In `torn-revive-chat-collector.user.js`, make these edits in order:
   const MASKED_VERIFICATION_KEY = '••••••••••••••••';
   const TERMINAL_STATE = /^(COMPLETED|REFUNDED|CANCELLED_BY_REQUESTER|PAYMENT_EXPIRED|CLOSED_|REPORTABLE_)/;
 ```
-3. New GM keys (also migrated to TornPDA storage, because `storageKeys` is `Object.values(KEYS)`).
-   Find:
+3. New GM keys (also migrated to TornPDA storage, because `storageKeys` is `Object.values(KEYS)`) and the per-type labels (I-4).
+   Find (exactly one occurrence):
 ```js
     clientDiagnosticsEnabled: 'reviverelay_client_diagnostics_enabled',
     telemetryOutbox: 'reviverelay_telemetry_outbox'
@@ -2309,9 +2443,18 @@ In `torn-revive-chat-collector.user.js`, make these edits in order:
   });
   const NOTIFY_SETTINGS_KEY = KEYS.notificationSettings;
   const BADGES_KEY = KEYS.badgesEnabled;
+  const NOTIFY_TYPES = Object.freeze([
+    ['accepted', 'Requester: a reviver accepted (time to pay)'],
+    ['paymentVerified', 'Requester: payment verified'],
+    ['revived', 'Requester: revived'],
+    ['failed', 'Requester: revive failed'],
+    ['refundResolved', 'Requester: refund verified'],
+    ['paymentReceived', 'Reviver: payment received (revive now)'],
+    ['refundOwed', 'Reviver: refund owed']
+  ]);
 ```
 4. Their legacy defaults.
-   Find:
+   Find (exactly one occurrence):
 ```js
     [KEYS.telemetryOutbox]: []
   });
@@ -2326,31 +2469,33 @@ In `torn-revive-chat-collector.user.js`, make these edits in order:
   });
 ```
 5. Invoice-expiry latch.
-   Find:
+   Find (exactly one occurrence):
 ```js
   let updateResult = null;
-
 ```
    Replace with:
 ```js
   let updateResult = null;
   let expiredInvoiceChecked = null;
-
 ```
-6. Replace everything from `  function readSeenRequestIds() {` up to (not including) `  async function refreshReviverQueue() {` (that is `readSeenRequestIds`, `writeSeenRequestIds`, `desktopNotificationsEnabled` and `notifyNewQueueRequests`) with the block below. The find text here is abbreviated, so select the range by those two anchors.
-   Find:
+6. Replace the range that starts at the line `  function readSeenRequestIds() {` and ends just before the line `  async function refreshReviverQueue() {`. That range holds `readSeenRequestIds`, `writeSeenRequestIds`, `desktopNotificationsEnabled` and `notifyNewQueueRequests`. The find text below is abbreviated, so select the range by those two anchor lines and replace it with the block (keep one blank line before `  async function refreshReviverQueue() {`)
+   Find (exactly one occurrence):
 ```js
   function readSeenRequestIds() {
     … (through the end of notifyNewQueueRequests) …
   }
-
 ```
    Replace with:
 ```js
-  // Lite notification settings (src/lite/notify.js reads them); the 0.7 desktop toggle seeds "enabled".
+  // Lite notification settings (src/lite/notify.js reads them). Seeded once at boot from the 0.7 desktop toggle.
   function notificationSettings() {
     const saved = storage.get(NOTIFY_SETTINGS_KEY, null);
     return saved && typeof saved === 'object' ? saved : { enabled: storage.get(KEYS.desktopNotificationsEnabled, true) !== false };
+  }
+
+  function migrateNotificationSettings() {
+    const saved = storage.get(NOTIFY_SETTINGS_KEY, null);
+    if (!saved || typeof saved !== 'object') storage.set(NOTIFY_SETTINGS_KEY, notificationSettings());
   }
 
   function hourOptions(selected) {
@@ -2360,24 +2505,18 @@ In `torn-revive-chat-collector.user.js`, make these edits in order:
 
   function saveNotificationSetting(name, value) {
     const next = { ...notificationSettings() };
-    if (name === 'newRequest') next.types = { ...(next.types || {}), newRequest: value };
+    if (name.startsWith('type:')) next.types = { ...(next.types || {}), [name.slice(5)]: value };
     else next[name] = value;
     storage.set(NOTIFY_SETTINGS_KEY, next);
   }
-
 ```
 7. In `refreshReviverQueue`, delete the call.
-   Find:
+   Delete this whole line (exactly one occurrence):
 ```js
         notifyNewQueueRequests(state.reviverQueue);
-
-```
-   Replace with:
-```js
-
 ```
 8. M2, in `refreshPanelData`.
-   Find:
+   Find (exactly one occurrence):
 ```js
       if (reviverSide && state.activeTransaction?.participantRole === 'reviver') await refreshActiveTransaction();
 ```
@@ -2390,7 +2529,7 @@ In `torn-revive-chat-collector.user.js`, make these edits in order:
       }
 ```
 9. M4, in `handlePillActivate`.
-   Find:
+   Find (exactly one occurrence):
 ```js
     if (problem) setStatus(`Needs attention: ${problem}. Report it to the ReviveRelay operator.`, true);
 ```
@@ -2400,7 +2539,7 @@ In `torn-revive-chat-collector.user.js`, make these edits in order:
     else if (statusMessage.startsWith('Needs attention:')) setStatus('');
 ```
 10. Invoice expiry, in `handlePillRender`, which runs every second while the panel is open.
-   Find:
+   Find (exactly one occurrence):
 ```js
     if (!panel || state.minimized || pageHidden()) return;
     if (latestPillStateVersion && latestPillStateVersion !== panelStateVersion) {
@@ -2416,7 +2555,7 @@ In `torn-revive-chat-collector.user.js`, make these edits in order:
     if (latestPillStateVersion && latestPillStateVersion !== panelStateVersion) {
 ```
 11. In `renderSettingsDrawer`.
-   Find:
+   Find (exactly one occurrence):
 ```js
     const validation = RequestPreset.validatePreset(state.preset);
     const preset = validation.ok ? validation.preset : { paymentMethod: 'cash', offerAmount: 500000, comment: '' };
@@ -2428,26 +2567,26 @@ In `torn-revive-chat-collector.user.js`, make these edits in order:
     const notifications = notificationSettings();
 ```
 12. The Notifications section controls.
-   Find:
+   Find (exactly one occurrence):
 ```js
         <label><input id="rr-desktop-notifications-enabled" type="checkbox" ${desktopNotificationsEnabled() ? 'checked' : ''}> Desktop notifications for new certified requests</label>
         <p class="rr-muted">Notifications are on by default while Reviver Pro is active and your reviver setup is complete. Turning them off does not affect the live queue or Accept controls.</p>
 ```
    Replace with:
 ```js
-        <label><input data-rr-notify="enabled" type="checkbox" ${notifications.enabled !== false ? 'checked' : ''}> Notifications (one tab notifies, even with this panel closed)</label>
+        <label><input data-rr-notify="enabled" type="checkbox" ${notifications.enabled !== false ? 'checked' : ''}> Notifications (one visible Torn tab notifies, even with this panel closed)</label>
         <label><input data-rr-notify="sound" type="checkbox" ${notifications.sound !== false ? 'checked' : ''}> Sound for accepted, revived, payment and refund events</label>
-        <label><input data-rr-notify="newRequest" type="checkbox" ${notifications.types?.newRequest === true ? 'checked' : ''}> Reviver: new queue requests (silent, at most one a minute)</label>
+        ${NOTIFY_TYPES.map(([type, label]) => `<label><input data-rr-notify="type:${type}" type="checkbox" ${notifications.types?.[type] !== false ? 'checked' : ''}> ${label}</label>`).join('')}
+        <label><input data-rr-notify="type:newRequest" type="checkbox" ${notifications.types?.newRequest === true ? 'checked' : ''}> Reviver: new queue requests (silent, at most one a minute)</label>
         <label>Quiet hours <select data-rr-notify="quietFrom">${hourOptions(notifications.quietFrom)}</select> to <select data-rr-notify="quietTo">${hourOptions(notifications.quietTo)}</select></label>
         <label><input data-rr-badges type="checkbox" ${storage.get(BADGES_KEY, true) !== false ? 'checked' : ''}> "RR verified" badges on Torn profiles</label>
 ```
 13. In the panel's `change` handler.
-   Find:
+   Find (exactly one occurrence):
 ```js
       if (event.target?.id === 'rr-desktop-notifications-enabled') {
         storage.set(KEYS.desktopNotificationsEnabled, Boolean(event.target.checked));
       }
-
 ```
    Replace with:
 ```js
@@ -2457,20 +2596,45 @@ In `torn-revive-chat-collector.user.js`, make these edits in order:
         saveNotificationSetting(notifySetting, typeof raw === 'boolean' ? raw : (raw === '' ? null : Number(raw)));
       }
       if (event.target?.dataset?.rrBadges !== undefined) storage.set(BADGES_KEY, Boolean(event.target.checked));
-
 ```
-14. Update notice, in `checkUpdates`.
-   Find:
+14. Update notice, in `checkUpdates`, leader tab only (I-6).
+   Find (exactly one occurrence):
 ```js
         setStatus(`ReviveRelay ${updateResult.latestVersion} update available. Open Settings → Updates to install it.`);
 ```
    Replace with:
 ```js
         setStatus(`ReviveRelay ${updateResult.latestVersion} update available. Open Settings → Updates to install it.`);
-        liteBoot?.notifier?.notifyOnce(`update:${updateResult.latestVersion}`, `ReviveRelay ${updateResult.latestVersion} is available. Open the panel: Settings → Updates.`);
+        if (liteBoot?.engine.isLeader()) liteBoot.notifier.notifyOnce(`update:${updateResult.latestVersion}`, `ReviveRelay ${updateResult.latestVersion} is available. Open the panel: Settings → Updates.`);
 ```
-15. M5.
-   Find:
+15. I-1: seed the Lite settings at boot, before `startLite()`.
+   Find (exactly one occurrence):
+```js
+  function hydratePersistentState() {
+    hydrateSession();
+```
+   Replace with:
+```js
+  function hydratePersistentState() {
+    hydrateSession();
+    migrateNotificationSettings();
+```
+16. Minor 11, in `deleteReviveRelayAccount` (the rest of the `setStatus` line is unchanged).
+   Find (exactly one occurrence):
+```js
+        storage.set(KEYS.telemetryOutbox, []);
+        setStatus('ReviveRelay account data deletion completed.
+```
+   Replace with:
+```js
+        storage.set(KEYS.telemetryOutbox, []);
+        storage.set(KEYS.notificationSettings, null);
+        storage.set(KEYS.notifiedEvents, null);
+        storage.set(KEYS.badgeCache, null);
+        setStatus('ReviveRelay account data deletion completed.
+```
+17. M5.
+   Find (exactly one occurrence):
 ```js
   function retryInitWhenShown() {
     try {
@@ -2488,12 +2652,12 @@ Expected: no output.
 - [ ] **Step 3: Run everything**
 
 Run: `npm run build >/dev/null && node --test test 2>&1 | grep -E '^# (pass|fail)' && node scripts/size-report.js | head -7`
-Expected: `# pass 640`, `# fail 3`; `"whole": 227016`, `"liteCore": 107932`, `"liteCoreHeadroom": 2068`, `"wholeHeadroom": 4984`.
+Expected: `# pass 645`, `# fail 3`; `"whole": 228012`, `"liteCore": 107877`, `"liteCoreHeadroom": 2123`, `"wholeHeadroom": 3988`. Allow ±50 B on `whole` for blank lines.
 
 - [ ] **Step 4: Commit**
 ```bash
 git add torn-revive-chat-collector.user.js test
-git commit -m "feat(panel): Lite notification and badge settings, update notice, invoice expiry re-check; fix M2, M4, M5, M6" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit -m "feat(panel): Lite notification, per-type and badge settings migrated at boot; leader-only update notice; invoice expiry re-check; fix M2, M4, M5, M6" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 ---
 
@@ -2535,6 +2699,7 @@ test('the 1.0.1 notes close the 1.0.0 panel-only limitations and keep the ones s
   assert.match(limitations,/"Revived".*per tab/i);
   assert.match(limitations,/operator/i);
   assert.match(limitations,/sheets/i,'the deferred sheets are disclosed');
+  assert.match(limitations,/visible Torn tab/i,'notifications need a visible tab (I-3)');
 });
 ```
 Run: `node --test test/review-package.test.js test/release-build.test.js test/direct-only-build.test.js test/test-command.test.js 2>&1 | grep -E '^# (pass|fail)'`
@@ -2563,12 +2728,16 @@ Replace with:
 
 ### Added
 
-- Notifications no longer need the panel: one tab per browser (the one that polls) notifies once per event. Requesters are told when a reviver accepts (time to pay), when payment is verified, when they are revived, when a revive fails and when a refund is verified. Revivers are told when payment arrives (revive now) and when a refund is owed.
+- Notifications no longer need the panel: one visible Torn tab per browser (the one that polls) notifies once per event. Requesters are told when a reviver accepts (time to pay), when payment is verified, when they are revived, when a revive fails and when a refund is verified. Revivers are told when payment arrives (revive now) and when a refund is owed.
 - A short, soft chime plays for accepted, revived, refund verified, payment received and refund owed. One Settings toggle turns all sound off.
-- Settings → Notifications adds notifications on/off, sound, quiet hours, opt-in silent new-queue-request notices for revivers (at most one a minute, count only) and an opt-out for profile badges.
-- An "RR verified requester/reviver" chip appears next to a player's name on their Torn profile when ReviveRelay has verified them. It is looked up only while the profile is visible and cached for 10 minutes across page loads.
+- Settings → Notifications adds notifications on/off, one toggle per event type, sound, quiet hours, opt-in silent new-queue-request notices for revivers (at most one a minute, count only) and an opt-out for profile badges. A 0.7 "desktop notifications off" choice carries over.
+- An "RR verified requester/reviver" chip appears next to a player's name on their Torn profile when ReviveRelay has verified them. It is looked up only while you are signed in and the profile is visible, and cached for 10 minutes across page loads.
 - A newer ReviveRelay version is announced once by notification, even with the panel closed.
 - An open panel re-checks a Pro invoice as soon as it expires.
+
+### Changed
+
+- New-request notifications for revivers are now opt-in and silent (0.7 had them on by default), and they give only the queue count.
 
 ### Removed
 
@@ -2582,13 +2751,14 @@ Replace with:
 
 ### Known limitations
 
-- The new requester and reviver sheets are not in 1.0.1. They do not fit the 110 KB light-core budget alongside notifications and badges, and the owner decides how they ship. Everyday requests, the reviver queue and transactions still open in the panel from the pill.
-- Hospital-list "RR" badges are not in 1.0.1.
+- Notifications and sound need a visible Torn tab (or TornPDA in the foreground): hidden tabs do no work, so with every Torn tab in the background nothing is checked or announced until one is shown again. There is no tab-title fallback.
+- Duplicate notifications are possible only if two tabs poll at once (a browser without BroadcastChannel, or several TornPDA tabs).
+- The new requester and reviver sheets, and hospital-list "RR" badges, come in 1.1. Everyday requests, the reviver queue and transactions still open in the panel from the pill.
 - "Revived" shows for 5 s from when each tab first displays it; this is kept per tab and in memory, so a tab opened or reloaded within 30 s of the revive shows it again for up to 5 s.
 - For a reviver, a failed transaction that needs reporting shows "Needs attention" on the pill only while the Queue count is not shown.
 - There is no in-app way to report a problem yet: the panel says what happened and asks you to report it to the ReviveRelay operator.
 - Browsers may block the first chime until you have clicked the page once.
-- The whole file is 227.0 KB; the light core is 107.9 KB.
+- The whole file is 228.0 KB; the light core is 107.9 KB.
 
 ### Release status
 
@@ -2601,6 +2771,8 @@ Replace with:
 git add package.json CHANGELOG.md README.md PRIVACY.md test
 git commit -m "release: ReviveRelay 1.0.1 notifications, badges and trims" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
+
+**Expected between Step 3 and Step 5 (Minor 3).** After the bump, the three release-pin tests are green: the manifest version differs, so they use HEAD. But `test/review-package.test.js` "the pinned build manifest pins the current package version" fails, because the manifest still says 1.0.0. Steps 4–5 fix it; do not change the test.
 
 - [ ] **Step 4: Build from that commit and write the manifest (the Plan 3a script)**
 
@@ -2621,7 +2793,7 @@ fs.writeFileSync("docs/review/BUILD-MANIFEST.json",JSON.stringify(manifest,null,
 Expected:
 
 - the build prints `Built immutable ReviveRelay 1.0.1 review artifact at <HEAD>`;
-- the manifest shows `version: '1.0.1'`, `artifactSourceCommit` = `git rev-parse HEAD` and `sizeBytes: 227016`.
+- the manifest shows `version: '1.0.1'`, `artifactSourceCommit` = `git rev-parse HEAD` and `sizeBytes: 228012`.
 
 `sizeBytes` is ±0: the version strings have the same length. If it differs, stop and run `node scripts/size-report.js`.
 
@@ -2634,47 +2806,59 @@ Run: `npm run build && node scripts/verify-review-artifact.js && npm run audit:r
 Expected:
 
 - `Built immutable ReviveRelay 1.0.1 review artifact at <pinned commit> (reproduced from pinned manifest)`;
-- then `"ok": true` with `"sizeBytes": 227016`;
+- then `"ok": true` with `"sizeBytes": 228012`;
 - then the audit's `"ok": true` with `"findings": []`.
 
 - [ ] **Step 6: Run everything**
 
 Run: `npm run test:client 2>&1 | grep -E '^# (pass|fail)'`
-Expected: `# pass 643`, `# fail 0` (the known trio is green again).
+Expected: `# pass 648`, `# fail 0` (the known trio is green again).
 
 Run: `(cd server && TEST_DATABASE_URL=postgres://postgres:test@127.0.0.1:55442/postgres npm test 2>&1 | grep -E '^# (pass|fail)')`, with the Plan 3a test database running.
 Expected: `# pass 407`, `# fail 0` (no server change).
 
 Run: `node --check dist/review/ReviveRelay-1.0.1.user.js && node scripts/size-report.js | head -7`
-Expected: `ok`; `"liteCore": 107932` (≤ 110,000, headroom 2,068 ≥ 2,000) and `"whole": 227016` (≤ 232,000).
+Expected:
+
+- `ok`;
+- `"liteCore": 107877` (≤ 110,000, headroom 2,123 ≥ 2,000);
+- `"whole": 228012` (≤ 232,000, headroom 3,988).
 
 ---
 
 ## Real-browser and TornPDA smoke test (owner; cannot run on this host)
 
-Use the pinned 1.0.1 review build from Task 11. Record results in the PR.
+Use the pinned 1.0.1 review build from Task 11. Record results in the PR. Notifications need at least one **visible** Torn tab: hidden tabs do no work by design.
 
-1. **Notifications with the panel closed, desktop (Tampermonkey and Violentmonkey).**
+1. **Notifications with the panel closed, desktop (Tampermonkey and Violentmonkey).** Keep one Torn tab visible on each account.
    - Request a revive from account A and accept it from reviver B.
    - A gets exactly one "A reviver accepted: time to pay" desktop notification with a soft chime.
    - Then, in order: "Payment verified" (silent) → B gets "Payment received: revive now" (chime) → A gets "You were revived" (chime).
-   - Repeat with three Torn tabs open on each account: still exactly one notification per event (DevTools: only the leader tab logs `/v1/state`).
+   - Repeat with three Torn tabs open on each account, one visible: still exactly one notification per event (DevTools: only the leader tab logs `/v1/state`).
+   - Hide every Torn tab: there are no polls and no notifications. When a tab is shown again, any event that happened meanwhile is notified once.
 2. **Sound.**
    - The first chime may be blocked until you have clicked the page once (browser autoplay policy). Note whether it plays without a prior click in Chrome, Firefox and TornPDA.
    - Turn "Sound" off in Settings: notifications stay, chimes stop.
-3. **Quiet hours.** Set them to cover the current hour: no notification and no chime. Switch them off: the next new event notifies, and the suppressed one does not replay.
-4. **Reviver new requests.** Off by default. Opt in: a new queue request gives one silent "New revive request (n in queue)", at most one a minute, and the text names no player.
-5. **TornPDA (Android, and iOS if available).**
-   - Events show the in-page toast.
-   - With the app backgrounded, the tab title shows `(!) ` and clears on return.
+3. **Settings.**
+   - Turn off one event type (for example "Requester: payment verified"): only that one stops.
+   - Set quiet hours to cover the current hour: no notification and no chime. Switch them off: the next new event notifies, and the suppressed one does not replay.
+   - On a profile that had 0.7 "Desktop notifications" off, update to 1.0.1: Settings shows notifications off, and no notification arrives (I-1).
+4. **Reviver new requests.** Off by default (0.7 had them on: CHANGELOG "Changed"). Opt in: a new queue request gives one silent "New revive request (n in queue)", at most one a minute, and the text names no player.
+5. **TornPDA (Android, and iOS if available)**, with the app in the foreground.
+   - Each event shows the in-page toast once, with the chime.
+   - With the app backgrounded, nothing is polled or shown. Events are notified once when you return, if they are still current.
    - Settings survive an app restart: `reviverelay_notification_settings_v1`, `reviverelay_notified_events_v1` and `reviverelay_badge_cache_v1` are migrated to PDA storage.
-   - With two PDA tabs: does each tab poll? This is the pre-existing "PDA single WebView" assumption, see Appendix B.
+   - With two PDA tabs: does each tab poll and notify? This is the pre-existing "PDA single WebView" assumption, where duplicates are possible; see Appendix B.
 6. **Profile badge.**
-   - Open the profile of a verified reviver: an "RR verified reviver" chip appears next to the name, exactly once, including after Torn SPA navigation and back/forward.
+   - Signed in, open the profile of a verified reviver: an "RR verified reviver" chip appears next to the name, exactly once, including after Torn SPA navigation and back/forward.
+   - Middle-click a profile from the hospital list, then switch to that tab: the chip appears on arrival (I-5).
    - Check the slot selectors `#profileroot .profile-wrapper .title-black` and `.content-title h4` on live Torn, desktop and PDA. If neither matches, record the right selector.
    - Turn "Profile badges" off: no chip and no `/badge` request.
    - Reload within 10 minutes: no new `/badge` request (GM-persisted LRU).
-7. **Update notice.** With a newer review build published (or the update state edited), one notification "ReviveRelay x.y.z is available…" appears per version, with the panel closed.
+   - Sign out: no `/badge` request at all on profile pages (I-2).
+7. **Update notice.**
+   - With a newer review build published (or the update state edited), one notification "ReviveRelay x.y.z is available…" appears per version, with the panel closed.
+   - It appears from the leader tab only, even after a session restore of several tabs.
 8. **Invoice expiry.** Create a Pro invoice and keep the panel open past `expiresAt`: within a second the panel shows EXPIRED without reopening.
 9. **Regression checks from Plan 3a:**
    - the pill sits in the header (light and dark) and falls back to the launcher;
@@ -2684,67 +2868,79 @@ Use the pinned 1.0.1 review build from Task 11. Record results in the PR.
 
 ---
 
-## Appendix A: Owner decisions needed
+## Appendix A: Owner decisions (taken 2026-11-26) and the numbers behind them
 
-**D-1. Sheets do not fit the Lite core (blocking for the sheets only).**
+**D-1. Sheets → 1.1 (decided).**
 
-- Prototype: a compact requester and reviver sheet module measures **12,090 B**. Projected 1.0.1 + sheets is ≈ **120,600 B** Lite core, **10,600 B over** the gate and ≈ 12,600 B short of the 2 KB margin.
+- A compact requester and reviver sheet prototype measures **12,090 B**. 1.0.1 + sheets would be ≈ **120,550 B** Lite core: ≈ 10,550 B over the gate and ≈ 12,550 B short of the 2 KB margin.
 - The prototype covers:
   - popover on desktop, bottom sheet on coarse pointers;
   - Esc, outside-click and close button;
-  - every requester and reviver state card with its actions;
-  - keyed, sorted queue rows with hospital time, abroad marker, offer, Accept, "Taken by another reviver" and a 3 s new-row highlight;
+  - every state card with its actions;
+  - keyed, sorted queue rows with "Taken by another reviver" and a 3 s highlight;
   - no innerHTML.
-- Spec-preserving trims are exhausted. Everything left in the core is engine, election, storage or transport code the spec requires.
+- No spec-preserving core trims remain.
 
-The owner's options:
+**For 1.1:**
 
-- **(a) Defer the sheets to 1.1** (recommended). 1.1 replaces the old panel anyway (spec decision 14), and its sheets can be designed against the 110 KB whole-file target from the start. 1.0.1 ships as planned here.
-- **(b) Sanction a spec-visible behaviour change** worth ≥ 12.6 KB of core:
-  - drop the heartbeat election fallback for browsers without Web Locks (that tab would then poll alone): about 6–7 KB of `tab-leader.js`;
-  - drop the TornPDA storage migration/recovery in `platform.js` (PDA users fall back to GM storage): about 2.5 KB;
-  - drop the TornPDA in-page toast (PDA would rely on the title badge): about 1.3 KB.
+- Design the sheets against the 110 KB whole-file target from the start.
+- When they land, delete the panel's request/queue/activity rendering, `requestRevive`, `cancelActiveRequest`, `acceptMarketplaceRequest`, `runTransactionAction`, `refreshReviverQueue` and the transaction cards. That frees ≈ 20 KB of the whole file.
+- Spec-visible core trims the owner could still sanction then, with sizes:
+  - the heartbeat election fallback for browsers without Web Locks: ≈ 6–7 KB of `tab-leader.js`;
+  - the TornPDA storage migration/recovery: ≈ 2.5 KB;
+  - the TornPDA in-page toast: ≈ 1.3 KB.
 
-  Even all three are short of 12.6 KB, so (b) still needs a smaller sheet design.
-- **(c) Change decision 14's accounting** (for example, count the sheets as panel replacement). The owner ruled this out for Plan 3b ("never by raising a gate").
+**D-2. Hospital-list "RR" badges → 1.1 (decided).**
 
-**When D-1 is decided for the sheets:**
+- `/v1/state` carries only `queue.count`. The rows the spec relies on ("the shared queue state; no extra requests") exist only while a queue sheet is open, which is itself 1.1.
 
-- remove from MAIN the panel code that the sheets replace;
-- this frees ≈ 20 KB of the **whole** file, so the whole budget is not the blocker;
-- the code to remove: request/queue/activity rendering, `requestRevive`, `cancelActiveRequest`, `acceptMarketplaceRequest`, `runTransactionAction`, `refreshReviverQueue` and the transaction cards (function sizes measured in the Plan 3b working notes).
+**D-3. Sound: synthesized chime accepted for now (decided).**
 
-**D-2. Hospital-list "RR" badges.**
+- A 0.4 s WebAudio chime: no binary asset, no fetch, ≈ 600 B.
+- A recorded sample as a data URI would cost several KB of core.
+- Revisit after smoke item 2 if needed.
 
-- The spec sources them from "the shared queue state; no extra requests".
-- `/v1/state` carries only `queue.count`. Rows exist only while the queue sheet is open, and the sheet itself is blocked by D-1.
-- Options: wait for the sheets and badge only rows a reviver has loaded, or add a server field. That is a new server contract and needs owner approval.
-- Not in 1.0.1.
+**Per-type toggles (I-4): no decision needed.**
 
-**D-3. "One short, soft bundled sound."**
+- They are panel controls over settings that `notify.js` already reads, so they cost 0 B of core and ≈ 600 B of the whole file.
+- They fit: 2,123 B core headroom, 3,988 B whole headroom.
 
-- Resolved here as a synthesized 0.4 s WebAudio chime (no binary asset, no fetch, ~600 B).
-- A real recorded sample as a data URI would cost several KB of core.
-- Confirm the chime is acceptable after smoke test item 2.
-
-## Appendix B: Carry-over disposition
+## Appendix B: Carry-over and review disposition
 
 | Item | Where |
 | --- | --- |
 | Plan 3 input 7: notifications leader-only, in `apply()`, live, GM dedupe, sound | Tasks 6, 9 |
-| Input 8: sheet uses `setSheetOpen` and the 1 s tick | Blocked with the sheets (D-1). The prototype uses only the engine tick |
+| Input 8: sheet uses `setSheetOpen` and the 1 s tick | With the sheets, in 1.1 (D-1). The prototype uses only the engine tick |
 | Input 11: badge GM LRU, no caching of malformed 200s, token never in errors | Task 7 |
-| Minor: `api.reset()` also cleared the badge LRU | Task 6 (`reset` keeps it; `clearBadges` on session change) and Task 7 |
+| Minor: `api.reset()` also cleared the badge LRU | Tasks 6 and 7 (`reset` keeps it; `clearBadges` runs on a session change) |
 | Minor: scheduler back-off ignored `delay()=null` | Task 6 |
-| Minor: Web Locks present but BroadcastChannel missing → every tab solo | **Not changed.** Taking the lock without a state channel would leave followers with no way to receive the leader's state (they would stay stale for the whole session). TornPDA deliberately passes no channel, so a change there needs the real-device answer to smoke item 5 first |
+| Minor: Web Locks present but BroadcastChannel missing → every tab solo | **Not changed.** Taking the lock without a state channel would leave followers unable to receive state. TornPDA deliberately passes no channel; this needs the real-device answer to smoke item 5 first |
 | Other notes: header and profile selectors unverified | Smoke items 6 and 9 |
-| Other notes: abroad wording regex (server) | Unchanged; needs the owner's public key (no client change) |
-| Other notes: legacy MAIN source-regex tests | Those that touched removed code are rewritten or retired in Tasks 5 and 10 (listed there) |
+| Other notes: abroad wording regex (server) | Unchanged; needs the owner's public key |
+| Other notes: legacy MAIN source-regex tests | Rewritten or retired in Tasks 5 and 10 (listed there) |
 | M1 / M2 / M3 / M4 / M5 / M6 | Tasks 6, 10, 6, 10, 10, 10 |
-| M7: 335 B headroom | 2,068 B after Tasks 2–10 |
-| CHANGELOG: notifications only while the panel is open | Task 9 (notifier) and Task 10 (panel notifier removed) |
-| CHANGELOG: "Update available" only in the panel | Task 10 (one notification per version) |
+| M7: 335 B headroom | 2,123 B after Tasks 2–10 |
+| CHANGELOG: notifications only while the panel is open | Tasks 9, 10. The new limitation "needs a visible Torn tab" is disclosed (I-3) |
+| CHANGELOG: "Update available" only in the panel | Task 10, leader-only (I-6) |
 | CHANGELOG: invoice PENDING until reopen | Task 10 |
+| Review I-1 (0.7 toggle ignored by the notifier) | Task 10, `migrateNotificationSettings()` at boot, with a test |
+| Review I-2 (badge lookups while signed out) | Task 8, token gate, with a test |
+| Review I-3 (dead title fallback) | Task 9 drops it. **Spec deviation:** "tab title badge as fallback on PDA" is not implemented. On PDA the toast always shows, and hidden tabs never poll, so a title badge could not fire. Disclosed in the CHANGELOG |
+| Review I-4 (per-type toggles) | Task 10 |
+| Review I-5 (background-opened profiles) | Task 8, `visibilitychange` re-scan, with a test |
+| Review I-6 (update notice not leader-only) | Task 10, `isLeader()` gate, with a test |
+| Review Minor 1 (four Task 10 find strings) | Re-verified against `666ea60`: the deletions are now "delete this line" with no trailing blank lines |
+| Review Minor 2 (counts) | Task 2 is now `23`; Task 5 is now −9,991; Task 10 notes that the retry-pill guard passes first |
+| Review Minor 3 | Note after Task 11 Step 3 |
+| Review Minor 4 (GM write every poll) | Task 9, written only on change, with a test |
+| Review Minor 5 (non-atomic dedupe) | Disclosed in the CHANGELOG: duplicates are possible only when two tabs lead at once (no BroadcastChannel, or several TornPDA tabs) |
+| Review Minor 6 (stored LRU validation, `null` body) | Task 7, `validBadge()` on both paths, with tests. **Known:** each tab writes back its whole in-memory map, so a `clearBadges` in one tab can be undone by a stale write from another tab. Impact: badge flags for other players may survive a sign-out for up to 10 minutes. These are public verification flags, not account data |
+| Review Minor 7 (stale diagnostics docs) | Task 5 docs table |
+| Review Minor 8 (badge endpoint and privacy disclosure) | Task 8 |
+| Review Minor 9 (reviver queue notices now opt-in) | CHANGELOG "Changed" |
+| Review Minor 10 (boot test title) | Task 9 test renamed |
+| Review Minor 11 (deletion leaves keys) | Task 10, with a test |
+| Review Minor 12 (`requestIdleCallback`, three-tab test) | Task 8 note; the Task 6 hook test now uses three tabs |
 
 ## Self-review notes
 
@@ -2752,17 +2948,17 @@ The owner's options:
 
 | Spec item | Where |
 | --- | --- |
-| Notifications: requester and reviver event lists, once per event id across tabs, `GM_notification` with title fallback, quiet hours, per-type toggles | Tasks 6, 9, 10 |
+| Notifications: requester and reviver event lists, once per event id across tabs, `GM_notification` (title badge: recorded deviation), quiet hours, per-type toggles | Tasks 6, 9, 10 |
 | Sound per decision 5 | Task 9; D-3 |
-| Profile badges: visible page, 10 min memory + GM LRU of 200, `data-rr-badge`, opt-out | Tasks 7, 8, 10 |
-| Hospital badges | D-2 |
-| Sheets | D-1, with numbers |
+| Profile badges: visible page (including on becoming visible), signed in only, 10 min memory + GM LRU of 200, `data-rr-badge`, opt-out | Tasks 7, 8, 10 |
+| Hospital badges, sheets | 1.1 (D-1, D-2) |
 | Size gates unchanged, ≥ 2 KB margin | Size verdict, Tasks 1–5, 9, 11 |
-| Single-actor invariant | Task 6 tests |
+| Single-actor invariant | Task 6 (three tabs) and Task 10 (update notice) |
 
 **Placeholder scan:**
 
 - Every code step has the full code or an exact find/replace.
+- The Task 10 find strings were re-run against the source with exact-count matching on the prototype.
 - The only computed outputs are byte counts from the prototype builds and the generated notes and manifest.
 
 **Names used across tasks:**
@@ -2772,7 +2968,7 @@ The owner's options:
 | `measure`, `artifactText` | Task 1 |
 | `createPanelApiClient`, `validateReviewRuntime`, `safeParseBody`, `segment`, `setBoundToken` | Task 3 |
 | `onLiveSnapshot`, `clearBadges` | Tasks 6–7 |
-| `BADGE_CACHE.key` | Task 7 |
-| `createBadges`, `BADGES_KEY` | Task 8 |
-| `createNotifier`, `SEEN_KEY`, `SETTINGS_KEY`, `notifyOnce`, `restoreTitle`, `boot.notifier` | Task 9 |
-| `notificationSettings`, `saveNotificationSetting`, `hourOptions`, `NOTIFY_SETTINGS_KEY`, `TERMINAL_STATE`, `expiredInvoiceChecked` | Task 10 |
+| `BADGE_CACHE.key`, `validBadge` | Task 7 |
+| `createBadges`, `BADGES_KEY`, `scanWhenVisible` | Task 8 |
+| `createNotifier`, `SEEN_KEY`, `SETTINGS_KEY`, `notifyOnce`, `boot.notifier` | Task 9 |
+| `notificationSettings`, `migrateNotificationSettings`, `saveNotificationSetting`, `hourOptions`, `NOTIFY_TYPES`, `NOTIFY_SETTINGS_KEY`, `TERMINAL_STATE`, `expiredInvoiceChecked` | Task 10 |
