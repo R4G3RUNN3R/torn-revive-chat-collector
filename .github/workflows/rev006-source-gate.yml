@@ -1,4 +1,4 @@
-name: ReviveRelay 0.7.3 source gate
+name: ReviveRelay review source gate
 
 on:
   push:
@@ -50,7 +50,7 @@ jobs:
       - name: Install server dependencies
         run: npm --prefix server install --ignore-scripts --no-audit --no-fund
 
-      - name: Build unpinned 0.7.3 candidate
+      - name: Build unpinned review candidate
         run: npm run build
 
       - name: Client regression suite before manifest pin
@@ -67,13 +67,14 @@ jobs:
       - name: Syntax and static audit
         run: |
           node --check torn-revive-chat-collector.user.js
-          node --check dist/review/ReviveRelay-0.7.3.user.js
+          node --check "dist/review/ReviveRelay-$(node -p "require('./package.json').version").user.js"
           npm run audit:review
 
       - name: Candidate artifact identity
         run: |
-          sha256sum dist/review/ReviveRelay-0.7.3.user.js
-          wc -c dist/review/ReviveRelay-0.7.3.user.js
-          grep -m1 '^// @version' dist/review/ReviveRelay-0.7.3.user.js
-          grep -m1 '^// ReviveRelay-Build-Commit:' dist/review/ReviveRelay-0.7.3.user.js
-          grep -m1 '^// ReviveRelay-Build-Timestamp:' dist/review/ReviveRelay-0.7.3.user.js
+          ARTIFACT="dist/review/ReviveRelay-$(node -p "require('./package.json').version").user.js"
+          sha256sum "$ARTIFACT"
+          wc -c "$ARTIFACT"
+          grep -m1 '^// @version' "$ARTIFACT"
+          grep -m1 '^// ReviveRelay-Build-Commit:' "$ARTIFACT"
+          grep -m1 '^// ReviveRelay-Build-Timestamp:' "$ARTIFACT"

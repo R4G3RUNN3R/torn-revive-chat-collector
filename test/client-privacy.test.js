@@ -55,12 +55,13 @@ test('production main runtime never imports or invokes chat discovery/classifica
   ]) assert.equal(source.includes(token), false, token);
 });
 
-test('production source uses direct API/sidebar modules without wildcard network permission', () => {
+test('production source uses direct API and Lite modules without wildcard network permission', () => {
   const source = fs.readFileSync(path.resolve(__dirname, '..', 'torn-revive-chat-collector.user.js'), 'utf8');
   assert.match(source, /ReviveRelayDirectApiClient/);
   assert.doesNotMatch(source, /ReviveRelayApiClient/);
   assert.match(source, /ReviveRelayRequestPreset/);
-  assert.match(source, /ReviveRelaySidebarAction/);
+  assert.match(source, /ReviveRelayLiteBoot/);
+  assert.doesNotMatch(source, /ReviveRelaySidebarAction/);
   assert.doesNotMatch(source, /ReviveRelayProClient|createProClient|state\.proApi/);
   assert.doesNotMatch(source, /@connect\s+\*/);
 });
@@ -98,7 +99,7 @@ test('review client pins its API origin and contains no server-only credential m
 test('one-time identity bootstrap key is cleared and never persisted client-side', () => {
   const source = fs.readFileSync(path.resolve(__dirname, '..', 'torn-revive-chat-collector.user.js'), 'utf8');
   const start = source.indexOf('async function connectIdentity()');
-  const end = source.indexOf('async function restoreSession()', start);
+  const end = source.indexOf('async function refreshProState(', start);
   const connect = start >= 0 && end > start ? source.slice(start, end) : '';
   assert.ok(connect.length > 0);
   assert.match(connect, /state\.api\.bind\(apiKey/);

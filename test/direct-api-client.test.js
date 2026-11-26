@@ -9,7 +9,6 @@ const REQUIRED_METHODS = [
   'getActiveRequest',
   'cancelRequest',
   'getMe',
-  'getClientVersionManifest',
   'submitTelemetry',
   'getVerificationCredential',
   'bindVerificationCredential',
@@ -26,7 +25,6 @@ const REQUIRED_METHODS = [
   'checkRefund',
   'getProStatus',
   'startProTrial',
-  'getProPlans',
   'createProInvoice',
   'getProInvoice',
   'deleteAccount'
@@ -35,7 +33,6 @@ const REQUIRED_METHODS = [
 test('direct API client exposes only the direct marketplace/session surface', () => {
   const direct = require('../src/direct-api-client');
   assert.equal(typeof direct.createDirectApiClient, 'function');
-  assert.equal(typeof direct.createGmRequestAdapter, 'function');
 
   const calls = [];
   const api = direct.createDirectApiClient({
@@ -73,7 +70,6 @@ test('direct API client maps the marketplace routes and carries the bound sessio
   await api.getActiveRequest();
   await api.cancelRequest('request id');
   await api.getMe();
-  await api.getClientVersionManifest();
   await api.submitTelemetry([]);
   await api.getVerificationCredential();
   await api.bindVerificationCredential('restricted-key');
@@ -90,7 +86,6 @@ test('direct API client maps the marketplace routes and carries the bound sessio
   await api.checkRefund('tx id');
   await api.getProStatus();
   await api.startProTrial();
-  await api.getProPlans();
   await api.createProInvoice({ planId: 'monthly', currency: 'xanax' });
   await api.getProInvoice('66666666-6666-4666-8666-666666666666');
   await api.deleteAccount();
@@ -101,7 +96,6 @@ test('direct API client maps the marketplace routes and carries the bound sessio
     ['GET', '/v1/requests/active'],
     ['POST', '/v1/requests/request%20id/cancel'],
     ['GET', '/v1/me'],
-    ['GET', '/v1/client/version'],
     ['POST', '/v1/telemetry/errors'],
     ['GET', '/v1/verification-credential'],
     ['POST', '/v1/verification-credential'],
@@ -118,24 +112,22 @@ test('direct API client maps the marketplace routes and carries the bound sessio
     ['POST', '/v1/transactions/tx%20id/check-refund'],
     ['GET', '/v1/pro/status'],
     ['POST', '/v1/pro/trial'],
-    ['GET', '/v1/pro/plans'],
     ['POST', '/v1/pro/invoices'],
     ['GET', '/v1/pro/invoices/66666666-6666-4666-8666-666666666666'],
     ['POST', '/v1/account/delete']
   ]);
 
   assert.equal(calls[0].headers.Authorization, undefined);
-  assert.equal(calls[5].headers.Authorization, undefined);
   for (const [index, call] of calls.entries()) {
-    if (index === 0 || index === 5) continue;
+    if (index === 0) continue;
     assert.equal(call.headers.Authorization, 'Bearer bound-session');
     assert.equal(call.headers['X-ReviveRelay-Version'], '0.5.0');
     assert.equal(call.headers['X-ReviveRelay-Channel'], 'manual');
   }
   assert.deepEqual(calls[0].body, { apiKey: 'identity-key', clientVersion: '0.5.0' });
-  assert.deepEqual(calls[17].body, { decision: 'accept' });
-  assert.deepEqual(calls[23].body, { planId: 'monthly', currency: 'xanax' });
-  assert.deepEqual(calls[25].body, { confirm: 'DELETE REVIVERELAY ACCOUNT' });
+  assert.deepEqual(calls[16].body, { decision: 'accept' });
+  assert.deepEqual(calls[21].body, { planId: 'monthly', currency: 'xanax' });
+  assert.deepEqual(calls[23].body, { confirm: 'DELETE REVIVERELAY ACCOUNT' });
 });
 
 test('direct API client contains no chat candidate or retry-outbox machinery', () => {

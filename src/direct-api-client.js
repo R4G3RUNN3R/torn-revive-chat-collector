@@ -124,34 +124,6 @@
     });
   }
 
-  function createGmRequestAdapter(gmXmlHttpRequest) {
-    if (typeof gmXmlHttpRequest !== 'function') throw new Error('GM_xmlhttpRequest is required');
-    return function gmRequest(input) {
-      return new Promise((resolve, reject) => {
-        const headers = { ...(input.headers || {}) };
-        let data;
-        if (input.body !== undefined) {
-          data = JSON.stringify(input.body);
-          if (!headers['Content-Type']) headers['Content-Type'] = 'application/json';
-        }
-        gmXmlHttpRequest({
-          method: input.method || 'GET',
-          url: input.url,
-          headers,
-          data,
-          timeout: Number(input.timeoutMs) || 15000,
-          onload: response => resolve({
-            status: Number(response.status) || 0,
-            body: safeParseBody(response),
-            responseText: response.responseText
-          }),
-          onerror: () => reject(new DirectApiClientError('NETWORK_ERROR', { retryable: true })),
-          ontimeout: () => reject(new DirectApiClientError('NETWORK_ERROR', { retryable: true }))
-        });
-      });
-    };
-  }
-
   function validateInvoiceSelection(selection) {
     if (!selection || typeof selection !== 'object' || Array.isArray(selection)) {
       throw new DirectApiClientError('INVALID_INVOICE_SELECTION');
@@ -170,6 +142,10 @@
     const normalized = String(invoiceId || '').trim();
     if (!normalized) throw new DirectApiClientError('INVALID_INVOICE_ID');
     return normalized;
+  }
+
+  function segment(id) {
+    return encodeURIComponent(String(id || ''));
   }
 
   function createDirectApiClient({ baseUrl, getToken = () => '', request, clientVersion = '', releaseChannel = '' }) {
@@ -210,30 +186,28 @@
       },
       clearBoundToken() { boundToken = ''; },
       getMe() { return call('GET', '/v1/me'); },
-      getClientVersionManifest() { return call('GET', '/v1/client/version', undefined, { auth: false }); },
       submitTelemetry(errors) { return call('POST', '/v1/telemetry/errors', { errors: Array.isArray(errors) ? errors : [] }); },
       createRequest(preset) { return call('POST', '/v1/requests', preset); },
       getActiveRequest() { return call('GET', '/v1/requests/active'); },
-      cancelRequest(requestId) { return call('POST', `/v1/requests/${encodeURIComponent(String(requestId || ''))}/cancel`); },
+      cancelRequest(requestId) { return call('POST', `/v1/requests/${segment(requestId)}/cancel`); },
       getVerificationCredential() { return call('GET', '/v1/verification-credential'); },
       bindVerificationCredential(apiKey) { return call('POST', '/v1/verification-credential', { apiKey: String(apiKey || '') }); },
       revokeVerificationCredential() { return call('POST', '/v1/verification-credential/revoke'); },
       getReviverEligibility() { return call('GET', '/v1/reviver/eligibility'); },
       registerReviver() { return call('POST', '/v1/reviver/register'); },
       getReviverQueue() { return call('GET', '/v1/reviver/queue'); },
-      acceptRequest(requestId) { return call('POST', `/v1/requests/${encodeURIComponent(String(requestId || ''))}/accept`); },
-      getTransaction(transactionId) { return call('GET', `/v1/transactions/${encodeURIComponent(String(transactionId || ''))}`); },
-      checkPayment(transactionId) { return call('POST', `/v1/transactions/${encodeURIComponent(String(transactionId || ''))}/check-payment`); },
-      requestRetry(transactionId) { return call('POST', `/v1/transactions/${encodeURIComponent(String(transactionId || ''))}/retry-request`); },
+      acceptRequest(requestId) { return call('POST', `/v1/requests/${segment(requestId)}/accept`); },
+      getTransaction(transactionId) { return call('GET', `/v1/transactions/${segment(transactionId)}`); },
+      checkPayment(transactionId) { return call('POST', `/v1/transactions/${segment(transactionId)}/check-payment`); },
+      requestRetry(transactionId) { return call('POST', `/v1/transactions/${segment(transactionId)}/retry-request`); },
       respondRetry(transactionId, decision) {
         if (!['accept', 'decline'].includes(decision)) throw new DirectApiClientError('INVALID_RETRY_DECISION');
-        return call('POST', `/v1/transactions/${encodeURIComponent(String(transactionId || ''))}/retry-response`, { decision });
+        return call('POST', `/v1/transactions/${segment(transactionId)}/retry-response`, { decision });
       },
-      requestRefund(transactionId) { return call('POST', `/v1/transactions/${encodeURIComponent(String(transactionId || ''))}/request-refund`); },
-      checkRefund(transactionId) { return call('POST', `/v1/transactions/${encodeURIComponent(String(transactionId || ''))}/check-refund`); },
+      requestRefund(transactionId) { return call('POST', `/v1/transactions/${segment(transactionId)}/request-refund`); },
+      checkRefund(transactionId) { return call('POST', `/v1/transactions/${segment(transactionId)}/check-refund`); },
       getProStatus() { return call('GET', '/v1/pro/status'); },
       startProTrial() { return call('POST', '/v1/pro/trial'); },
-      getProPlans() { return call('GET', '/v1/pro/plans'); },
       async createProInvoice(selection) {
         return call('POST', '/v1/pro/invoices', validateInvoiceSelection(selection));
       },
@@ -245,14 +219,9 @@
   }
 
   return {
-    PLAN_IDS,
-    PRO_CURRENCIES,
-    ACCOUNT_DELETE_CONFIRMATION,
     DirectApiClientError,
-    safeDetails,
     mapHttpError,
     validateReviewRuntime,
-    createGmRequestAdapter,
     createDirectApiClient
   };
 });

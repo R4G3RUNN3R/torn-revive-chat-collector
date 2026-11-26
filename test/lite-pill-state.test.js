@@ -228,13 +228,15 @@ test('requester-side transactions take priority over reviver-side ones', () => {
   assert.equal(view.role, 'requester');
 });
 
-test('COMPLETED fades back to idle 5 s after closing', () => {
+// firstSeen for derivePill: every outcome was first shown at NOW + offsetMs (client time).
+const seenAt = offsetMs => () => NOW + offsetMs;
+
+test('COMPLETED fades back to idle 5 s after first sight', () => {
   const recent = transaction('COMPLETED', 'requester', { closedAt: iso(-4000) });
-  const old = transaction('COMPLETED', 'requester', { closedAt: iso(-5000) });
-  const recentView = derivePill(snapshot({ activeTransactions: [recent] }), 'live', NOW);
+  const recentView = derivePill(snapshot({ activeTransactions: [recent] }), 'live', NOW, seenAt(-4000));
   assert.equal(recentView.text, 'Revived');
   assert.equal(recentView.refreshAt, NOW + 1000);
-  assert.equal(derivePill(snapshot({ activeTransactions: [old] }), 'live', NOW).text, 'Revive me · 3 online');
+  assert.equal(derivePill(snapshot({ activeTransactions: [recent] }), 'live', NOW, seenAt(-5000)).text, 'Revive me · 3 online');
 });
 
 test('countdowns clamp at 0:00 and long durations show hours', () => {
@@ -262,14 +264,13 @@ test('view models are frozen', () => {
   assert.equal(Object.isFrozen(derivePill(snapshot(), 'live', NOW)), true);
 });
 
-test('reviver COMPLETED fades 5 s after closing and reports refreshAt', () => {
+test('reviver COMPLETED fades 5 s after first sight and reports refreshAt', () => {
   const reviver = me({ roles: ['reviver'] });
   const recent = transaction('COMPLETED', 'reviver', { closedAt: iso(-4000) });
-  const old = transaction('COMPLETED', 'reviver', { closedAt: iso(-5000) });
-  const recentView = derivePill(snapshot({ me: reviver, activeTransactions: [recent] }), 'live', NOW);
+  const recentView = derivePill(snapshot({ me: reviver, activeTransactions: [recent] }), 'live', NOW, seenAt(-4000));
   assert.equal(recentView.text, 'Revive complete');
   assert.equal(recentView.refreshAt, NOW + 1000);
-  const oldView = derivePill(snapshot({ me: reviver, queue: { count: 2 }, activeTransactions: [old] }), 'live', NOW);
+  const oldView = derivePill(snapshot({ me: reviver, queue: { count: 2 }, activeTransactions: [recent] }), 'live', NOW, seenAt(-5000));
   assert.equal(oldView.text, 'Queue · 2');
   assert.equal(oldView.refreshAt, null);
 });
@@ -277,9 +278,10 @@ test('reviver COMPLETED fades 5 s after closing and reports refreshAt', () => {
 test('COMPLETED falls back to updatedAt when closedAt is missing', () => {
   for (const role of ['requester', 'reviver']) {
     const reviver = me({ roles: ['reviver'] });
-    const tx = transaction('COMPLETED', role, { closedAt: null, updatedAt: iso(-2000) });
+    // Not seen before: shown from now, capped by the 30 s window counted from updatedAt.
+    const tx = transaction('COMPLETED', role, { closedAt: null, updatedAt: iso(-29000) });
     const view = derivePill(snapshot({ me: reviver, activeTransactions: [tx] }), 'live', NOW);
-    assert.equal(view.refreshAt, NOW + 3000, role);
+    assert.equal(view.refreshAt, NOW + 1000, role);
     assert.equal(view.tone, 'success', role);
   }
 });
@@ -383,4 +385,178 @@ test('queue count accepts only finite numbers or numeric strings', () => {
   assert.equal(derivePill(snapshot({ me: reviver, queue: { count: '7' } }), 'live', NOW).text, 'Queue · 7');
   assert.equal(derivePill(snapshot({ me: reviver, queue: { count: ' 2 ' } }), 'live', NOW).text, 'Queue · 2');
   assert.equal(derivePill(snapshot({ me: reviver, queue: { count: 0 } }), 'live', NOW).text, 'Queue · 0');
+});
+
+test('a recently closed COMPLETED transaction shows "Revived" for 5 s from first sight, then idle', () => {
+  const closed = transaction('COMPLETED', 'requester', { closedAt: iso(-2000) });
+  const view = derivePill(snapshot({ recentlyClosed: [closed] }), 'live', NOW, seenAt(-2000));
+  assert.equal(view.text, 'Revived');
+  assert.equal(view.tone, 'success');
+  assert.equal(view.transactionId, 'tx-requester-COMPLETED');
+  assert.equal(view.refreshAt, NOW + 3000);
+  assert.equal(derivePill(snapshot({ recentlyClosed: [closed] }), 'live', NOW + 3000, seenAt(-2000)).text, 'Revive me · 3 online');
+});
+
+test('recently closed REFUNDED and REPORTABLE_* show "Refunded" and "Needs attention" from real data', () => {
+  const refunded = transaction('REFUNDED', 'requester', { closedAt: iso(-20000) });
+  const reportable = transaction('REPORTABLE_MISSING_REFUND', 'requester', { closedAt: iso(-600000) });
+  assert.equal(derivePill(snapshot({ recentlyClosed: [refunded] }), 'live', NOW).text, 'Refunded');
+  const attention = derivePill(snapshot({ recentlyClosed: [reportable] }), 'live', NOW);
+  assert.equal(attention.text, 'Needs attention');
+  assert.equal(attention.tone, 'attention');
+  assert.equal(derivePill(snapshot({ recentlyClosed: [reportable] }), 'syncing', NOW).tone, 'neutral');
+});
+
+test('recently closed outcomes never hide an open request or transaction, and the newest one wins', () => {
+  const revived = transaction('COMPLETED', 'requester', { id: 'tx-new', closedAt: iso(-1000) });
+  const attention = transaction('REPORTABLE_NO_ATTEMPT', 'requester', { id: 'tx-old', closedAt: iso(-900000) });
+  const request = { id: 'req-2', state: 'AVAILABLE', paymentMethod: 'cash', offerAmount: 1, createdAt: iso(-5000), transactionId: null };
+  assert.equal(derivePill(snapshot({ activeRequest: request, recentlyClosed: [revived] }), 'live', NOW).label, 'Waiting');
+  const reviving = transaction('WAITING_FOR_REVIVE', 'reviver', deadlinesFor('WAITING_FOR_REVIVE'));
+  assert.equal(derivePill(snapshot({ activeTransactions: [reviving], recentlyClosed: [revived] }), 'live', NOW).label, 'Revive Patient now');
+  assert.equal(derivePill(snapshot({ recentlyClosed: [revived, attention] }), 'live', NOW, seenAt(0)).transactionId, 'tx-new');
+  assert.equal(derivePill(snapshot({ recentlyClosed: [revived, attention] }), 'live', NOW + 6000, seenAt(0)).transactionId, 'tx-old');
+});
+
+test('recently closed states that do not map (cancelled, expired, unknown) leave the pill idle', () => {
+  const closed = [
+    transaction('PAYMENT_EXPIRED', 'requester', { closedAt: iso(-1000) }),
+    transaction('CLOSED_NATURAL_EXPIRY', 'reviver', { closedAt: iso(-1000) }),
+    transaction('SOMETHING_NEW', 'requester', { closedAt: iso(-1000) })
+  ];
+  assert.equal(derivePill(snapshot({ recentlyClosed: closed }), 'live', NOW).text, 'Revive me · 3 online');
+});
+
+test('the snapshot clock skew corrects the outcome window and countdowns', () => {
+  const closed = transaction('COMPLETED', 'requester', { closedAt: iso(-27000) });
+  // The client clock is 10 s ahead of the server: without the skew "Revived" would be past its 30 s window.
+  const ahead = NOW + 10000;
+  assert.equal(derivePill(snapshot({ recentlyClosed: [closed] }), 'live', ahead).text, 'Revive me · 3 online');
+  assert.equal(derivePill(snapshot({ recentlyClosed: [closed], clockSkewMs: -10000 }), 'live', ahead).text, 'Revived');
+  const paying = transaction('WAITING_FOR_PAYMENT', 'requester');
+  assert.equal(derivePill(snapshot({ activeTransactions: [paying], clockSkewMs: -10000 }), 'live', ahead).detail, '1:30 left');
+  assert.equal(derivePill(snapshot({ activeTransactions: [paying], clockSkewMs: 'x' }), 'live', NOW).detail, '1:30 left');
+  assert.equal(derivePill(snapshot({ activeTransactions: [paying], clockSkewMs: 48 * 3600 * 1000 }), 'live', NOW).detail, '1:30 left');
+});
+
+test('signed-out and expired sessions ignore the snapshot and are never "Offline"', () => {
+  const busy = snapshot({ activeTransactions: [transaction('WAITING_FOR_PAYMENT', 'requester')] });
+  const signedOut = derivePill(busy, 'signed-out', NOW);
+  assert.equal(signedOut.text, 'Set up revives');
+  assert.equal(signedOut.sheet, 'requester-setup');
+  assert.equal(signedOut.offline, false);
+  assert.equal(signedOut.syncing, false);
+  const expired = derivePill(busy, 'expired', NOW);
+  assert.equal(expired.text, 'Sign in again');
+  assert.equal(expired.tone, 'attention');
+  assert.equal(expired.sheet, 'session-expired');
+  assert.equal(expired.transactionId, null);
+  assert.equal(Object.isFrozen(expired), true);
+});
+
+test('COMPLETED with closedAt 20 h in the future is treated as already faded for both roles', () => {
+  for (const role of ['requester', 'reviver']) {
+    const future = transaction('COMPLETED', role, { closedAt: iso(20 * 3600 * 1000) });
+    for (const snap of [snapshot({ recentlyClosed: [future] }), snapshot({ activeTransactions: [future] })]) {
+      const view = derivePill(snap, 'live', NOW);
+      assert.equal(view.text, 'Revive me · 3 online', role);
+      assert.equal(view.refreshAt, null, role);
+    }
+  }
+});
+
+test('COMPLETED with closedAt 2 s in the future is still shown and re-renders within 5 s', () => {
+  const requester = transaction('COMPLETED', 'requester', { closedAt: iso(2000) });
+  const reviver = transaction('COMPLETED', 'reviver', { closedAt: iso(2000) });
+  const shownRequester = derivePill(snapshot({ recentlyClosed: [requester] }), 'live', NOW);
+  assert.equal(shownRequester.text, 'Revived');
+  assert.ok(shownRequester.refreshAt <= NOW + 5000);
+  const shownReviver = derivePill(snapshot({ recentlyClosed: [reviver] }), 'live', NOW);
+  assert.equal(shownReviver.text, 'Revive complete');
+  assert.ok(shownReviver.refreshAt <= NOW + 5000);
+});
+
+test('a wrong but in-bound clock skew (-20 h) does not keep "Revived" on screen', () => {
+  const closed = transaction('COMPLETED', 'requester', { closedAt: iso(-2000) });
+  const view = derivePill(snapshot({ recentlyClosed: [closed], clockSkewMs: -20 * 3600 * 1000 }), 'live', NOW);
+  assert.equal(view.text, 'Revive me · 3 online');
+  assert.equal(view.refreshAt, null);
+});
+
+test('non-numeric clockSkewMs values (true, [5], "5", null) are ignored', () => {
+  // closedAt is 29999 ms old: a coerced skew of 1 or 5 ms (true, [5], "5") would age it past the 30 s window.
+  const closed = transaction('COMPLETED', 'requester', { closedAt: iso(-29999) });
+  for (const clockSkewMs of [true, [5], '5', null]) {
+    const view = derivePill(snapshot({ recentlyClosed: [closed], clockSkewMs }), 'live', NOW);
+    assert.equal(view.text, 'Revived', String(clockSkewMs));
+  }
+});
+
+test('a reviver\'s reportable ranks below the visible queue count; without a queue it still shows', () => {
+  const reviver = me({ roles: ['reviver'], verification: { usable: true, requester: false, reviver: true } });
+  for (const state of ['REPORTABLE_NO_ATTEMPT', 'REPORTABLE_MISSING_REFUND']) {
+    const reportable = transaction(state, 'reviver', { closedAt: iso(-600000) });
+    assert.equal(derivePill(snapshot({ me: reviver, queue: { count: 2 }, recentlyClosed: [reportable] }), 'live', NOW).text, 'Queue · 2', state);
+    const hidden = derivePill(snapshot({ me: reviver, queue: null, recentlyClosed: [reportable] }), 'live', NOW);
+    assert.equal(hidden.text, 'Needs attention', state);
+    assert.equal(hidden.sheet, 'reviver-report', state);
+  }
+  // A reviver's fresh outcome still outranks the queue for its 5 s.
+  const done = transaction('COMPLETED', 'reviver', { closedAt: iso(-1000) });
+  assert.equal(derivePill(snapshot({ me: reviver, queue: { count: 2 }, recentlyClosed: [done] }), 'live', NOW).text, 'Revive complete');
+});
+
+test('a requester\'s reportable stays above idle, also for a user who is a reviver with a queue', () => {
+  const reportable = transaction('REPORTABLE_NO_ATTEMPT', 'requester', { closedAt: iso(-600000) });
+  assert.equal(derivePill(snapshot({ recentlyClosed: [reportable] }), 'live', NOW).text, 'Needs attention');
+  const both = me({ roles: ['requester', 'reviver'], verification: { usable: true, requester: true, reviver: true } });
+  const view = derivePill(snapshot({ me: both, queue: { count: 5 }, recentlyClosed: [reportable] }), 'live', NOW);
+  assert.equal(view.text, 'Needs attention');
+  assert.equal(view.state, 'REPORTABLE_NO_ATTEMPT');
+});
+
+// ---- "Revived" is shown for 5 s from this client's first sight -------------------
+
+test('an outcome first seen 4 s after closure is still shown for 5 s from first sight', () => {
+  for (const role of ['requester', 'reviver']) {
+    const closed = transaction('COMPLETED', role, { closedAt: iso(-4000) });
+    const firstSeen = id => (id === closed.id ? NOW : undefined);
+    const shown = derivePill(snapshot({ recentlyClosed: [closed] }), 'live', NOW, firstSeen);
+    assert.equal(shown.state, 'COMPLETED', role);
+    assert.equal(shown.refreshAt, NOW + 5000, role);
+    assert.equal(derivePill(snapshot({ recentlyClosed: [closed] }), 'live', NOW + 4999, firstSeen).state, 'COMPLETED', role);
+    assert.equal(derivePill(snapshot({ recentlyClosed: [closed] }), 'live', NOW + 5000, firstSeen).text, 'Revive me · 3 online', role);
+  }
+});
+
+test('an outcome not seen yet is shown from now, and the engine-supplied first sight is read by transaction id', () => {
+  const closed = transaction('COMPLETED', 'requester', { closedAt: iso(-20000) });
+  const unseen = derivePill(snapshot({ recentlyClosed: [closed] }), 'live', NOW, () => undefined);
+  assert.equal(unseen.text, 'Revived');
+  assert.equal(unseen.refreshAt, NOW + 5000);
+  const asked = [];
+  derivePill(snapshot({ recentlyClosed: [closed] }), 'live', NOW, id => { asked.push(id); });
+  assert.deepEqual(asked, [closed.id]);
+});
+
+test('an outcome first seen more than 30 s after closure is never shown; the window also caps a late first sight', () => {
+  const late = transaction('COMPLETED', 'requester', { closedAt: iso(-30000) });
+  const lateView = derivePill(snapshot({ recentlyClosed: [late] }), 'live', NOW, () => undefined);
+  assert.equal(lateView.text, 'Revive me · 3 online');
+  assert.equal(lateView.refreshAt, null);
+  const edge = transaction('COMPLETED', 'requester', { closedAt: iso(-29000) });
+  const firstSeen = () => NOW;
+  const edgeView = derivePill(snapshot({ recentlyClosed: [edge] }), 'live', NOW, firstSeen);
+  assert.equal(edgeView.text, 'Revived');
+  assert.equal(edgeView.refreshAt, NOW + 1000);
+  assert.equal(derivePill(snapshot({ recentlyClosed: [edge] }), 'live', NOW + 1000, firstSeen).text, 'Revive me · 3 online');
+});
+
+test('first sight is client time: the snapshot clock skew is applied to it like to now', () => {
+  // The client clock is 10 s ahead of the server; this client first showed the outcome at its NOW + 10 s.
+  const closed = transaction('COMPLETED', 'requester', { closedAt: iso(-2000) });
+  const skewed = snapshot({ recentlyClosed: [closed], clockSkewMs: -10000 });
+  const firstSeen = () => NOW + 10000;
+  assert.equal(derivePill(skewed, 'live', NOW + 14999, firstSeen).text, 'Revived');
+  assert.equal(derivePill(skewed, 'live', NOW + 15000, firstSeen).text, 'Revive me · 3 online');
 });

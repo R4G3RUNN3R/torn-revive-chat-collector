@@ -37,18 +37,8 @@
     };
   }
 
-  function deriveSidebarState({ sessionToken, preset, submitting = false, activeRequest = null, lastError = null } = {}) {
-    if (submitting) return 'SUBMITTING';
-    if (activeRequest) return 'ACTIVE';
-    if (lastError) return 'ERROR';
-    if (!String(sessionToken || '').trim()) return 'SETUP_REQUIRED';
-    if (!validatePreset(preset).ok) return 'SETUP_REQUIRED';
-    return 'READY';
-  }
-
   return Object.freeze({
     ALLOWED_FIELDS,
-    validatePreset,
-    deriveSidebarState
+    validatePreset
   });
 });

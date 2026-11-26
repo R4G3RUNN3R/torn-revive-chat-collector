@@ -235,9 +235,9 @@ test('three tabs: exactly one polls, the others render its broadcast; hiding the
   tabs[0].document.setVisibility('hidden');
   await clock.advance(0);
   assert.deepEqual(tabs.map(tab => tab.engine.isLeader()), [false, true, false]);
-  assert.equal(tabs[1].api.calls, 1);
+  assert.equal(tabs[1].api.calls, 0, 'the new leader keeps the old leader\'s fresh fetch until its cadence');
   await clock.advance(60000);
-  assert.deepEqual(tabs.map(tab => tab.api.calls), [2, 2, 0]);
+  assert.deepEqual(tabs.map(tab => tab.api.calls), [2, 1, 0]);
   tabs.forEach(tab => tab.engine.stop());
   assert.equal(hub.openCount(), 0);
 });
@@ -385,12 +385,13 @@ test('a 304 for a version other than the shown snapshot is not trusted: reset, s
   const storage = memoryStorage();
   const V1 = '1111111111111111';
   const V2 = '2222222222222222';
+  // A 3 s cadence: each hand-off's first poll waits at most the 3 s minimum after the last fetch.
   const apiA = scriptedApi([
-    { notModified: false, snapshot: snapshot({ stateVersion: V1, revivers: { online: 1 } }) },
+    { notModified: false, snapshot: snapshot({ stateVersion: V1, nextPollMs: 3000, revivers: { online: 1 } }) },
     { notModified: true, stateVersion: V1 },
-    { notModified: false, snapshot: snapshot({ stateVersion: V2, revivers: { online: 2 } }) }
+    { notModified: false, snapshot: snapshot({ stateVersion: V2, nextPollMs: 3000, revivers: { online: 2 } }) }
   ]);
-  const apiB = scriptedApi([{ notModified: false, snapshot: snapshot({ stateVersion: V2, revivers: { online: 2 } }) }]);
+  const apiB = scriptedApi([{ notModified: false, snapshot: snapshot({ stateVersion: V2, nextPollMs: 3000, revivers: { online: 2 } }) }]);
   const { tabs: [a, b] } = lockTabs({ clock, sharedStorage: storage, specs: [{ tabId: 'a', api: apiA }, { tabId: 'b', api: apiB }] });
   a.engine.start();
   b.engine.start();
@@ -401,6 +402,8 @@ test('a 304 for a version other than the shown snapshot is not trusted: reset, s
   a.document.setVisibility('hidden');
   await clock.advance(0);
   assert.equal(b.engine.isLeader(), true);
+  await clock.advance(3000);
+  assert.equal(apiB.calls, 1);
   assert.equal(pillText(a.engine), 'Revive me · 2 online');
   const bFetchedAt = storage.values[SNAPSHOT_KEY].fetchedAt;
 
@@ -409,6 +412,8 @@ test('a 304 for a version other than the shown snapshot is not trusted: reset, s
   b.document.setVisibility('hidden');
   await clock.advance(0);
   assert.equal(a.engine.isLeader(), true);
+  assert.equal(apiA.calls, 1, 'B fetched 1 s ago: the hand-off waits for the 3 s minimum');
+  await clock.advance(3000);
   assert.equal(apiA.calls, 2);
   assert.equal(apiA.resets, 1);
   assert.equal(a.engine.viewModel().syncing, true);
@@ -498,7 +503,8 @@ test('a leader that regains leadership mid-poll polls again promptly, not a full
   const clock = createFakeTimers();
   const hang = deferred();
   const apiA = scriptedApi([hang, { notModified: false, snapshot: snapshot({ revivers: { online: 3 } }) }]);
-  const apiB = scriptedApi([{ notModified: false, snapshot: snapshot({ revivers: { online: 9 } }) }]);
+  // B's poll fails, so A regains leadership with no fresh fetch to wait on.
+  const apiB = scriptedApi([new DirectApiClientError('NETWORK_ERROR', { retryable: true })]);
   const { tabs: [a, b] } = lockTabs({ clock, specs: [{ tabId: 'a', api: apiA }, { tabId: 'b', api: apiB }] });
   a.engine.start();
   b.engine.start();
@@ -669,7 +675,7 @@ test('five page loads within a minute make at most one request at idle', async (
   assert.equal(api.calls, 1);
 });
 
-test('a leader hand-off between running tabs still polls promptly despite a fresh cache', async () => {
+test('a leader hand-off with a fetch younger than the cadence waits until fetchedAt + cadence', async () => {
   const clock = createFakeTimers();
   const storage = memoryStorage();
   const apiA = scriptedApi([{ notModified: false, snapshot: snapshot() }]);
@@ -685,7 +691,170 @@ test('a leader hand-off between running tabs still polls promptly despite a fres
   a.document.setVisibility('hidden');
   await clock.advance(0);
   assert.equal(b.engine.isLeader(), true);
+  assert.equal(apiB.calls, 0);
+  await clock.advance(60000 - 10000 - 1);
+  assert.equal(apiB.calls, 0);
+  await clock.advance(1);
   assert.equal(apiB.calls, 1);
   a.engine.stop();
   b.engine.stop();
+});
+
+test('a follower\'s refresh() asks the leader to poll, bounded by the minimum poll interval', async () => {
+  const clock = createFakeTimers();
+  const hub = createChannelHub();
+  const locks = createLockManager();
+  function BroadcastChannel(name) { return hub.createChannel(name); }
+  const storage = memoryStorage();
+  const tabs = ['a', 'b'].map(tabId => {
+    const api = fakeApi([{ notModified: false, snapshot: snapshot() }]);
+    const window = createFakeWindow({ BroadcastChannel, locks });
+    window.AbortController = function AbortController() { return createAbortController(); };
+    return { api, ...makeEngine({ clock, api, storage, window, tabId }) };
+  });
+  tabs.forEach(tab => tab.engine.start());
+  await clock.advance(0);
+  assert.deepEqual(tabs.map(tab => tab.engine.isLeader()), [true, false]);
+  assert.equal(tabs[0].api.calls, 1);
+
+  // Straight after a poll: the leader waits out the 3 s minimum, then polls once.
+  tabs[1].engine.refresh();
+  tabs[1].engine.refresh();
+  await clock.advance(0);
+  assert.equal(tabs[0].api.calls, 1);
+  await clock.advance(3000);
+  assert.equal(tabs[0].api.calls, 2);
+  assert.equal(tabs[1].api.calls, 0);
+
+  // Later: the request polls at once.
+  await clock.advance(10000);
+  tabs[1].engine.refresh();
+  await clock.advance(0);
+  assert.equal(tabs[0].api.calls, 3);
+
+  // A hidden follower posts nothing.
+  const before = hub.log.filter(entry => entry.data.type === 'refresh-request').length;
+  tabs[1].document.setVisibility('hidden');
+  tabs[1].engine.refresh();
+  await clock.advance(0);
+  assert.equal(hub.log.filter(entry => entry.data.type === 'refresh-request').length, before);
+  tabs.forEach(tab => tab.engine.stop());
+});
+
+// ---- "Revived" stays 5 s from this tab's first sight (per tab; not broadcast) -----
+
+function revivedSnapshot(clock, closedAgoMs) {
+  const closedAt = new Date(clock.now() - closedAgoMs).toISOString();
+  return snapshot({ serverTime: new Date(clock.now()).toISOString(), recentlyClosed: [{ id: 'tx-done', state: 'COMPLETED', participantRole: 'requester', closedAt, updatedAt: closedAt }] });
+}
+
+test('an outcome first seen 4 s after closure stays "Revived" for 5 s from first sight, then fades', async () => {
+  const clock = createFakeTimers();
+  const api = fakeApi([{ notModified: false, snapshot: revivedSnapshot(clock, 4000) }]);
+  const { engine } = makeEngine({ clock, api });
+  engine.start();
+  await clock.advance(0);
+  assert.equal(pillText(engine), 'Revived');
+  await clock.advance(4000);
+  assert.equal(pillText(engine), 'Revived');
+  await clock.advance(1000);
+  assert.equal(pillText(engine), 'Revive me · 2 online');
+  assert.equal(api.calls, 1);
+  assert.equal(clock.nextDelay(), 55000, 'the 1 s tick stops once faded');
+  engine.stop();
+});
+
+test('an outcome first seen more than 30 s after closure is never shown', async () => {
+  const clock = createFakeTimers();
+  const api = fakeApi([{ notModified: false, snapshot: revivedSnapshot(clock, 30001) }]);
+  const { engine } = makeEngine({ clock, api });
+  engine.start();
+  await clock.advance(0);
+  assert.equal(pillText(engine), 'Revive me · 2 online');
+  engine.stop();
+});
+
+test('leader and follower each show the broadcast outcome 5 s from their own first sight', async () => {
+  const clock = createFakeTimers();
+  const storage = memoryStorage();
+  const apiA = scriptedApi([{ notModified: false, snapshot: revivedSnapshot(clock, 4000) }]);
+  const apiB = scriptedApi([{ notModified: false, snapshot: snapshot() }]);
+  const { tabs: [a, b] } = lockTabs({ clock, sharedStorage: storage, specs: [{ tabId: 'a', api: apiA }, { tabId: 'b', api: apiB }] });
+  a.engine.start();
+  b.engine.start();
+  await clock.advance(0);
+  assert.equal(a.engine.isLeader(), true);
+  assert.deepEqual([pillText(a.engine), pillText(b.engine)], ['Revived', 'Revived']);
+  await clock.advance(4000);
+  assert.deepEqual([pillText(a.engine), pillText(b.engine)], ['Revived', 'Revived']);
+  await clock.advance(1000);
+  assert.deepEqual([pillText(a.engine), pillText(b.engine)], ['Revive me · 2 online', 'Revive me · 2 online']);
+  assert.equal(apiB.calls, 0);
+  a.engine.stop();
+  b.engine.stop();
+});
+
+// ---- the pill comes back when Torn removes it without navigating ------------------
+
+test('a pill host removed by the page is re-attached on the next render tick and on becoming visible', async () => {
+  const createdAt = new Date(Date.parse('2026-11-25T12:00:00.000Z') - 10000).toISOString();
+  const active = snapshot({ nextPollMs: 5000, activeRequest: { id: 'r1', state: 'AVAILABLE', createdAt, transactionId: null } });
+  const clock = createFakeTimers();
+  const { engine, document } = makeEngine({ clock, api: fakeApi([{ notModified: false, snapshot: active }]) });
+  engine.start();
+  await clock.advance(0);
+  const host = document.getElementById(HOST_ID);
+  host.remove();
+  assert.equal(host.isConnected, false);
+  await clock.advance(1000);
+  assert.equal(host.isConnected, true, 'the 1 s tick re-places it');
+  assert.equal(document.getElementById(HOST_ID), host);
+  engine.stop();
+
+  const idleClock = createFakeTimers();
+  const idle = makeEngine({ clock: idleClock, api: fakeApi([{ notModified: false, snapshot: snapshot() }]) });
+  idle.engine.start();
+  await idleClock.advance(0);
+  const idleHost = idle.document.getElementById(HOST_ID);
+  idleHost.remove();
+  idle.document.setVisibility('hidden');
+  idle.document.setVisibility('visible');
+  assert.equal(idleHost.isConnected, true, 'becoming visible re-places it');
+  assert.equal(idleClock.pending(), 1, 'no new timers');
+  idle.engine.stop();
+});
+
+// ---- leadership hand-offs keep to the cadence -------------------------------------
+
+test('rapid hand-offs between two visible tabs within one idle cadence make at most one request per cadence', async () => {
+  const clock = createFakeTimers();
+  const startedAt = clock.now();
+  const apiA = scriptedApi([{ notModified: false, snapshot: snapshot() }]);
+  const apiB = scriptedApi([{ notModified: false, snapshot: snapshot() }]);
+  const { tabs } = lockTabs({ clock, sharedStorage: memoryStorage(), specs: [{ tabId: 'a', api: apiA }, { tabId: 'b', api: apiB }] });
+  const calls = () => apiA.calls + apiB.calls;
+  tabs.forEach(tab => tab.engine.start());
+  await clock.advance(0);
+  assert.equal(calls(), 1);
+  for (let handOff = 0; handOff < 8; handOff += 1) {
+    await clock.advance(5000);
+    const [from, to] = tabs[0].engine.isLeader() ? tabs : [tabs[1], tabs[0]];
+    from.document.setVisibility('hidden');
+    await clock.advance(0);
+    assert.equal(to.engine.isLeader(), true, `hand-off ${handOff}`);
+    from.document.setVisibility('visible');
+    await clock.advance(0);
+  }
+  assert.equal(calls(), 1, 'eight hand-offs, no extra request');
+  await clock.advance(startedAt + 60000 - clock.now() - 1);
+  assert.equal(calls(), 1);
+  await clock.advance(1);
+  assert.equal(calls(), 2, 'the leader polls once the cadence is up');
+  // An explicit refresh still polls at once.
+  const leader = tabs.find(tab => tab.engine.isLeader());
+  await clock.advance(5000);
+  leader.engine.refresh();
+  await clock.advance(0);
+  assert.equal(calls(), 3);
+  tabs.forEach(tab => tab.engine.stop());
 });

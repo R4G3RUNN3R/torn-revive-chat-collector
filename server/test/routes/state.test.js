@@ -8,16 +8,24 @@ const NOW = new Date('2026-11-25T12:00:00Z');
 const REQUESTER = { sessionId: 's1', userId: 'user-1', tornId: 111, name: 'Req', roles: ['requester'] };
 const REVIVER = { sessionId: 's2', userId: 'user-2', tornId: 222, name: 'Rev', roles: ['requester', 'reviver'] };
 
-async function makeApp({ user = REQUESTER, activeRequest = null, openTransactionIds = [], transactions = {}, queue = [], online = 3, presence = true, proState = 'NONE', mode = 'review', verificationStatus, verificationRepository = verificationStatus !== undefined } = {}) {
+async function makeApp({ user = REQUESTER, activeRequest = null, openTransactionIds = [], closedTransactionIds = [], closedRepository = true, transactions = {}, queue = [], online = 3, presence = true, proState = 'NONE', mode = 'review', verificationStatus, verificationRepository = verificationStatus !== undefined, clock = () => NOW } = {}) {
   const app = Fastify();
   await app.register(fastifyRateLimit, { global: false });
   app.decorateRequest('reviveRelayUser', null);
   app.decorate('authenticate', async request => { request.reviveRelayUser = user; });
-  const calls = { online: [], count: 0 };
+  const calls = { online: [], count: 0, closedAt: [] };
   await registerStateRoute(app, {
     requestRepository: { async getActiveRequest(userId) { assert.equal(userId, user.userId); return activeRequest; } },
     transactionRepository: {
       async listOpenTransactionIdsForUser(userId) { assert.equal(userId, user.userId); return openTransactionIds; },
+      ...(closedRepository ? {
+        async listRecentlyClosedTransactionIdsForUser(userId, { now }) {
+          assert.equal(userId, user.userId);
+          assert.ok(now instanceof Date);
+          calls.closedAt.push(now);
+          return closedTransactionIds;
+        }
+      } : {}),
       async getTransactionForUser({ transactionId, userId }) { assert.equal(userId, user.userId); return transactions[transactionId] || null; },
       async countAvailableRequests() { calls.count += 1; return queue.length; }
     },
@@ -27,7 +35,7 @@ async function makeApp({ user = REQUESTER, activeRequest = null, openTransaction
       ? { async getStatus(userId) { assert.equal(userId, user.userId); return verificationStatus === undefined ? null : verificationStatus; } }
       : null,
     config: { SUBSCRIPTION_MODE: mode, PRO_RECEIVER_TORN_ID: 3877028 },
-    clock: () => NOW
+    clock
   });
   return { app, calls };
 }
@@ -244,4 +252,48 @@ test('trial reviver sees the queue count in review mode', async t => {
   assert.equal(body.pro.state, 'TRIAL');
   assert.deepEqual(body.queue, { count: 1 });
   assert.equal(calls.count, 1);
+});
+
+test('recently closed transactions are returned newest first and do not make the user active', async t => {
+  const revived = { id: 'tx-new', state: 'COMPLETED', participantRole: 'requester', closedAt: '2026-11-25T11:59:55.000Z' };
+  const reportable = { id: 'tx-old', state: 'REPORTABLE_NO_ATTEMPT', participantRole: 'requester', closedAt: '2026-11-25T11:20:00.000Z' };
+  const { app, calls } = await makeApp({ closedTransactionIds: ['tx-new', 'tx-gone', 'tx-old'], transactions: { 'tx-new': revived, 'tx-old': reportable } });
+  t.after(() => app.close());
+  const body = (await app.inject({ method: 'GET', url: '/v1/state' })).json();
+  assert.deepEqual(body.recentlyClosed, [revived, reportable]);
+  assert.deepEqual(body.activeTransactions, []);
+  assert.equal(body.nextPollMs, STATE_POLL_MS.IDLE);
+  assert.deepEqual(calls.closedAt, [NOW]);
+});
+
+test('recentlyClosed is an empty array when nothing closed recently or the repository predates it', async t => {
+  const empty = await makeApp();
+  const legacy = await makeApp({ closedRepository: false });
+  t.after(() => Promise.all([empty.app.close(), legacy.app.close()]));
+  assert.deepEqual((await empty.app.inject({ method: 'GET', url: '/v1/state' })).json().recentlyClosed, []);
+  assert.deepEqual((await legacy.app.inject({ method: 'GET', url: '/v1/state' })).json().recentlyClosed, []);
+});
+
+test('a transaction closing changes the state version', async t => {
+  const tx = { id: 'tx-1', state: 'WAITING_FOR_REVIVE', participantRole: 'requester', closedAt: null };
+  const open = await makeApp({ openTransactionIds: ['tx-1'], transactions: { 'tx-1': tx } });
+  const closed = await makeApp({ closedTransactionIds: ['tx-1'], transactions: { 'tx-1': { ...tx, state: 'COMPLETED', closedAt: '2026-11-25T11:59:58.000Z' } } });
+  t.after(() => Promise.all([open.app.close(), closed.app.close()]));
+  const va = (await open.app.inject({ method: 'GET', url: '/v1/state' })).json().stateVersion;
+  const vb = (await closed.app.inject({ method: 'GET', url: '/v1/state' })).json().stateVersion;
+  assert.notEqual(va, vb);
+});
+
+test('serverTime reports the server clock and is not part of the state version', async t => {
+  let current = NOW;
+  const { app } = await makeApp({ clock: () => current });
+  t.after(() => app.close());
+  const first = await app.inject({ method: 'GET', url: '/v1/state' });
+  assert.equal(first.json().serverTime, NOW.toISOString());
+  current = new Date(NOW.getTime() + 7000);
+  const second = await app.inject({ method: 'GET', url: '/v1/state' });
+  assert.equal(second.json().serverTime, current.toISOString());
+  assert.equal(second.json().stateVersion, first.json().stateVersion);
+  const third = await app.inject({ method: 'GET', url: '/v1/state', headers: { 'if-none-match': first.headers.etag } });
+  assert.equal(third.statusCode, 304);
 });

@@ -16,7 +16,7 @@ const requiredDocs=[
 
 test('Torn review package contains all 19 approved evidence classes',()=>{
   const artifact=`dist/review/ReviveRelay-${pkg.version}.user.js`;
-  assert.equal(pkg.version,'0.7.3');
+  assert.equal(pkg.version,'1.0.0');
   assert.ok(exists(artifact),'1 review artifact');
   for(const module of require('../scripts/client-modules').DIRECT_SUPPORT_MODULES) assert.ok(exists(module),`2 modular source ${module}`);
   for(const doc of requiredDocs) assert.ok(exists(doc),doc);
@@ -72,4 +72,34 @@ test('0.6.1 review evidence documents runtime isolation, lifetime OWNER and perm
   }
   assert.match(all,/one[- ]time per canonical Torn identity/i);
   assert.match(all,/stable[^\n]{0,80}0\.4\.4[^\n]{0,80}(?:unchanged|remains)|public production[^\n]{0,80}0\.4\.4/i);
+});
+
+test('the pinned build manifest pins the current package version',()=>{
+  const manifest=JSON.parse(read('docs/review/BUILD-MANIFEST.json'));
+  assert.equal(manifest.version,pkg.version,'re-pin docs/review/BUILD-MANIFEST.json after every version bump');
+  assert.equal(manifest.artifact,`dist/review/ReviveRelay-${pkg.version}.user.js`);
+});
+
+test('README, PRIVACY and the rev006 workflows describe the current release, not 0.7.3',()=>{
+  const current=new RegExp(`\\b${pkg.version.replace(/\./g,'\\.')}\\b`);
+  for(const file of ['README.md','PRIVACY.md']){
+    const text=read(file);
+    assert.match(text,current,file);
+    for(const line of text.split('\n').filter(line=>line.includes('0.7.3')))assert.match(line,/rollback/i,`${file} still calls 0.7.3 current: ${line}`);
+  }
+  for(const file of ['.github/workflows/rev006-pinned-gate.yml','.github/workflows/rev006-source-gate.yml']){
+    const text=read(file);
+    assert.doesNotMatch(text,/ReviveRelay-\d\.\d\.\d\.user\.js|\b0\.7\.3\b/,`${file} hard-codes a release`);
+    assert.match(text,/require\('\.\/package\.json'\)\.version/,`${file} derives the artifact from package.json`);
+  }
+});
+
+test('the 1.0.0 known limitations list what the final fixes left, and nothing they fixed',()=>{
+  const entry=read('CHANGELOG.md').split('\n## ')[1];
+  assert.match(entry,/^1\.0\.0 /);
+  const limitations=entry.split('### Known limitations')[1].split('\n### ')[0];
+  assert.match(limitations,/"Revived".*per tab/i,'I3: first sight is per tab and in memory');
+  assert.match(limitations,/reviver.*"Needs attention".*Queue/i,'I4: a reviver\'s reportable ranks below the queue');
+  assert.match(limitations,/operator/i,'I4: no in-app reporting');
+  assert.doesNotMatch(limitations,/does not re-mount/i,'I5 fixed the pill re-mount');
 });

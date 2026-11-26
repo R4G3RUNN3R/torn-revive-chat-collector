@@ -109,9 +109,12 @@ async function registerStateRoute(app, {
     const now = clock();
     const isReviver = Array.isArray(user.roles) && user.roles.includes('reviver');
 
-    const [activeRequest, openTransactionIds, status, online, verificationStatus] = await Promise.all([
+    const [activeRequest, openTransactionIds, closedTransactionIds, status, online, verificationStatus] = await Promise.all([
       requestRepository.getActiveRequest(user.userId),
       transactionRepository.listOpenTransactionIdsForUser(user.userId),
+      typeof transactionRepository.listRecentlyClosedTransactionIdsForUser === 'function'
+        ? transactionRepository.listRecentlyClosedTransactionIdsForUser(user.userId, { now })
+        : [],
       entitlementRepository && typeof entitlementRepository.getStatus === 'function'
         ? entitlementRepository.getStatus(user.userId, now)
         : { state: 'NONE', trialEligible: true, trialStartedAt: null, validUntil: null },
@@ -126,6 +129,10 @@ async function registerStateRoute(app, {
       transactionRepository.getTransactionForUser({ transactionId, userId: user.userId })
     ));
     const activeTransactions = openTransactions.filter(Boolean).sort(compareByNearestDeadline);
+    // Newest closure first, as the repository returns them.
+    const recentlyClosed = (await Promise.all((closedTransactionIds || []).map(transactionId =>
+      transactionRepository.getTransactionForUser({ transactionId, userId: user.userId })
+    ))).filter(Boolean);
 
     const pro = resolvePublicProStatus({ status, tornId: user.tornId, subscription });
     const hasQueueAccess = isReviver && (!requireEntitlement || hasActivePro(pro));
@@ -136,6 +143,7 @@ async function registerStateRoute(app, {
       pro,
       activeRequest: publicActiveRequest(activeRequest),
       activeTransactions,
+      recentlyClosed,
       revivers: { online: typeof online === 'number' ? online : null },
       queue: hasQueueAccess ? { count: queueCount } : null
     };
@@ -152,7 +160,9 @@ async function registerStateRoute(app, {
     if (ifNoneMatchMatches(request.headers['if-none-match'], etag)) {
       return reply.code(304).send();
     }
-    return reply.code(200).send({ stateVersion, nextPollMs, ...serialized });
+    // serverTime lets the client correct its clock for countdowns and the 5 s "Revived" fade.
+    // It is deliberately outside stateVersion, so an unchanged state still answers 304.
+    return reply.code(200).send({ stateVersion, nextPollMs, serverTime: now.toISOString(), ...serialized });
   });
 }
 

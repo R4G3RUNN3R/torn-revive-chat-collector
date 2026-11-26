@@ -94,7 +94,8 @@ test('manual revoke exposes REVOKED Pro state and records previous/new state',as
   await withDisposableDatabase('admin_revoke',async pool=>{
     const userId=await insertUser(pool,125,'Revoke Target');
     const repo=createProEntitlementRepository(pool);
-    await repo.grantManual({userId,months:1,reason:'initial manual entitlement',operatorTornId:3877028,now:new Date('2026-09-01T12:00:00Z')});
+    // The route revokes at the real current time, so the grant must still be active then.
+    await repo.grantManual({userId,months:1,reason:'initial manual entitlement',operatorTornId:3877028,now:new Date(Date.now()-24*60*60*1000)});
     const app=makeApp(pool);
     try {
       const response=await app.inject({method:'POST',url:'/v1/admin/pro/revoke',headers:ADMIN,payload:{tornId:125,reason:'verified revocation'}});
@@ -139,16 +140,17 @@ test('full refund preserves paid invoice/evidence, records one immutable adjustm
     const userId=await insertUser(pool,tornId,'Refund Target');
     const invoices=createProInvoiceRepository(pool);
     const entitlements=createProEntitlementRepository(pool);
-    const createdAt=new Date('2026-09-07T09:00:00Z');
+    // The route refunds at the real current time, so the paid month must still be running then.
+    const createdAt=new Date(Date.now()-60*60*1000);
     const invoice=await invoices.createInvoice({userId,tornId,planId:'monthly',currency:'cash',now:createdAt});
-    const paidAt=new Date('2026-09-07T09:02:00Z');
+    const paidAt=new Date(createdAt.getTime()+2*60*1000);
     const paid=await invoices.markPaidWithEvidence({
       invoiceId:invoice.id,
       tornLogId:'refund-paid-log-1',
       senderTornId:tornId,
       currency:'cash',
       amount:10000000,
-      evidenceAt:new Date('2026-09-07T09:01:00Z'),
+      evidenceAt:new Date(createdAt.getTime()+60*1000),
       paidAt
     });
     assert.equal(paid.paid,true);

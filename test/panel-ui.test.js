@@ -62,31 +62,25 @@ test('panel remains responsive on narrow viewports and has no destructive close 
 });
 
 
-test('minimize state remains independent, persists across reloads, and hides the entire floating panel', () => {
-  assert.match(source, /state\.minimized = Boolean\(storage\.get\(KEYS\.minimized, false\)\)/);
-  assert.match(source, /storage\.set\(KEYS\.minimized, state\.minimized\)/);
-  assert.match(source, /panel\.style\.display = state\.minimized/);
+test('the panel starts closed on every page, opens from the pill and hides the entire floating panel', () => {
+  assert.match(source, /minimized: true,/);
+  assert.match(source, /state\.minimized = !open;/);
+  assert.match(source, /panel\.style\.display = open \? '' : 'none'/);
+  assert.match(source, /onActivate: handlePillActivate/);
+  assert.doesNotMatch(source, /KEYS\.minimized/);
   assert.doesNotMatch(source, /body\.style\.display = state\.minimized/);
 });
 
-test('TornPDA/mobile recovery launcher is independent of minimized state and one-time runtime detection', () => {
+test('the 0.7.3 recovery launcher is gone: the pill and its launcher fallback are the only entry point', () => {
   assert.match(source, /function isTornPdaNow\(\)/);
   assert.match(source, /Platform\.detectRuntime\(globalThis\)/);
-  assert.match(source, /function isRecoveryLauncherContext\(\)/);
-  assert.match(source, /pointer: coarse/);
-  assert.match(source, /viewportWidth <= 900/);
-  assert.match(source, /id = 'rr-pda-launcher'/);
-  assert.match(source, /document\.body\.appendChild\(pdaLauncher\)/);
-  assert.match(source, /options\.forceVisible \|\| state\.minimized \|\| isRecoveryLauncherContext\(\)/);
-  assert.doesNotMatch(source, /function syncPdaLauncher\([^)]*\) \{\s*if \(!platform\.runtime\.isTornPda/);
-  assert.match(source, /z-index:2147483646!important/);
-  assert.match(source, /env\(safe-area-inset-right,0px\)/);
-  assert.match(source, /env\(safe-area-inset-bottom,0px\)/);
+  assert.doesNotMatch(source, /rr-pda-launcher|function syncPdaLauncher|function isRecoveryLauncherContext/);
+  assert.doesNotMatch(source, /setInterval\(/);
 });
 
 test('request and reviver tabs expose direct certified cards without restoring the old request form', () => {
   assert.doesNotMatch(source, /id=["']rr-request-form["']/);
-  assert.match(source, /ReviveRelay → Revive Me!/);
+  assert.match(source, /id=["']rr-request-revive["']/);
   assert.match(source, /id=["']rr-request-card["']/);
   assert.match(source, /id=["']rr-reviver-transaction["']/);
   assert.match(source, /CERTIFIED REQUEST/);

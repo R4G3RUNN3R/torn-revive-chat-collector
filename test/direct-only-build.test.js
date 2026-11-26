@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { DIRECT_SUPPORT_MODULES } = require('../scripts/client-modules');
+const { DIRECT_SUPPORT_MODULES, LITE_ENGINE_MODULES, LEGACY_PANEL_MODULES } = require('../scripts/client-modules');
 
 const REQUIRED = [
   'src/platform.js',
@@ -12,7 +12,16 @@ const REQUIRED = [
   'src/update-manager.js',
   'src/telemetry-client.js',
   'src/request-preset.js',
-  'src/sidebar-action.js'
+  'src/lite/pill-state.js',
+  'src/lite/scheduler.js',
+  'src/lite/snapshot-cache.js',
+  'src/lite/tab-leader.js',
+  'src/lite/state-client.js',
+  'src/lite/icons.js',
+  'src/lite/tokens.js',
+  'src/lite/pill-view.js',
+  'src/lite/engine.js',
+  'src/lite/boot.js'
 ];
 
 const FORBIDDEN = [
@@ -21,7 +30,8 @@ const FORBIDDEN = [
   'src/public-channels.js',
   'src/client-chat-policy.js',
   'src/revive-classifier.js',
-  'src/candidate-pipeline.js'
+  'src/candidate-pipeline.js',
+  'src/sidebar-action.js'
 ];
 
 function bundledMarker(relativePath) {
@@ -31,18 +41,29 @@ function bundledMarker(relativePath) {
 test('canonical direct module inventory is exact and immutable', () => {
   assert.deepEqual([...DIRECT_SUPPORT_MODULES], REQUIRED);
   assert.equal(Object.isFrozen(DIRECT_SUPPORT_MODULES), true);
+  assert.deepEqual([...LITE_ENGINE_MODULES], REQUIRED.filter(modulePath => modulePath.startsWith('src/lite/')));
+  assert.deepEqual([...LEGACY_PANEL_MODULES], ['src/core.js', 'src/update-manager.js', 'src/telemetry-client.js', 'src/request-preset.js']);
+  for (const modulePath of LEGACY_PANEL_MODULES) assert.ok(DIRECT_SUPPORT_MODULES.includes(modulePath), modulePath);
 });
 
-test('main bootstrap consumes the exact core global exported by src/core.js', () => {
+test('the Lite state client loads after the direct API client and versioning it depends on', () => {
+  const index = modulePath => DIRECT_SUPPORT_MODULES.indexOf(modulePath);
+  assert.ok(index('src/direct-api-client.js') < index('src/lite/state-client.js'));
+  assert.ok(index('src/versioning.js') < index('src/lite/state-client.js'));
+  assert.ok(index('src/lite/engine.js') < index('src/lite/boot.js'));
+});
+
+test('main bootstrap consumes the exact core and Lite boot globals', () => {
   const coreSource = fs.readFileSync(path.resolve(__dirname, '..', 'src', 'core.js'), 'utf8');
   const mainSource = fs.readFileSync(path.resolve(__dirname, '..', 'torn-revive-chat-collector.user.js'), 'utf8');
 
   assert.match(coreSource, /root\.TornReviveCore\s*=\s*api/);
   assert.match(mainSource, /const Core = globalThis\.TornReviveCore;/);
-  assert.doesNotMatch(mainSource, /TornReviveChatCollectorCore/);
+  assert.match(mainSource, /const LiteBoot = globalThis\.ReviveRelayLiteBoot;/);
+  assert.doesNotMatch(mainSource, /TornReviveChatCollectorCore|ReviveRelaySidebarAction/);
 });
 
-test('current review bundle contains direct support exactly once and zero legacy chat/candidate modules', () => {
+test('current review bundle contains direct support exactly once and zero legacy chat/candidate/sidebar modules', () => {
   const version = require('../package.json').version;
   const filename = `review/ReviveRelay-${version}.user.js`;
   const built = fs.readFileSync(path.resolve(__dirname, '..', 'dist', filename), 'utf8');
@@ -54,12 +75,14 @@ test('current review bundle contains direct support exactly once and zero legacy
   }
   assert.doesNotMatch(built, /\/v1\/candidates|Shared public chat requests|Live Capture|Rescan public chats/);
   assert.doesNotMatch(built, /ReviveRelayApiClient|ReviveRelayProClient|createProClient|submitCandidate|drainCandidateOutbox|createOutboxEntry/);
+  assert.doesNotMatch(built, /createSidebarController|ReviveRelay → Revive Me!/);
   assert.match(built, /ReviveRelayDirectApiClient/);
-  assert.match(built, /ReviveRelay → Revive Me!/);
+  assert.match(built, /ReviveRelayLiteBoot/);
+  assert.match(built, /Request certified revive/);
   assert.match(built, /const UPDATE_CHANNEL = 'review'/);
 });
 
-
-test('current direct-only review implementation is versioned as 0.7.3', () => {
-  assert.equal(require('../package.json').version, '0.7.3');
+test('ReviveRelay 1.0 is versioned 1.0.0', () => {
+  assert.equal(require('../package.json').version, '1.0.0');
 });
+

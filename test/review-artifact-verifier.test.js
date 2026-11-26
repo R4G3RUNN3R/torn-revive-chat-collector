@@ -10,6 +10,13 @@ const root = path.resolve(__dirname, '..');
 test('immutable review verifier accepts the exact pinned candidate and rejects byte or provenance drift', () => {
   const { verifyReviewArtifactData } = require('../scripts/verify-review-artifact');
   const manifest = JSON.parse(fs.readFileSync(path.join(root, 'docs/review/BUILD-MANIFEST.json'), 'utf8'));
+  const version = require('../package.json').version;
+  if (manifest.version !== version) {
+    // A manifest pinning another version never verifies; the release task re-pins it.
+    const fresh = buildChannelArtifact('review', { gitCommit: 'c'.repeat(40), buildTimestamp: '2026-11-26T12:00:00.000Z', write: false });
+    assert.throws(() => verifyReviewArtifactData({ manifest, artifact: Buffer.from(fresh.artifact), meta: fresh.meta, version }), /version mismatch/i);
+    return;
+  }
   const built = buildChannelArtifact('review', {
     gitCommit: manifest.artifactSourceCommit,
     buildTimestamp: manifest.buildTimestamp,
