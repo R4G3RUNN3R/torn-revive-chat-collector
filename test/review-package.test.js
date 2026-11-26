@@ -79,3 +79,17 @@ test('the pinned build manifest pins the current package version',()=>{
   assert.equal(manifest.version,pkg.version,'re-pin docs/review/BUILD-MANIFEST.json after every version bump');
   assert.equal(manifest.artifact,`dist/review/ReviveRelay-${pkg.version}.user.js`);
 });
+
+test('README, PRIVACY and the rev006 workflows describe the current release, not 0.7.3',()=>{
+  const current=new RegExp(`\\b${pkg.version.replace(/\./g,'\\.')}\\b`);
+  for(const file of ['README.md','PRIVACY.md']){
+    const text=read(file);
+    assert.match(text,current,file);
+    for(const line of text.split('\n').filter(line=>line.includes('0.7.3')))assert.match(line,/rollback/i,`${file} still calls 0.7.3 current: ${line}`);
+  }
+  for(const file of ['.github/workflows/rev006-pinned-gate.yml','.github/workflows/rev006-source-gate.yml']){
+    const text=read(file);
+    assert.doesNotMatch(text,/ReviveRelay-\d\.\d\.\d\.user\.js|\b0\.7\.3\b/,`${file} hard-codes a release`);
+    assert.match(text,/require\('\.\/package\.json'\)\.version/,`${file} derives the artifact from package.json`);
+  }
+});

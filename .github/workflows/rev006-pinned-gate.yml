@@ -1,4 +1,4 @@
-name: ReviveRelay 0.7.3 pinned release gate
+name: ReviveRelay pinned review release gate
 
 on:
   push:
@@ -44,7 +44,7 @@ jobs:
       - name: Install server dependencies
         run: npm --prefix server install --ignore-scripts --no-audit --no-fund
 
-      - name: Build pinned 0.7.3 artifact
+      - name: Build pinned review artifact
         run: npm run build
 
       - name: Verify complete review gate
@@ -52,8 +52,9 @@ jobs:
 
       - name: Confirm pinned identity
         run: |
-          sha256sum dist/review/ReviveRelay-0.7.3.user.js
-          wc -c dist/review/ReviveRelay-0.7.3.user.js
-          grep -m1 '^// @version' dist/review/ReviveRelay-0.7.3.user.js
-          grep -m1 '^// ReviveRelay-Build-Commit:' dist/review/ReviveRelay-0.7.3.user.js
-          grep -m1 '^// ReviveRelay-Build-Timestamp:' dist/review/ReviveRelay-0.7.3.user.js
+          ARTIFACT="dist/review/ReviveRelay-$(node -p "require('./package.json').version").user.js"
+          sha256sum "$ARTIFACT"
+          wc -c "$ARTIFACT"
+          grep -m1 '^// @version' "$ARTIFACT"
+          grep -m1 '^// ReviveRelay-Build-Commit:' "$ARTIFACT"
+          grep -m1 '^// ReviveRelay-Build-Timestamp:' "$ARTIFACT"

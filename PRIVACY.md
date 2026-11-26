@@ -1,6 +1,6 @@
 # ReviveRelay Privacy
 
-This document describes the implemented ReviveRelay 0.7.3 review candidate. Public Stable remains 0.4.4; Beta/Review distribution is tracked separately.
+This document describes the implemented ReviveRelay 1.0.0 review candidate. Public Stable remains 0.4.4; Beta/Review distribution is tracked separately.
 
 ## Data Storage
 
@@ -39,7 +39,7 @@ Stored information is used to:
 - operate the 7-day Reviver Pro trial and prepaid subscription entitlement;
 - protect the service from abuse and retain a bounded audit trail.
 
-ReviveRelay 0.7.3 does **not scrape public chat** and performs no public chat collection.
+ReviveRelay 1.0.0 does **not scrape public chat** and performs no public chat collection.
 
 ## Diagnostics
 
@@ -71,4 +71,4 @@ Where the review/live subscription mode is enabled, subscription payment is made
 
 ## Contact / review status
 
-ReviveRelay 0.7.3 is a review candidate. Paid public launch is awaiting Torn approval and explicit owner promotion. The review package intentionally does not claim that manual browser acceptance or Torn approval has already occurred.
+ReviveRelay 1.0.0 is a review candidate. Paid public launch is awaiting Torn approval and explicit owner promotion. The review package intentionally does not claim that manual browser acceptance or Torn approval has already occurred.
