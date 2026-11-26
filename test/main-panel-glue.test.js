@@ -527,10 +527,107 @@ test('a failed init mounts a "tap to retry" pill; taps and every visible return 
   pill.options.onActivate();
   await harness.clock.flush();
   assert.equal(attempts, 5);
-  assert.equal(harness.boots.length, 1, 'the Lite pill replaces the retry pill');
+  assert.equal(harness.boots.length, 1);
+  assert.equal(pill.destroyed, true, 'the Lite pill replaces the retry pill');
   assert.equal(harness.document.count('visibilitychange'), 0);
   assert.equal(harness.window.count('pageshow'), 0);
   pill.options.onActivate();
   await harness.clock.flush();
   assert.equal(attempts, 5, 'a stale tap after the start does nothing');
+});
+
+// ---- Plan 3b: notification settings, update notice, invoice expiry, carry-over fixes ----
+
+const plain = value => JSON.parse(JSON.stringify(value));
+const changeEvent = target => ({ type: 'change', target: { dataset: {}, ...target } });
+
+test('boot seeds the Lite notification settings once from the 0.7 desktop toggle, so the notifier honours it', async () => {
+  const off = await bootMain({ store: { reviverelay_desktop_notifications_enabled: false } });
+  assert.deepEqual(plain(off.store.reviverelay_notification_settings_v1), { enabled: false });
+  const on = await bootMain();
+  assert.deepEqual(plain(on.store.reviverelay_notification_settings_v1), { enabled: true });
+  const kept = await bootMain({ store: { reviverelay_desktop_notifications_enabled: false, reviverelay_notification_settings_v1: { enabled: true, sound: false } } });
+  assert.deepEqual(plain(kept.store.reviverelay_notification_settings_v1), { enabled: true, sound: false }, 'never overwrites saved settings');
+});
+
+test('Settings saves the Lite notification, per-type and badge settings', async () => {
+  const harness = await bootMain({ store: { reviverelay_desktop_notifications_enabled: false } });
+  harness.view = { sheet: 'request' };
+  await openPanel(harness);
+  const onChange = harness.main.panel.listeners.get('change');
+  onChange(changeEvent({ type: 'checkbox', checked: false, dataset: { rrNotify: 'sound' } }));
+  assert.deepEqual(plain(harness.store.reviverelay_notification_settings_v1), { enabled: false, sound: false });
+  onChange(changeEvent({ type: 'checkbox', checked: true, dataset: { rrNotify: 'enabled' } }));
+  onChange(changeEvent({ type: 'checkbox', checked: true, dataset: { rrNotify: 'type:newRequest' } }));
+  onChange(changeEvent({ type: 'checkbox', checked: false, dataset: { rrNotify: 'type:accepted' } }));
+  onChange(changeEvent({ type: 'select-one', value: '22', dataset: { rrNotify: 'quietFrom' } }));
+  onChange(changeEvent({ type: 'select-one', value: '', dataset: { rrNotify: 'quietTo' } }));
+  assert.deepEqual(plain(harness.store.reviverelay_notification_settings_v1), { enabled: true, sound: false, types: { newRequest: true, accepted: false }, quietFrom: 22, quietTo: null });
+  onChange(changeEvent({ type: 'checkbox', checked: false, dataset: { rrBadges: '' } }));
+  assert.equal(harness.store.reviverelay_badges_enabled, false);
+});
+test('a background update check announces a new version once, from the leader tab only', async () => {
+  for (const leader of [true, false]) {
+    const harness = loadMain({ store: { ...SIGNED_IN } });
+    harness.leader = leader;
+    harness.context.ReviveRelayUpdateManager = { createUpdateManager: () => ({ check: async () => ({ updateAvailable: true, latestVersion: '1.0.2' }), openUpdate: () => false }) };
+    harness.run();
+    await harness.clock.flush();
+    assert.deepEqual(harness.boot.notifier.notes.map(([id]) => id), leader ? ['update:1.0.2'] : [], `leader=${leader}`);
+    if (leader) assert.match(harness.boot.notifier.notes[0][1], /1\.0\.2 is available/);
+  }
+});
+
+test('account deletion clears the Lite notification and badge storage', async () => {
+  const harness = await bootMain({ store: { ...SIGNED_IN, reviverelay_notified_events_v1: { ids: ['tx1:COMPLETED'] }, reviverelay_badge_cache_v1: [['42', {}]] } });
+  harness.view = { sheet: 'request' };
+  await openPanel(harness);
+  await harness.main.deleteReviveRelayAccount();
+  await harness.clock.flush();
+  assert.equal(harness.count('POST /v1/account/delete'), 1);
+  assert.equal(harness.store.reviverelay_notified_events_v1, null);
+  assert.equal(harness.store.reviverelay_badge_cache_v1, null);
+  assert.equal(harness.store.reviverelay_notification_settings_v1, null);
+});
+
+test('an open panel re-checks a PENDING invoice once when its expiry passes', async () => {
+  const harness = await bootMain();
+  harness.view = { sheet: 'reviver-pro' };
+  await openPanel(harness);
+  harness.main.state.currentInvoice = { id: 'inv-1', state: 'PENDING', expiresAt: new Date(harness.clock.now() - 1000).toISOString() };
+  harness.main.handlePillRender({ snapshot: {} });
+  await harness.clock.flush();
+  harness.main.handlePillRender({ snapshot: {} });
+  await harness.clock.flush();
+  assert.equal(harness.count('GET /v1/pro/invoices/inv-1'), 1);
+});
+
+test('M2: a closed reviver transaction the pill no longer shows is dropped, not refetched', async () => {
+  const harness = await bootMain();
+  harness.view = { sheet: 'reviver-queue' };
+  await openPanel(harness);
+  harness.main.state.activeTransaction = { id: 'tx-7', participantRole: 'reviver', state: 'COMPLETED' };
+  harness.main.handlePillRender({ snapshot: { stateVersion: 'queue-changed' } });
+  await harness.clock.flush();
+  assert.equal(harness.count('GET /v1/transactions/tx-7'), 0);
+  assert.equal(harness.main.state.activeTransaction, null);
+});
+
+test('M4: reopening the pill on an idle state clears a stale "Needs attention" line', async () => {
+  const harness = await bootMain();
+  harness.view = { role: 'requester', state: 'REPORTABLE_NO_ATTEMPT', transactionId: 'tx-9', sheet: 'request-report' };
+  await openPanel(harness);
+  assert.match(statusLine(harness), /Needs attention/);
+  harness.main.handlePillActivate();
+  harness.view = { role: 'requester', state: null, transactionId: null, sheet: 'request' };
+  await openPanel(harness);
+  assert.doesNotMatch(statusLine(harness), /Needs attention/);
+});
+
+test('M5/M6: once the Lite boot runs, the retry path never mounts over it, and the engine pill replaces the retry pill', async () => {
+  const harness = await bootMain();
+  const before = harness.pills.length;
+  harness.main.retryInitWhenShown();
+  assert.equal(harness.pills.length, before, 'no retry pill over a live engine');
+  assert.equal(harness.document.count('visibilitychange'), 0);
 });

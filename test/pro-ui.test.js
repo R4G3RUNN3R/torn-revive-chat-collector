@@ -60,16 +60,12 @@ test('certified queue cards render star, certification chip, identity, offer, co
   assert.match(source,/data-rr-accept/);
 });
 
-test('Pro queue notifications are bounded, persisted, Pro-only and never auto-accept',()=>{
+test('queue notifications come from the Lite notifier: opt-in, count-only and never auto-accept',()=>{
   assert.match(source,/@grant\s+GM_notification/);
-  assert.match(source,/seenRequestIds:\s*'reviverelay_seen_request_ids'/);
-  assert.match(source,/MAX_SEEN_REQUEST_IDS\s*=\s*200/);
-  assert.match(source,/platform\.notify\(/);
-  assert.match(source,/notifyNewQueueRequests/);
-  assert.match(source,/activatePanelTab\(['"]reviver['"]/);
-  const notifyFn=source.match(/function notifyNewQueueRequests\([^)]*\)\s*\{([\s\S]*?)\n\s*\}/)?.[1]||'';
-  assert.ok(notifyFn.length>0);
-  assert.doesNotMatch(notifyFn,/acceptRequest|acceptMarketplaceRequest/);
+  assert.doesNotMatch(source,/notifyNewQueueRequests|MAX_SEEN_REQUEST_IDS/);
+  const notifier=fs.readFileSync(path.resolve(__dirname,'..','src','lite','notify.js'),'utf8');
+  assert.doesNotMatch(notifier,/accept\w*\(|requesterName|offerAmount/);
+  assert.match(notifier,/'newRequest'/);
 });
 
 

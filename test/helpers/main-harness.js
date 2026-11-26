@@ -18,7 +18,8 @@ const { createFakeTimers } = require('./fake-timers');
 const MAIN_PATH = path.resolve(__dirname, '..', '..', 'torn-revive-chat-collector.user.js');
 const EXPOSED = [
   'state', 'handlePillActivate', 'handlePillRender', 'setPanelOpen', 'panelTabForPill', 'refreshPanelData',
-  'refreshMe', 'requestRevive', 'cancelActiveRequest', 'runTransactionAction', 'activatePanelTab', 'renderAll'
+  'refreshMe', 'requestRevive', 'cancelActiveRequest', 'runTransactionAction', 'activatePanelTab', 'renderAll',
+  'retryInitWhenShown', 'deleteReviveRelayAccount'
 ];
 
 function mainSource() {
@@ -169,12 +170,16 @@ function loadMain({ store = {}, initialize = null, clock = createFakeTimers(), r
       const boot = {
         options,
         calls: [],
-        start() { boot.calls.push('start'); },
+        notifier: { notes: [], notifyOnce(id, text) { boot.notifier.notes.push([id, text]); return true; } },
+        start() {
+          boot.calls.push('start');
+          context.ReviveRelayLitePillView.mountPill({ lite: true });
+        },
         stop() { boot.calls.push('stop'); },
         resetSession() { boot.calls.push('resetSession'); },
         setPanelOpen(open) { boot.calls.push(`setPanelOpen:${open}`); },
         refresh() { boot.calls.push('refresh'); },
-        engine: { viewModel: () => harness.view }
+        engine: { viewModel: () => harness.view, isLeader: () => harness.leader !== false }
       };
       harness.boots.push(boot);
       if (harness.bootThrows) throw new Error('boot failed');
@@ -204,9 +209,12 @@ function loadMain({ store = {}, initialize = null, clock = createFakeTimers(), r
     ReviveRelayUpdateManager: { createUpdateManager: () => ({ check: async () => ({}), openUpdate: () => false }) },
     ReviveRelayRequestPreset: RequestPreset,
     ReviveRelayLiteBoot: liteBootModule,
-    // Records the pills MAIN mounts itself (the retry pill after a failed init).
+    // Records every pill mounted (MAIN's retry pill, the engine's pill on boot.start()); like the real
+    // pill-view module it is a singleton: mounting destroys the previous pill.
     ReviveRelayLitePillView: {
       mountPill(options) {
+        const previous = harness.pills[harness.pills.length - 1];
+        if (previous && !previous.destroyed) previous.destroy();
         const pill = { options, views: [], destroyed: false, host: { isConnected: true }, update(view) { pill.views.push(view); }, destroy() { pill.destroyed = true; pill.host.isConnected = false; } };
         harness.pills.push(pill);
         return pill;

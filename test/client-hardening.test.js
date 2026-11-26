@@ -59,38 +59,9 @@ test('important mutations use a shared in-flight guard and rendered buttons expo
   }
 });
 
-test('notification API is optional and absence cannot break queue processing',()=>{
-  const notify=functionSlice('notifyNewQueueRequests','refreshReviverQueue');
-  assert.ok(notify.length>0);
-  assert.match(notify,/typeof platform\.notify\s*===\s*'function'/);
-  assert.match(notify,/if \(!canNotify\) continue;/);
-});
-
-test('disabled desktop notifications still record a bounded seen-ID set without delivery',()=>{
-  const match=source.match(/function notifyNewQueueRequests\(requests\)\s*\{([\s\S]*?)\n  \}/);
-  assert.ok(match);
-  const stored=[];
-  const delivered=[];
-  const notify=new Function(
-    'hasReviverSubscriptionAccess','hasRole','hasCredentialCapability','hasConfirmedReviveAbility',
-    'readSeenRequestIds','writeSeenRequestIds','desktopNotificationsEnabled','formatOffer','GM_notification','GM_setValue','KEYS','MAX_SEEN_REQUEST_IDS','captureClientError','window',
-    `function notifyNewQueueRequests(requests) {${match[1]}\n} return notifyNewQueueRequests;`
-  )(
-    ()=>true,()=>true,()=>true,()=>true,
-    ()=>stored.slice(),ids=>{ stored.splice(0,stored.length,...ids); },()=>false,()=>'$1',()=>delivered.push('delivered'),
-    (_key,value)=>{ stored.splice(0,stored.length,...value); },{seenRequestIds:'seen'},200,()=>{},{}
-  );
-  notify([{id:'one'},{id:'two'}]);
-  assert.deepEqual(delivered,[]);
-  assert.deepEqual(stored,['one','two']);
-  notify([{id:'one'},{id:'two'},{id:'three'}]);
-  assert.deepEqual(delivered,[]);
-  assert.deepEqual(stored,['one','two','three']);
-});
-
 test('unavailable, unlicensed, and inapplicable Pro eligibility states make no repeated eligibility requests',async()=>{
   const withTimeoutSrc=functionSlice('withTimeout','runSingleFlightPoll');
-  const eligibility=functionSlice('refreshReviverEligibility','readSeenRequestIds');
+  const eligibility=functionSlice('refreshReviverEligibility','notificationSettings');
   assert.ok(eligibility.length>0);
   const state={
     sessionToken:'session',
@@ -193,27 +164,6 @@ test('queue transport failures and authoritative empty queues have distinct stat
   assert.doesNotMatch(source,/GM_setValue\([^\n]*(?:proStatus|reviverQueue|subscription)/);
 });
 
-test('denied, pending, and invalid reviver state cannot disclose request details by notification',()=>{
-  const match=source.match(/function notifyNewQueueRequests\(requests\)\s*\{([\s\S]*?)\n  \}/);
-  assert.ok(match);
-  const delivered=[];
-  for (const [access,confirmed] of [[false,true],[true,false]]) {
-    const notify=new Function(
-      'hasReviverSubscriptionAccess','hasRole','hasCredentialCapability','hasConfirmedReviveAbility',
-      'readSeenRequestIds','writeSeenRequestIds','desktopNotificationsEnabled','formatOffer','GM_notification','captureClientError','window','activatePanelTab',
-      `function notifyNewQueueRequests(requests) {${match[1]}\n} return notifyNewQueueRequests;`
-    )(
-      ()=>access,()=>true,()=>true,()=>confirmed,
-      ()=>[],()=>{},()=>true,()=>'$9,999',()=>delivered.push('request details'),()=>{}, {},()=>{}
-    );
-    notify([{id:'private-request',requesterName:'Private Player',requesterTornId:'123'}]);
-  }
-  assert.deepEqual(delivered,[],'denied, pending, and invalid state must not emit a request notification');
-  const access=functionSlice('hasReviverSubscriptionAccess','applyRuntimeContract');
-  assert.match(access,/state\.proStatus\?\.state === 'REVOKED'/);
-  assert.match(access,/state\.reviverEligibility\?\.status === 'DENIED'/);
-});
-
 function deferred() {
   let resolve;
   let reject;
@@ -268,7 +218,7 @@ test('real delayed queue responses lose to verification revocation and account d
 test('real delayed me and eligibility responses cannot overwrite newer denial authority',async()=>{
   const refreshMe=functionSlice('refreshMe','connectIdentity');
   const withTimeoutSrc=functionSlice('withTimeout','runSingleFlightPoll');
-  const eligibility=functionSlice('refreshReviverEligibility','readSeenRequestIds');
+  const eligibility=functionSlice('refreshReviverEligibility','notificationSettings');
   const applyRuntime=functionSlice('applyRuntimeContract','runtimeCompatibilityMessage');
   const pendingMe=deferred();
   const state={sessionToken:'session',runtimeCompatibility:'compatible',proStatus:{state:'REVOKED'},reviverEligibility:{status:'DENIED'},identity:{roles:['reviver']},verificationCredential:{usable:true,capabilities:{reviver:true}},api:{getMe:()=>pendingMe.promise}};
@@ -325,7 +275,7 @@ test('revive-ability status text has explicit terminal states for timeout and un
 
 test('a stuck revive-ability eligibility check times out to a retryable terminal state instead of hanging forever',{timeout:2000},async()=>{
   const withTimeoutSrc=functionSlice('withTimeout','runSingleFlightPoll');
-  const eligibility=functionSlice('refreshReviverEligibility','readSeenRequestIds');
+  const eligibility=functionSlice('refreshReviverEligibility','notificationSettings');
   assert.ok(withTimeoutSrc.length>0,'withTimeout helper must exist');
   const state={sessionToken:'session',runtimeCompatibility:'compatible',proStatus:{state:'ACTIVE'},reviverEligibility:null,verificationCredential:{usable:true,capabilities:{reviver:true}},api:{getReviverEligibility:()=>new Promise(()=>{})}};
   const h=runtimeHarness(state);
@@ -339,7 +289,7 @@ test('a stuck revive-ability eligibility check times out to a retryable terminal
 
 test('an eligibility response that arrives late after a timeout cannot overwrite the timed-out state',{timeout:2000},async()=>{
   const withTimeoutSrc=functionSlice('withTimeout','runSingleFlightPoll');
-  const eligibility=functionSlice('refreshReviverEligibility','readSeenRequestIds');
+  const eligibility=functionSlice('refreshReviverEligibility','notificationSettings');
   const pending=deferred();
   const state={sessionToken:'session',runtimeCompatibility:'compatible',proStatus:{state:'ACTIVE'},reviverEligibility:null,verificationCredential:{usable:true,capabilities:{reviver:true}},api:{getReviverEligibility:()=>pending.promise}};
   const h=runtimeHarness(state);

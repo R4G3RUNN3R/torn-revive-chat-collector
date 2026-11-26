@@ -30,9 +30,9 @@
   const REVIVER_ELIGIBILITY_TIMEOUT_MS = 12_000;
   // An open panel re-reads /me, Pro status (and plans) and Torn eligibility at most this often.
   const PANEL_SLOW_REFRESH_MS = 60_000;
-  const MAX_SEEN_REQUEST_IDS = 200;
   const REVIVERELAY_API_KEY_URL = 'https://www.torn.com/preferences.php#tab=api?step=addNewKey&title=ReviveRelay&user=basic,profile,revives,log,perks&logIds=14,15,16,17';
   const MASKED_VERIFICATION_KEY = '••••••••••••••••';
+  const TERMINAL_STATE = /^(COMPLETED|REFUNDED|CANCELLED_BY_REQUESTER|PAYMENT_EXPIRED|CLOSED_|REPORTABLE_)/;
 
   const KEYS = Object.freeze({
     sessionToken: 'reviverelay_session_token',
@@ -45,8 +45,23 @@
     updateState: 'reviverelay_update_state',
     desktopNotificationsEnabled: 'reviverelay_desktop_notifications_enabled',
     clientDiagnosticsEnabled: 'reviverelay_client_diagnostics_enabled',
-    telemetryOutbox: 'reviverelay_telemetry_outbox'
+    telemetryOutbox: 'reviverelay_telemetry_outbox',
+    notificationSettings: 'reviverelay_notification_settings_v1',
+    notifiedEvents: 'reviverelay_notified_events_v1',
+    badgeCache: 'reviverelay_badge_cache_v1',
+    badgesEnabled: 'reviverelay_badges_enabled'
   });
+  const NOTIFY_SETTINGS_KEY = KEYS.notificationSettings;
+  const BADGES_KEY = KEYS.badgesEnabled;
+  const NOTIFY_TYPES = Object.freeze([
+    ['accepted', 'Requester: a reviver accepted (time to pay)'],
+    ['paymentVerified', 'Requester: payment verified'],
+    ['revived', 'Requester: revived'],
+    ['failed', 'Requester: revive failed'],
+    ['refundResolved', 'Requester: refund verified'],
+    ['paymentReceived', 'Reviver: payment received (revive now)'],
+    ['refundOwed', 'Reviver: refund owed']
+  ]);
 
   const Platform = globalThis.ReviveRelayPlatform;
   const LEGACY_DEFAULTS = Object.freeze({
@@ -60,7 +75,11 @@
     [KEYS.updateState]: {},
     [KEYS.desktopNotificationsEnabled]: true,
     [KEYS.clientDiagnosticsEnabled]: false,
-    [KEYS.telemetryOutbox]: []
+    [KEYS.telemetryOutbox]: [],
+    [KEYS.notificationSettings]: null,
+    [KEYS.notifiedEvents]: null,
+    [KEYS.badgeCache]: null,
+    [KEYS.badgesEnabled]: true
   });
 
   const Core = globalThis.TornReviveCore;
@@ -139,6 +158,7 @@
   let initRetry = null;
   let retryPill = null;
   let updateResult = null;
+  let expiredInvoiceChecked = null;
   const pollFlights = new Map();
   const mutationFlights = new Set();
   const authoritativeStateRevisions = new Map();
@@ -559,48 +579,27 @@
     });
   }
 
-  function readSeenRequestIds() {
-    const stored = storage.get(KEYS.seenRequestIds, []);
-    return Array.isArray(stored) ? stored.map(String).slice(-MAX_SEEN_REQUEST_IDS) : [];
+  // Lite notification settings (src/lite/notify.js reads them). Seeded once at boot from the 0.7 desktop toggle.
+  function notificationSettings() {
+    const saved = storage.get(NOTIFY_SETTINGS_KEY, null);
+    return saved && typeof saved === 'object' ? saved : { enabled: storage.get(KEYS.desktopNotificationsEnabled, true) !== false };
   }
 
-  function writeSeenRequestIds(ids) {
-    const bounded = Array.from(new Set(ids.map(String))).slice(-MAX_SEEN_REQUEST_IDS);
-    storage.set(KEYS.seenRequestIds, bounded);
+  function migrateNotificationSettings() {
+    const saved = storage.get(NOTIFY_SETTINGS_KEY, null);
+    if (!saved || typeof saved !== 'object') storage.set(NOTIFY_SETTINGS_KEY, notificationSettings());
   }
 
-  function desktopNotificationsEnabled() {
-    return Boolean(storage.get(KEYS.desktopNotificationsEnabled, true));
+  function hourOptions(selected) {
+    const hours = [['', 'off'], ...Array.from({ length: 24 }, (_, hour) => [String(hour), `${String(hour).padStart(2, '0')}:00`])];
+    return hours.map(([value, label]) => `<option value="${value}"${String(selected ?? '') === value ? ' selected' : ''}>${label}</option>`).join('');
   }
 
-  function notifyNewQueueRequests(requests) {
-    if (!hasReviverSubscriptionAccess() || !hasRole('reviver') || !hasCredentialCapability('reviver') || !hasConfirmedReviveAbility()) return;
-    const seen = new Set(readSeenRequestIds());
-    const next = [...seen];
-    const canNotify = desktopNotificationsEnabled() && typeof platform.notify === 'function';
-    for (const request of Array.isArray(requests) ? requests : []) {
-      const id = String(request?.id || '');
-      if (!id || seen.has(id)) continue;
-      seen.add(id);
-      next.push(id);
-      const offer = formatOffer(request.paymentMethod, request.offerAmount);
-      const requester = `${request.requesterName || 'Player'} [${request.requesterTornId || '?'}]`;
-      if (!canNotify) continue;
-      try {
-        platform.notify({
-          title: 'ReviveRelay · Certified request',
-          text: `${requester} · ${offer}`,
-          timeout: 12_000,
-          onclick: () => {
-            try { window.focus(); } catch (_) {}
-            activatePanelTab('reviver');
-          }
-        });
-      } catch (_) {
-        // A notification failure never blocks the queue.
-      }
-    }
-    writeSeenRequestIds(next);
+  function saveNotificationSetting(name, value) {
+    const next = { ...notificationSettings() };
+    if (name.startsWith('type:')) next.types = { ...(next.types || {}), [name.slice(5)]: value };
+    else next[name] = value;
+    storage.set(NOTIFY_SETTINGS_KEY, next);
   }
 
   async function refreshReviverQueue() {
@@ -617,7 +616,6 @@
       const result = await state.api.getReviverQueue();
       applyAuthoritativeState('queue', revision, () => {
         state.reviverQueue = Array.isArray(result?.requests) ? result.requests : [];
-        notifyNewQueueRequests(state.reviverQueue);
       });
     });
   }
@@ -711,6 +709,9 @@
         storage.set(KEYS.updateState, {});
         storage.set(KEYS.clientDiagnosticsEnabled, false);
         storage.set(KEYS.telemetryOutbox, []);
+        storage.set(KEYS.notificationSettings, null);
+        storage.set(KEYS.notifiedEvents, null);
+        storage.set(KEYS.badgeCache, null);
         setStatus('ReviveRelay account data deletion completed. Minimal billing/security evidence may remain only where required for payment-reuse prevention, refunds, disputes, or audit history.');
         resetLiteSession();
         renderAll();
@@ -939,7 +940,11 @@
       const reviverSide = tab === 'reviver' || tab === 'activity';
       if (tab === 'request' || tab === 'activity') await refreshActiveRequest();
       if (reviverSide) await refreshReviverQueue();
-      if (reviverSide && state.activeTransaction?.participantRole === 'reviver') await refreshActiveTransaction();
+      const own = state.activeTransaction;
+      if (reviverSide && own?.participantRole === 'reviver') {
+        if (TERMINAL_STATE.test(String(own.state)) && String(own.id) !== String(liteBoot?.engine.viewModel()?.transactionId)) state.activeTransaction = null;
+        else await refreshActiveTransaction();
+      }
       // The pill's transaction (accepted before a navigation or in another tab) reaches the panel.
       const pillTransactionId = liteBoot ? liteBoot.engine.viewModel()?.transactionId : null;
       if (pillTransactionId && String(state.activeTransaction?.id) !== pillTransactionId) await refreshActiveTransaction(pillTransactionId);
@@ -983,6 +988,7 @@
     // There is no reporting UI or endpoint yet: say what went wrong and whom to tell.
     const problem = { REPORTABLE_NO_ATTEMPT: 'no revive attempt was made', REPORTABLE_MISSING_REFUND: 'the refund was not verified' }[view?.state];
     if (problem) setStatus(`Needs attention: ${problem}. Report it to the ReviveRelay operator.`, true);
+    else if (statusMessage.startsWith('Needs attention:')) setStatus('');
     panelStateVersion = latestPillStateVersion;
     refreshPanelData();
   }
@@ -996,6 +1002,11 @@
     panelProRolesKey = proRolesKey;
     // A hidden page keeps its old version, so it catches up once visible.
     if (!panel || state.minimized || pageHidden()) return;
+    const invoice = state.currentInvoice;
+    if (invoice?.state === 'PENDING' && invoice.id !== expiredInvoiceChecked && Date.parse(invoice.expiresAt) <= Date.now()) {
+      expiredInvoiceChecked = invoice.id;
+      refreshCurrentInvoice().then(renderLiveState, () => {});
+    }
     if (latestPillStateVersion && latestPillStateVersion !== panelStateVersion) {
       panelStateVersion = latestPillStateVersion;
       refreshPanelData();
@@ -1428,6 +1439,7 @@
     if (!target) return;
     const validation = RequestPreset.validatePreset(state.preset);
     const preset = validation.ok ? validation.preset : { paymentMethod: 'cash', offerAmount: 500000, comment: '' };
+    const notifications = notificationSettings();
     const requesterNeedsVerification = Boolean(state.activeRequest && !hasCredentialCapability('requester'));
     const reviverNeedsVerification = Boolean(hasRole('reviver') && hasReviverSubscriptionAccess() && !hasCredentialCapability('reviver'));
     const requestedSection = state.settingsSection;
@@ -1463,8 +1475,12 @@
     <details class="rr-settings-section">
       <summary>Notifications</summary>
       <div class="rr-settings-body">
-        <label><input id="rr-desktop-notifications-enabled" type="checkbox" ${desktopNotificationsEnabled() ? 'checked' : ''}> Desktop notifications for new certified requests</label>
-        <p class="rr-muted">Notifications are on by default while Reviver Pro is active and your reviver setup is complete. Turning them off does not affect the live queue or Accept controls.</p>
+        <label><input data-rr-notify="enabled" type="checkbox" ${notifications.enabled !== false ? 'checked' : ''}> Notifications (one visible Torn tab notifies, even with this panel closed)</label>
+        <label><input data-rr-notify="sound" type="checkbox" ${notifications.sound !== false ? 'checked' : ''}> Sound for accepted, revived, payment and refund events</label>
+        ${NOTIFY_TYPES.map(([type, label]) => `<label><input data-rr-notify="type:${type}" type="checkbox" ${notifications.types?.[type] !== false ? 'checked' : ''}> ${label}</label>`).join('')}
+        <label><input data-rr-notify="type:newRequest" type="checkbox" ${notifications.types?.newRequest === true ? 'checked' : ''}> Reviver: new queue requests (silent, at most one a minute)</label>
+        <label>Quiet hours <select data-rr-notify="quietFrom">${hourOptions(notifications.quietFrom)}</select> to <select data-rr-notify="quietTo">${hourOptions(notifications.quietTo)}</select></label>
+        <label><input data-rr-badges type="checkbox" ${storage.get(BADGES_KEY, true) !== false ? 'checked' : ''}> "RR verified" badges on Torn profiles</label>
         <p class="rr-muted">ReviveRelay never auto-accepts a request.</p>
       </div>
     </details>
@@ -1679,6 +1695,7 @@
         }
       } else {
         setStatus(`ReviveRelay ${updateResult.latestVersion} update available. Open Settings → Updates to install it.`);
+        if (liteBoot?.engine.isLeader()) liteBoot.notifier.notifyOnce(`update:${updateResult.latestVersion}`, `ReviveRelay ${updateResult.latestVersion} is available. Open the panel: Settings → Updates.`);
       }
     } else if (force && updateResult?.error) {
       setStatus('Update check failed. A previously detected update, if shown below, can still be retried manually.', true);
@@ -1799,9 +1816,12 @@
     });
 
     panel.addEventListener('change', event => {
-      if (event.target?.id === 'rr-desktop-notifications-enabled') {
-        storage.set(KEYS.desktopNotificationsEnabled, Boolean(event.target.checked));
+      const notifySetting = event.target?.dataset?.rrNotify;
+      if (notifySetting) {
+        const raw = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
+        saveNotificationSetting(notifySetting, typeof raw === 'boolean' ? raw : (raw === '' ? null : Number(raw)));
       }
+      if (event.target?.dataset?.rrBadges !== undefined) storage.set(BADGES_KEY, Boolean(event.target.checked));
       if (event.target?.id === 'rr-queue-payment-filter') {
         state.queuePaymentFilter = ['all', 'cash', 'xanax'].includes(event.target.value) ? event.target.value : 'all';
         renderReviverPanel();
@@ -1869,6 +1889,7 @@
 
   function hydratePersistentState() {
     hydrateSession();
+    migrateNotificationSettings();
     state.panelPosition = isTornPdaNow() ? null : (storage.get(KEYS.panelPosition, null) || null);
     state.panelTab = Core.normalizePanelTab(storage.get(KEYS.panelTab, 'request'));
   }
@@ -1887,6 +1908,7 @@
   // A failed init (e.g. TornPDA storage timeout) leaves a "tap to retry" pill (no storage needed) and
   // retries on a tap and whenever the page is shown again, until init starts. No timers.
   function retryInitWhenShown() {
+    if (liteBoot) return;
     try {
       if (!retryPill?.host.isConnected) retryPill = globalThis.ReviveRelayLitePillView.mountPill({ document, window, onActivate: start });
       retryPill.update({ label: 'ReviveRelay', detail: 'tap to retry', text: 'ReviveRelay · tap to retry', tone: 'attention', icon: 'alert' });
