@@ -19,7 +19,8 @@ const EXPECTED = [
   'src/lite/icons.js',
   'src/lite/tokens.js',
   'src/lite/pill-view.js',
-  'src/lite/engine.js'
+  'src/lite/engine.js',
+  'src/lite/boot.js'
 ];
 
 const GLOBALS = {
@@ -31,20 +32,21 @@ const GLOBALS = {
   'src/lite/icons.js': 'ReviveRelayLiteIcons',
   'src/lite/tokens.js': 'ReviveRelayLiteTokens',
   'src/lite/pill-view.js': 'ReviveRelayLitePillView',
-  'src/lite/engine.js': 'ReviveRelayLiteEngine'
+  'src/lite/engine.js': 'ReviveRelayLiteEngine',
+  'src/lite/boot.js': 'ReviveRelayLiteBoot'
 };
 
 const read = relativePath => fs.readFileSync(path.join(root, relativePath), 'utf8');
 
-test('lite engine inventory is exact, frozen and kept out of the pinned 0.7.3 bundle', () => {
+test('lite engine inventory is exact, frozen and bundled in load order at the end of the 1.0 bundle', () => {
   assert.deepEqual([...LITE_ENGINE_MODULES], EXPECTED);
   assert.equal(Object.isFrozen(LITE_ENGINE_MODULES), true);
-  for (const modulePath of LITE_ENGINE_MODULES) {
-    assert.equal(DIRECT_SUPPORT_MODULES.includes(modulePath), false, modulePath);
-  }
+  assert.deepEqual([...DIRECT_SUPPORT_MODULES].slice(-EXPECTED.length), EXPECTED);
   const version = require('../package.json').version;
   const built = fs.readFileSync(path.join(root, 'dist', 'review', `ReviveRelay-${version}.user.js`), 'utf8');
-  assert.doesNotMatch(built, /ReviveRelay bundled module: src\/lite\//);
+  const positions = EXPECTED.map(modulePath => built.indexOf(`/* ReviveRelay bundled module: ${modulePath} */`));
+  for (const position of positions) assert.ok(position > 0);
+  assert.deepEqual([...positions].sort((a, b) => a - b), positions);
   assert.equal(fs.existsSync(path.join(root, 'src', 'core')), false);
 });
 
