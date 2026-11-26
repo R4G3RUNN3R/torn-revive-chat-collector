@@ -30,7 +30,11 @@
     clock = {},
     tabId,
     headerSelectors,
-    onActivate = () => {}
+    onActivate = () => {},
+    // () => ({ signedIn, tornId }). Omitted: always signed in, identity unknown.
+    getSession = null,
+    // Called after every render with { view, snapshot, freshness } (e.g. to refresh an open panel).
+    onRender = null
   } = {}) {
     if (!api || typeof api.getState !== 'function') throw new Error('api.getState is required');
     if (!document || typeof document.addEventListener !== 'function') throw new Error('document is required');
@@ -63,6 +67,34 @@
     let jobsAddedAt = 0;
     // Set at boot when the cached snapshot is younger than the cadence: the first poll waits for it.
     let deferredPollAt = null;
+    // Set when the server rejected the session: no polling until resetSession() or a restart.
+    let authExpired = false;
+
+    function session() {
+      if (typeof getSession !== 'function') return { signedIn: true, tornId: null };
+      let value = null;
+      try { value = getSession(); } catch (_) { value = null; }
+      const tornId = value && Number.isSafeInteger(Number(value.tornId)) && Number(value.tornId) > 0 ? Number(value.tornId) : null;
+      return { signedIn: Boolean(value && value.signedIn), tornId };
+    }
+
+    // 'signed-out' or 'expired' while the session cannot poll; otherwise null.
+    function sessionGate() {
+      if (!session().signedIn) return 'signed-out';
+      return authExpired ? 'expired' : null;
+    }
+
+    // A snapshot belongs to the signed-in Torn user, or to nobody known yet.
+    function ownedBySession(snapshot) {
+      const expected = session().tornId;
+      if (expected === null || !snapshot || typeof snapshot !== 'object') return true;
+      const owner = snapshot.me && Number(snapshot.me.tornId);
+      return owner === expected;
+    }
+
+    function isAuthError(error) {
+      return Boolean(error && (error.code === 'AUTH_REQUIRED' || Number(error.status) === 401));
+    }
 
     function isHidden() {
       return document.visibilityState === 'hidden' || document.hidden === true;
@@ -76,6 +108,9 @@
       if (!view) return;
       lastView = PillState.derivePill(current.snapshot, current.freshness, now());
       view.update(lastView);
+      if (typeof onRender === 'function') {
+        try { onRender({ view: lastView, snapshot: current.snapshot, freshness: current.freshness }); } catch (_) { /* listener errors stay with the caller */ }
+      }
     }
 
     function needsTick() {
@@ -132,7 +167,7 @@
     }
 
     function pollDelay() {
-      if (!isLeader()) return null;
+      if (!isLeader() || sessionGate()) return null;
       if (resyncSoon && !isHidden()) return Scheduler.POLL_BOUNDS_MS.min;
       if (deferredPollAt !== null && !isHidden()) return deferredPollAt - jobsAddedAt;
       return cadenceMs(isHidden());
@@ -153,7 +188,7 @@
     }
 
     async function poll() {
-      if (!isLeader()) return;
+      if (!isLeader() || sessionGate()) return;
       deferredPollAt = null;
       const runEpoch = epoch;
       const requestedAt = now();
@@ -163,6 +198,14 @@
       } catch (error) {
         // A stale session or a tab that lost leadership neither renders "Offline" nor backs off.
         if (!stillCurrent(runEpoch)) return;
+        if (isAuthError(error)) {
+          // Expired or revoked session: show it as such, forget this user's cache, stop polling.
+          authExpired = true;
+          cache.clear();
+          if (typeof api.reset === 'function') api.reset();
+          apply(null, 'expired', null);
+          return;
+        }
         apply(current.snapshot, 'offline', null);
         throw error;
       }
@@ -183,6 +226,8 @@
       }
       const snapshot = result && result.snapshot;
       if (!snapshot) return;
+      const serverMs = Date.parse(snapshot.serverTime);
+      if (Number.isFinite(serverMs)) snapshot.clockSkewMs = serverMs - Math.round((requestedAt + now()) / 2);
       apply(snapshot, 'live', requestedAt);
     }
 
@@ -208,8 +253,16 @@
 
     function onBroadcast(payload) {
       if (!started || isLeader() || !payload || typeof payload !== 'object') return;
+      // Never paint another Torn user's state (a tab still holding an older session).
+      if (sessionGate() === 'signed-out' || !ownedBySession(payload.snapshot)) return;
       // Another tab is leading, so a later hand-off to this tab must poll promptly.
       deferredPollAt = null;
+      if (payload.freshness === 'expired') {
+        current = { snapshot: null, freshness: 'expired' };
+        render();
+        rescheduleLocal();
+        return;
+      }
       const freshness = PillState.FRESHNESS.includes(payload.freshness) ? payload.freshness : 'syncing';
       current = { snapshot: payload.snapshot || current.snapshot, freshness };
       if (freshness === 'live' && Number.isFinite(payload.fetchedAt)) lastFetchedAt = payload.fetchedAt;
@@ -238,8 +291,14 @@
       epoch += 1;
       lastFetchedAt = null;
       resyncSoon = false;
-      const cached = cache.read();
-      current = { snapshot: cached ? cached.snapshot : null, freshness: 'syncing' };
+      authExpired = false;
+      const gate = sessionGate();
+      let cached = gate ? null : cache.read();
+      if (cached && !ownedBySession(cached.snapshot)) {
+        cache.clear();
+        cached = null;
+      }
+      current = gate ? { snapshot: null, freshness: gate } : { snapshot: cached ? cached.snapshot : null, freshness: 'syncing' };
       // Torn navigation is mostly full page loads: a cache younger than the cadence (the last
       // successful poll in this profile) defers the first poll to fetchedAt + cadence, never
       // sooner than the scheduler's minimum.
@@ -308,11 +367,32 @@
       if (scheduler && isLeader()) scheduler.trigger('poll');
     }
 
+    // Torn re-renders its header on SPA navigation: re-attach the pill and re-read the theme.
+    function relayout() {
+      if (!view) return;
+      view.place();
+      view.refreshTheme();
+    }
+
+    // Sign-in, sign-out or a different Torn user: forget everything tied to the old session.
+    function resetSession() {
+      const wasStarted = started;
+      stop();
+      authExpired = false;
+      current = { snapshot: null, freshness: 'syncing' };
+      lastFetchedAt = null;
+      cache.clear();
+      if (typeof api.reset === 'function') api.reset();
+      if (wasStarted) start();
+    }
+
     return Object.freeze({
       start,
       stop,
       setSheetOpen,
       refresh,
+      relayout,
+      resetSession,
       isStarted: () => started,
       isLeader,
       viewModel: () => lastView
