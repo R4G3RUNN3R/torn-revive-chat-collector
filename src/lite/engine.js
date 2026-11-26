@@ -280,11 +280,18 @@
       scheduler.reschedule('freshness');
     }
 
-    function pollDelay() {
+    function pollDelay(ctx) {
       if (!isLeader()) return null;
       if ((resyncSoon || refreshSoon) && !isHidden()) return Scheduler.POLL_BOUNDS_MS.min;
-      if (deferredPollAt !== null && !isHidden()) return deferredPollAt - jobsAddedAt;
+      if (deferredPollAt !== null && !isHidden()) return deferredPollAt - (ctx.lastRunAt === null ? jobsAddedAt : ctx.lastRunAt);
       return cadenceMs(isHidden());
+    }
+
+    // Data younger than the cadence defers a poll to fetchedAt + cadence, at least the minimum away.
+    function youngDataPollAt(fetchedAt) {
+      const cadence = cadenceMs(false);
+      const age = now() - fetchedAt;
+      return fetchedAt !== null && cadence !== null && age >= 0 && age < cadence ? Math.max(fetchedAt + cadence, now() + Scheduler.POLL_BOUNDS_MS.min) : null;
     }
 
     function stillCurrent(runEpoch) {
@@ -348,7 +355,8 @@
         deferredPollAt = null;
       }
       if (!scheduler) return;
-      // A fresh load honours a young cache; a hand-off polls at once.
+      // A fresh load honours a young cache, a hand-off the last fetch; older data polls at once.
+      if (nowLeader && deferredPollAt === null) deferredPollAt = youngDataPollAt(lastFetchedAt);
       if (nowLeader && deferredPollAt !== null) scheduler.reschedule('poll');
       else if (nowLeader) scheduler.trigger('poll');
       else scheduler.reschedule('poll');
@@ -394,7 +402,7 @@
         rescheduleLocal();
         return;
       }
-      deferredPollAt = null; // a later hand-off must poll promptly
+      deferredPollAt = null; // a later hand-off defers from this fetchedAt
       const freshness = PillState.FRESHNESS.includes(payload.freshness) ? payload.freshness : 'syncing';
       current = { snapshot: payload.snapshot || current.snapshot, freshness };
       if (freshness === 'live' && Number.isFinite(payload.fetchedAt)) lastFetchedAt = payload.fetchedAt;
@@ -436,15 +444,7 @@
         cached = null;
       }
       current = gate ? { snapshot: null, freshness: gate } : { snapshot: cached ? cached.snapshot : null, freshness: 'syncing' };
-      // A cache younger than the cadence defers the first poll to fetchedAt + cadence.
-      deferredPollAt = null;
-      if (cached) {
-        const cadence = cadenceMs(false);
-        const age = now() - cached.fetchedAt;
-        if (cadence !== null && age >= 0 && age < cadence) {
-          deferredPollAt = Math.max(cached.fetchedAt + cadence, now() + Scheduler.POLL_BOUNDS_MS.min);
-        }
-      }
+      deferredPollAt = cached ? youngDataPollAt(cached.fetchedAt) : null;
       view = PillView.mountPill({ document, window, onActivate, headerSelectors });
       scheduler = Scheduler.createScheduler({ setTimeout: setTimer, clearTimeout: clearTimer, now, random, isHidden });
       jobsAddedAt = now();
