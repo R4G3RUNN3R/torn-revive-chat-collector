@@ -49,10 +49,9 @@
 
     function computeDueAt(job) {
       const base = job.lastRunAt === null ? job.addedAt : job.lastRunAt;
-      if (job.failures > 0) return base + job.backoff;
       const delay = job.delay(context(job));
       if (delay === null || delay === undefined || !Number.isFinite(Number(delay))) return null;
-      return base + Math.max(0, Number(delay));
+      return base + (job.failures > 0 ? job.backoff : Math.max(0, Number(delay)));
     }
 
     function nextDueAt(job) {

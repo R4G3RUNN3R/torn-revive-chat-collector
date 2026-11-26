@@ -28,7 +28,8 @@
     headerSelectors,
     onActivate = () => {},
     getSession = null,
-    onRender = null
+    onRender = null,
+    onLiveSnapshot = null
   } = {}) {
     if (!api || typeof api.getState !== 'function') throw new Error('api.getState is required');
     if (!document || typeof document.addEventListener !== 'function') throw new Error('document is required');
@@ -86,15 +87,16 @@
       return owner === expected;
     }
 
-    function resetApi() {
+    function resetApi(badgesToo) {
       if (typeof api.reset === 'function') api.reset();
+      if (badgesToo && typeof api.clearBadges === 'function') api.clearBadges();
     }
 
     function expire() {
       authExpired = true;
       deferredPollAt = null;
       cache.clear();
-      resetApi();
+      resetApi(true);
     }
 
     function isAuthError(error) {
@@ -211,7 +213,7 @@
       for (const [id, seenAt] of firstSeen) if (at - seenAt > PillState.OUTCOME_WINDOW_MS + PillState.COMPLETED_FADE_MS) firstSeen.delete(id);
       lastView = PillState.derivePill(current.snapshot, current.freshness, at, id => firstSeen.get(id));
       const id = lastView.transactionId;
-      if (lastView.refreshAt !== null && id && !firstSeen.has(id)) firstSeen.set(id, at);
+      if (lastView.refreshAt !== null && id && !firstSeen.has(id) && !isHidden()) firstSeen.set(id, at);
       if (!view.host.isConnected) view.place();
       view.update(lastView);
       if (typeof onRender === 'function') {
@@ -289,6 +291,9 @@
       if (freshness === 'live' && fetchedAt !== null) lastFetchedAt = fetchedAt;
       if (snapshot && fetchedAt !== null) cache.write(snapshot, fetchedAt);
       if (isLeader()) leader.broadcast(statePayload(snapshot, freshness, fetchedAt, extra));
+      if (freshness === 'live' && snapshot && isLeader() && typeof onLiveSnapshot === 'function') {
+        try { onLiveSnapshot(snapshot); } catch (_) {}
+      }
       render();
       rescheduleLocal();
     }
@@ -340,7 +345,7 @@
         deferredPollAt = null;
       }
       if (!scheduler) return;
-      if (nowLeader && deferredPollAt === null) deferredPollAt = youngDataPollAt(lastFetchedAt);
+      if (nowLeader && deferredPollAt === null && current.freshness === 'live') deferredPollAt = youngDataPollAt(lastFetchedAt);
       if (nowLeader && deferredPollAt !== null) scheduler.reschedule('poll');
       else if (nowLeader) scheduler.trigger('poll');
       else scheduler.reschedule('poll');
@@ -496,7 +501,7 @@
       current = { snapshot: null, freshness: 'syncing' };
       lastFetchedAt = null;
       if (!keepCache) cache.clear();
-      resetApi();
+      resetApi(true);
       if (wasStarted) start();
     }
 

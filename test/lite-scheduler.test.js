@@ -261,3 +261,16 @@ test('a trigger pending when the job completes while hidden waits until visible'
   await clock.advance(0);
   assert.equal(runs, 2);
 });
+
+test('a failing job whose delay turns null arms no back-off timer', async () => {
+  const { clock, scheduler } = setup();
+  const gate = { open: true };
+  scheduler.addJob('poll', { delay: () => (gate.open ? 60000 : null), runNow: true, run: () => { gate.open = false; throw new Error('down'); } });
+  scheduler.start();
+  await clock.advance(0);
+  assert.equal(scheduler.failures('poll'), 1);
+  assert.equal(clock.pending(), 0, 'no stray no-op back-off timer');
+  gate.open = true;
+  scheduler.reschedule('poll');
+  assert.equal(clock.nextDelay(), 5000, 'the back-off still applies once the job is due again');
+});
