@@ -285,7 +285,7 @@ Settings migrate from 0.7.x GM keys on first boot; the API key binding and verif
 | # | Question | Decision |
 | --- | --- | --- |
 | 1 | Live push | Adaptive polling in 1.0. Consider Server-Sent Events in 1.1 after measuring; polling stays as fallback. (`EventSource` cannot send the bearer token, and `GM_xmlhttpRequest` streaming differs across Tampermonkey, Violentmonkey and TornPDA.) |
-| 2 | Pill on TornPDA | Torn's header on all platforms; fall back to the 0.7.3 PDA launcher position when the header slot is missing or too narrow. |
+| 2 | Pill on TornPDA | Torn's header on all platforms; fall back to the 0.7.3 PDA launcher position when the header slot is missing or too narrow. **Superseded for 1.0.2 (owner, 2026-11-26, after seeing 1.0.1 live):** desktop docks back in Torn's left sidebar as a row like 0.7.3, and the panel opens docked beside it; nothing goes in the header. TornPDA and mobile, where Torn hides the sidebar, keep the floating bottom-right launcher. The button shows only "ReviveRelay", never live status: status belongs inside the panel. Notifications still announce events. |
 | 3 | Revivers online | Eligible, entitled revivers seen in the last 5 minutes; hide the number at 0 and say "Revivers are notified". |
 | 4 | Accent colour | Keep ReviveRelay red `#a4161a`. Error/attention states move to orange plus an alert icon so red is brand-only. |
 | 5 | Sound | On by default for key action/outcome events only; new queue requests silent; one toggle for all sound. |
