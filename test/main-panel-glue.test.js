@@ -702,3 +702,20 @@ test('M5/M6: once the Lite boot runs, the retry path never mounts over it, and t
   assert.equal(harness.pills.length, before, 'no retry pill over a live engine');
   assert.equal(harness.document.count('visibilitychange'), 0);
 });
+
+// ---- 1.0.1 smoke Bug 1: TornPDA toast styles before the panel is ever opened ----
+
+test('Bug 1: the TornPDA toast styles are installed once at init, before the panel is ever opened', async () => {
+  const harness = loadMain({ store: { ...SIGNED_IN } });
+  const styles = [];
+  harness.context.GM_addStyle = css => { styles.push(String(css)); return null; };
+  harness.run();
+  await harness.clock.flush();
+  const toastStyles = () => styles.filter(css => css.includes('.rr-pda-toast-stack{position:fixed'));
+  assert.equal(harness.main.panel, null, 'the panel has not been opened');
+  assert.equal(toastStyles().length, 1, 'toast CSS is present before any toast can show');
+  assert.match(toastStyles()[0], /\.rr-pda-toast\{position:relative/);
+  await openPanel(harness);
+  assert.ok(harness.main.panel);
+  assert.equal(toastStyles().length, 1, 'opening the panel does not install the toast CSS again');
+});
