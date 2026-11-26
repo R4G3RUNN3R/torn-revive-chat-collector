@@ -12,6 +12,7 @@
   const MAX_CLOCK_SKEW_MS = 24 * 60 * 60 * 1000;
   const NON_AUTHORITATIVE_TONES = new Set(['success', 'attention']);
   const COMPLETED_FADE_MS = 5000;
+  const OUTCOME_WINDOW_MS = 30000; // server recentlyClosed window for outcomes
 
   const TRANSACTION_STATES = Object.freeze([
     'AVAILABLE',
@@ -74,13 +75,15 @@
     return at === null ? null : { kind: 'elapsed', at };
   }
 
-  // null once faded, with no timestamp, or with closedAt more than the fade window ahead.
-  function completedFade(transaction, now) {
+  // Shown 5 s from first sight (unseen: now), never past the 30 s window or with closedAt over 5 s ahead.
+  function completedFade(transaction, now, seen) {
     const closedAt = toMs(transaction && (transaction.closedAt || transaction.updatedAt));
     if (closedAt === null) return null;
     const age = now - closedAt;
-    if (age >= COMPLETED_FADE_MS || age < -COMPLETED_FADE_MS) return null;
-    return { refreshAt: Math.min(closedAt + COMPLETED_FADE_MS, now + COMPLETED_FADE_MS) };
+    const seenAt = seen(String(transaction.transactionId || transaction.id));
+    const from = seenAt === null ? now : seenAt;
+    if (age >= OUTCOME_WINDOW_MS || age < -COMPLETED_FADE_MS || now - from >= COMPLETED_FADE_MS) return null;
+    return { refreshAt: Math.min(from + COMPLETED_FADE_MS, closedAt + OUTCOME_WINDOW_MS) };
   }
 
   // Only finite numbers or numeric strings count; anything else is unknown, never 0.
@@ -99,19 +102,19 @@
     return mapping('Updating', 'neutral', 'clock', 'loading');
   }
 
-  function completedMapping(source, now, label, sheet) {
-    const fade = completedFade(source, now);
+  function completedMapping(source, now, label, sheet, seen) {
+    const fade = completedFade(source, now, seen);
     return fade ? { ...mapping(label, 'success', 'check', sheet), refreshAt: fade.refreshAt } : null;
   }
 
-  function requesterMapping(state, source, now) {
+  function requesterMapping(state, source, now, seen) {
     const reviver = personName(source && source.reviver, 'reviver');
     switch (state) {
       case 'AVAILABLE': return mapping('Waiting', 'waiting', 'clock', 'request-waiting', elapsed(source && source.createdAt));
       case 'WAITING_FOR_PAYMENT': return mapping(`Pay ${reviver}`, 'action', 'cash', 'request-pay', countdown(source && source.paymentDeadline));
       case 'PAYMENT_RECONCILING': return mapping('Checking payment', 'waiting', 'clock', 'request-payment-check');
       case 'WAITING_FOR_REVIVE': return mapping(`${reviver} is reviving`, 'progress', 'heartbeat', 'request-reviving');
-      case 'COMPLETED': return completedMapping(source, now, 'Revived', 'request-summary');
+      case 'COMPLETED': return completedMapping(source, now, 'Revived', 'request-summary', seen);
       case 'FAILED_ATTEMPT_CHOICE': return mapping('Revive failed · choose', 'action', 'alert', 'request-failed-choice');
       case 'RETRY_OFFERED': return mapping('Retry requested', 'waiting', 'clock', 'request-retry');
       case 'REFUND_REQUIRED':
@@ -123,7 +126,7 @@
     }
   }
 
-  function reviverMapping(state, source, now) {
+  function reviverMapping(state, source, now, seen) {
     const requester = personName(source && source.requester, 'requester');
     switch (state) {
       case 'WAITING_FOR_PAYMENT': return mapping('Awaiting payment', 'waiting', 'cash', 'reviver-awaiting-payment', countdown(source && source.paymentDeadline));
@@ -133,7 +136,7 @@
       case 'RETRY_OFFERED': return mapping('Retry? Accept or decline', 'action', 'heartbeat', 'reviver-retry', countdown(source && source.retryResponseDeadline));
       case 'REFUND_REQUIRED': return mapping(`Refund owed to ${requester}`, 'action', 'refund', 'reviver-refund', countdown(source && source.refundDeadline));
       case 'REFUND_RECONCILING': return mapping('Checking refund', 'waiting', 'refund', 'reviver-refund');
-      case 'COMPLETED': return completedMapping(source, now, 'Revive complete', 'reviver-summary');
+      case 'COMPLETED': return completedMapping(source, now, 'Revive complete', 'reviver-summary', seen);
       case 'REFUNDED': return mapping('Refund verified', 'success', 'check', 'reviver-summary');
       case 'REPORTABLE_NO_ATTEMPT':
       case 'REPORTABLE_MISSING_REFUND': return mapping('Needs attention', 'attention', 'alert', 'reviver-report');
@@ -155,23 +158,23 @@
       .map(entry => entry.transaction);
   }
 
-  function firstMapped(transactions, role, now) {
+  function firstMapped(transactions, role, now, seen) {
     const mapper = role === 'requester' ? requesterMapping : reviverMapping;
     for (const transaction of sortedByDeadline(transactions.filter(tx => tx && tx.participantRole === role))) {
       const known = TRANSACTION_STATES.includes(transaction.state);
-      const mapped = known ? mapper(transaction.state, transaction, now) : updatingMapping();
+      const mapped = known ? mapper(transaction.state, transaction, now, seen) : updatingMapping();
       if (mapped) return { mapped, transaction };
     }
     return null;
   }
 
   // Newest first; only outcomes that still map drive the pill, unknown states are skipped.
-  function firstClosed(transactions, role, now, skipReportable) {
+  function firstClosed(transactions, role, now, seen, skipReportable) {
     const mapper = role === 'requester' ? requesterMapping : reviverMapping;
     for (const transaction of transactions) {
       if (!transaction || transaction.participantRole !== role || !TRANSACTION_STATES.includes(transaction.state)) continue;
       if (skipReportable && transaction.state.startsWith('REPORTABLE_')) continue;
-      const mapped = mapper(transaction.state, transaction, now);
+      const mapped = mapper(transaction.state, transaction, now, seen);
       if (mapped) return { mapped, transaction };
     }
     return null;
@@ -208,28 +211,28 @@
     return formatDuration(now - timer.at);
   }
 
-  function baseView(snapshot, now) {
+  function baseView(snapshot, now, seen) {
     if (!snapshot || typeof snapshot !== 'object') {
       return { role: 'none', state: null, transactionId: null, label: 'ReviveRelay', detail: '', tone: 'neutral', icon: 'pill', sheet: 'loading', timer: null, refreshAt: null };
     }
     const transactions = Array.isArray(snapshot.activeTransactions) ? snapshot.activeTransactions : [];
-    const requester = firstMapped(transactions, 'requester', now);
+    const requester = firstMapped(transactions, 'requester', now, seen);
     if (requester) return fromMapped('requester', requester.mapped, requester.transaction.state, requester.transaction.id, now);
 
     const request = snapshot.activeRequest;
     if (request && typeof request === 'object') {
       // An open request in a state this client does not know is "Updating", never idle "Revive me".
       const known = TRANSACTION_STATES.includes(request.state);
-      const mapped = known ? requesterMapping(request.state, request, now) : updatingMapping();
+      const mapped = known ? requesterMapping(request.state, request, now, seen) : updatingMapping();
       if (mapped) return fromMapped('requester', mapped, request.state, request.transactionId || null, now);
     }
 
-    const reviver = firstMapped(transactions, 'reviver', now);
+    const reviver = firstMapped(transactions, 'reviver', now, seen);
     if (reviver) return fromMapped('reviver', reviver.mapped, reviver.transaction.state, reviver.transaction.id, now);
 
     const closed = Array.isArray(snapshot.recentlyClosed) ? snapshot.recentlyClosed : [];
     // A reviver's reportable ranks below a visible queue count.
-    const outcome = firstClosed(closed, 'requester', now) || firstClosed(closed, 'reviver', now, hasRole(snapshot.me, 'reviver') && snapshot.queue);
+    const outcome = firstClosed(closed, 'requester', now, seen) || firstClosed(closed, 'reviver', now, seen, hasRole(snapshot.me, 'reviver') && snapshot.queue);
     if (outcome) return fromMapped(outcome.transaction.participantRole, outcome.mapped, outcome.transaction.state, outcome.transaction.id, now);
 
     const idle = idleMapping(snapshot);
@@ -276,11 +279,17 @@
     });
   }
 
-  function derivePill(snapshot, freshness, now) {
+  // firstSeen(transactionId): client ms this tab first showed that outcome, or undefined.
+  function derivePill(snapshot, freshness, now, firstSeen) {
     if (SESSION_STATES.includes(freshness)) return sessionView(freshness);
     const mode = FRESHNESS.includes(freshness) ? freshness : 'syncing';
-    const at = serverNow(snapshot, Number.isFinite(Number(now)) ? Number(now) : 0);
-    const view = baseView(snapshot, at);
+    const clientNow = Number.isFinite(Number(now)) ? Number(now) : 0;
+    const at = serverNow(snapshot, clientNow);
+    const seen = id => {
+      const ms = typeof firstSeen === 'function' ? firstSeen(id) : undefined;
+      return Number.isFinite(ms) ? ms + at - clientNow : null;
+    };
+    const view = baseView(snapshot, at, seen);
     view.syncing = mode === 'syncing';
     view.offline = mode === 'offline';
     if (mode !== 'live' && NON_AUTHORITATIVE_TONES.has(view.tone)) view.tone = 'neutral';
@@ -301,6 +310,7 @@
     SESSION_STATES,
     TRANSACTION_STATES,
     COMPLETED_FADE_MS,
+    OUTCOME_WINDOW_MS,
     derivePill,
     formatDuration,
     nearestDeadlineMs

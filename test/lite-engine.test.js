@@ -730,3 +730,56 @@ test('a follower\'s refresh() asks the leader to poll, bounded by the minimum po
   assert.equal(hub.log.filter(entry => entry.data.type === 'refresh-request').length, before);
   tabs.forEach(tab => tab.engine.stop());
 });
+
+// ---- "Revived" stays 5 s from this tab's first sight (per tab; not broadcast) -----
+
+function revivedSnapshot(clock, closedAgoMs) {
+  const closedAt = new Date(clock.now() - closedAgoMs).toISOString();
+  return snapshot({ serverTime: new Date(clock.now()).toISOString(), recentlyClosed: [{ id: 'tx-done', state: 'COMPLETED', participantRole: 'requester', closedAt, updatedAt: closedAt }] });
+}
+
+test('an outcome first seen 4 s after closure stays "Revived" for 5 s from first sight, then fades', async () => {
+  const clock = createFakeTimers();
+  const api = fakeApi([{ notModified: false, snapshot: revivedSnapshot(clock, 4000) }]);
+  const { engine } = makeEngine({ clock, api });
+  engine.start();
+  await clock.advance(0);
+  assert.equal(pillText(engine), 'Revived');
+  await clock.advance(4000);
+  assert.equal(pillText(engine), 'Revived');
+  await clock.advance(1000);
+  assert.equal(pillText(engine), 'Revive me · 2 online');
+  assert.equal(api.calls, 1);
+  assert.equal(clock.nextDelay(), 55000, 'the 1 s tick stops once faded');
+  engine.stop();
+});
+
+test('an outcome first seen more than 30 s after closure is never shown', async () => {
+  const clock = createFakeTimers();
+  const api = fakeApi([{ notModified: false, snapshot: revivedSnapshot(clock, 30001) }]);
+  const { engine } = makeEngine({ clock, api });
+  engine.start();
+  await clock.advance(0);
+  assert.equal(pillText(engine), 'Revive me · 2 online');
+  engine.stop();
+});
+
+test('leader and follower each show the broadcast outcome 5 s from their own first sight', async () => {
+  const clock = createFakeTimers();
+  const storage = memoryStorage();
+  const apiA = scriptedApi([{ notModified: false, snapshot: revivedSnapshot(clock, 4000) }]);
+  const apiB = scriptedApi([{ notModified: false, snapshot: snapshot() }]);
+  const { tabs: [a, b] } = lockTabs({ clock, sharedStorage: storage, specs: [{ tabId: 'a', api: apiA }, { tabId: 'b', api: apiB }] });
+  a.engine.start();
+  b.engine.start();
+  await clock.advance(0);
+  assert.equal(a.engine.isLeader(), true);
+  assert.deepEqual([pillText(a.engine), pillText(b.engine)], ['Revived', 'Revived']);
+  await clock.advance(4000);
+  assert.deepEqual([pillText(a.engine), pillText(b.engine)], ['Revived', 'Revived']);
+  await clock.advance(1000);
+  assert.deepEqual([pillText(a.engine), pillText(b.engine)], ['Revive me · 2 online', 'Revive me · 2 online']);
+  assert.equal(apiB.calls, 0);
+  a.engine.stop();
+  b.engine.stop();
+});

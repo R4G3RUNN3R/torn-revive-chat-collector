@@ -213,9 +213,16 @@
       }
     }
 
+    // Per tab, not broadcast: each tab shows an outcome 5 s from its own first sight.
+    const firstSeen = new Map();
+
     function render() {
       if (!view) return;
-      lastView = PillState.derivePill(current.snapshot, current.freshness, now());
+      const at = now();
+      for (const [id, seenAt] of firstSeen) if (at - seenAt > PillState.OUTCOME_WINDOW_MS + PillState.COMPLETED_FADE_MS) firstSeen.delete(id);
+      lastView = PillState.derivePill(current.snapshot, current.freshness, at, id => firstSeen.get(id));
+      const id = lastView.transactionId;
+      if (lastView.refreshAt !== null && id && !firstSeen.has(id)) firstSeen.set(id, at);
       view.update(lastView);
       if (typeof onRender === 'function') {
         try { onRender({ view: lastView, snapshot: current.snapshot, freshness: current.freshness }); } catch (_) { /* listener errors stay with the caller */ }

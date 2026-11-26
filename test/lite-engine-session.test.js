@@ -161,10 +161,11 @@ test('a follower ignores broadcasts carrying another Torn user\'s snapshot', asy
   b.engine.stop();
 });
 
-test('serverTime sets the snapshot clock skew so "Revived" fades on server time', async () => {
+test('serverTime sets the snapshot clock skew so "Revived" keeps to its 30 s window on server time', async () => {
   const clock = createFakeTimers();
   const serverNow = clock.now() - 10000;
-  const closedAt = new Date(serverNow - 1000).toISOString();
+  // 27 s old on the server, 37 s on this fast client clock: shown only thanks to the skew, until the window ends.
+  const closedAt = new Date(serverNow - 27000).toISOString();
   const revived = { id: 'tx-1', state: 'COMPLETED', participantRole: 'requester', closedAt, updatedAt: closedAt };
   const api = fakeApi([{ notModified: false, snapshot: snapshot({ serverTime: new Date(serverNow).toISOString(), recentlyClosed: [revived] }) }]);
   const storage = memoryStorage();
@@ -173,7 +174,9 @@ test('serverTime sets the snapshot clock skew so "Revived" fades on server time'
   await clock.advance(0);
   assert.equal(storage.values[SNAPSHOT_KEY].data.clockSkewMs, -10000);
   assert.equal(pillText(engine), 'Revived');
-  await clock.advance(4000);
+  await clock.advance(2000);
+  assert.equal(pillText(engine), 'Revived');
+  await clock.advance(1000);
   assert.equal(pillText(engine), 'Revive me · 2 online');
   engine.stop();
 });
