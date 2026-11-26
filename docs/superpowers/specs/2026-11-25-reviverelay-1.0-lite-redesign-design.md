@@ -302,7 +302,7 @@ Decisions taken while building the server (owner, 2026-11-25):
 | 11 | Failed status reads | Unknown once the last success is over 3 minutes old. |
 | 12 | Key status | Included in `me.verification`. |
 | 13 | Polling rate limits | Per verified session after authentication, plus a per-IP ceiling. |
-| 14 | Size budget with the staged 1.0 | 1.0 keeps the existing panel for rare screens, so the whole file cannot meet 110 KB: the light core (bundle minus the old panel) must stay ≤ 110 KB and the whole 1.0 file ≤ 232 KB, both enforced by tests. 1.1, which replaces the old panel with new sheets, must bring the whole file to ≤ 110 KB. |
+| 14 | Size budget with the staged 1.0 | 1.0 keeps the existing panel for rare screens, so the whole file cannot meet 110 KB: the light core (bundle minus the old panel) must stay ≤ 110 KB and the whole 1.0 file ≤ 232 KB, both enforced by tests. 1.1, which replaces the old panel with new sheets, must bring the whole file to ≤ 110 KB. Plan 3b (2026-11-26, owner): the limits stay as they are; new sheets, badges, notifications and sound fit by trimming older code out of the Lite core (e.g. slimming or dropping telemetry and the update manager from the Lite path), never by raising a gate. |
 | 15 | 1.0 scope | Staged, core first: new engine, header pill and new sheets for everyday flows in 1.0; key setup, Pro invoices, settings and account deletion stay in the existing panel opened from the pill, redesigned in 1.1. |
 
 No open questions remain for the design.
