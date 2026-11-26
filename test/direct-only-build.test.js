@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { DIRECT_SUPPORT_MODULES, LITE_ENGINE_MODULES } = require('../scripts/client-modules');
+const { DIRECT_SUPPORT_MODULES, LITE_ENGINE_MODULES, LEGACY_PANEL_MODULES } = require('../scripts/client-modules');
 
 const REQUIRED = [
   'src/platform.js',
@@ -42,6 +42,8 @@ test('canonical direct module inventory is exact and immutable', () => {
   assert.deepEqual([...DIRECT_SUPPORT_MODULES], REQUIRED);
   assert.equal(Object.isFrozen(DIRECT_SUPPORT_MODULES), true);
   assert.deepEqual([...LITE_ENGINE_MODULES], REQUIRED.filter(modulePath => modulePath.startsWith('src/lite/')));
+  assert.deepEqual([...LEGACY_PANEL_MODULES], ['src/core.js', 'src/update-manager.js', 'src/telemetry-client.js', 'src/request-preset.js']);
+  for (const modulePath of LEGACY_PANEL_MODULES) assert.ok(DIRECT_SUPPORT_MODULES.includes(modulePath), modulePath);
 });
 
 test('the Lite state client loads after the direct API client and versioning it depends on', () => {

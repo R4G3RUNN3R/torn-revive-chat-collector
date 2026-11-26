@@ -15,6 +15,15 @@ const LITE_ENGINE_MODULES = Object.freeze([
   'src/lite/boot.js'
 ]);
 
+// Support modules used only by the legacy 0.7 panel (settings, updates, diagnostics, preset).
+// Plan 3b replaces the panel; until then they are measured apart from the Lite core budget.
+const LEGACY_PANEL_MODULES = Object.freeze([
+  'src/core.js',
+  'src/update-manager.js',
+  'src/telemetry-client.js',
+  'src/request-preset.js'
+]);
+
 // Bundle order: direct-api-client and versioning load before the Lite state client.
 const DIRECT_SUPPORT_MODULES = Object.freeze([
   'src/platform.js',
@@ -27,5 +36,5 @@ const DIRECT_SUPPORT_MODULES = Object.freeze([
   ...LITE_ENGINE_MODULES
 ]);
 
-module.exports = { DIRECT_SUPPORT_MODULES, LITE_ENGINE_MODULES };
+module.exports = { DIRECT_SUPPORT_MODULES, LITE_ENGINE_MODULES, LEGACY_PANEL_MODULES };
 
