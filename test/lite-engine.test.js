@@ -783,3 +783,33 @@ test('leader and follower each show the broadcast outcome 5 s from their own fir
   a.engine.stop();
   b.engine.stop();
 });
+
+// ---- the pill comes back when Torn removes it without navigating ------------------
+
+test('a pill host removed by the page is re-attached on the next render tick and on becoming visible', async () => {
+  const createdAt = new Date(Date.parse('2026-11-25T12:00:00.000Z') - 10000).toISOString();
+  const active = snapshot({ nextPollMs: 5000, activeRequest: { id: 'r1', state: 'AVAILABLE', createdAt, transactionId: null } });
+  const clock = createFakeTimers();
+  const { engine, document } = makeEngine({ clock, api: fakeApi([{ notModified: false, snapshot: active }]) });
+  engine.start();
+  await clock.advance(0);
+  const host = document.getElementById(HOST_ID);
+  host.remove();
+  assert.equal(host.isConnected, false);
+  await clock.advance(1000);
+  assert.equal(host.isConnected, true, 'the 1 s tick re-places it');
+  assert.equal(document.getElementById(HOST_ID), host);
+  engine.stop();
+
+  const idleClock = createFakeTimers();
+  const idle = makeEngine({ clock: idleClock, api: fakeApi([{ notModified: false, snapshot: snapshot() }]) });
+  idle.engine.start();
+  await idleClock.advance(0);
+  const idleHost = idle.document.getElementById(HOST_ID);
+  idleHost.remove();
+  idle.document.setVisibility('hidden');
+  idle.document.setVisibility('visible');
+  assert.equal(idleHost.isConnected, true, 'becoming visible re-places it');
+  assert.equal(idleClock.pending(), 1, 'no new timers');
+  idle.engine.stop();
+});

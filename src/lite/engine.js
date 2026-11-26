@@ -223,6 +223,7 @@
       lastView = PillState.derivePill(current.snapshot, current.freshness, at, id => firstSeen.get(id));
       const id = lastView.transactionId;
       if (lastView.refreshAt !== null && id && !firstSeen.has(id)) firstSeen.set(id, at);
+      if (!view.host.isConnected) view.place(); // Torn removed the pill without navigating
       view.update(lastView);
       if (typeof onRender === 'function') {
         try { onRender({ view: lastView, snapshot: current.snapshot, freshness: current.freshness }); } catch (_) { /* listener errors stay with the caller */ }
