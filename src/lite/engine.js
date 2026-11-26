@@ -60,6 +60,7 @@
     let sheetOpen = false;
     let lastFetchedAt = null;
     let resyncSoon = false;
+    let jobsAddedAt = 0;
 
     function isHidden() {
       return document.visibilityState === 'hidden' || document.hidden === true;
@@ -79,15 +80,53 @@
       return Boolean(sheetOpen || (lastView && (lastView.timer || lastView.refreshAt !== null)));
     }
 
-    function cadenceMs(hidden) {
+    function cadenceMs(hidden, sheet = sheetOpen) {
       const snapshot = current.snapshot || {};
       return Scheduler.pollDelayMs({
         hidden,
         nextPollMs: snapshot.nextPollMs,
         hasActive: Boolean(snapshot.activeRequest || (Array.isArray(snapshot.activeTransactions) && snapshot.activeTransactions.length)),
         isReviver: Boolean(snapshot.me && Array.isArray(snapshot.me.roles) && snapshot.me.roles.includes('reviver')),
-        sheetOpen
+        sheetOpen: sheet
       });
+    }
+
+    // A follower only knows when the leader last fetched. Past 2 × cadence without a broadcast,
+    // its "live" data is no longer known to be fresh. The leader's cadence does not depend on
+    // this tab's own sheet, so the open-sheet speed-up is ignored here.
+    function followerStaleAfter() {
+      if (isLeader() || current.freshness !== 'live' || lastFetchedAt === null) return null;
+      const cadence = cadenceMs(false, false);
+      return cadence === null ? null : lastFetchedAt + 2 * cadence;
+    }
+
+    function ageFollower() {
+      const limit = followerStaleAfter();
+      if (limit === null || now() <= limit) return false;
+      current = { snapshot: current.snapshot, freshness: 'syncing' };
+      return true;
+    }
+
+    // Evaluated on the 1 s tick while it runs; otherwise a one-shot job on the same scheduler.
+    function freshnessDelay(ctx) {
+      if (needsTick()) return null;
+      const limit = followerStaleAfter();
+      if (limit === null) return null;
+      const base = ctx.lastRunAt === null ? jobsAddedAt : ctx.lastRunAt;
+      return limit + 1 - base;
+    }
+
+    function tick() {
+      ageFollower();
+      render();
+      // The tick may have just stopped itself; the one-shot freshness check then takes over.
+      if (scheduler) scheduler.reschedule('freshness');
+    }
+
+    function rescheduleLocal() {
+      if (!scheduler) return;
+      scheduler.reschedule('tick');
+      scheduler.reschedule('freshness');
     }
 
     function pollDelay() {
@@ -107,7 +146,7 @@
       if (snapshot && fetchedAt !== null) cache.write(snapshot, fetchedAt);
       if (isLeader()) leader.broadcast({ snapshot, freshness, fetchedAt });
       render();
-      if (scheduler) scheduler.reschedule('tick');
+      rescheduleLocal();
     }
 
     async function poll() {
@@ -149,6 +188,13 @@
       if (!scheduler) return;
       if (nowLeader) scheduler.trigger('poll');
       else scheduler.reschedule('poll');
+      scheduler.reschedule('freshness');
+    }
+
+    // A joining follower asked for the current state: answer with what this leader shows.
+    function onStateRequest() {
+      if (!started || !isLeader() || !current.snapshot) return;
+      leader.broadcast({ snapshot: current.snapshot, freshness: current.freshness, fetchedAt: lastFetchedAt });
     }
 
     function onBroadcast(payload) {
@@ -156,8 +202,9 @@
       const freshness = PillState.FRESHNESS.includes(payload.freshness) ? payload.freshness : 'syncing';
       current = { snapshot: payload.snapshot || current.snapshot, freshness };
       if (freshness === 'live' && Number.isFinite(payload.fetchedAt)) lastFetchedAt = payload.fetchedAt;
+      ageFollower();
       render();
-      if (scheduler) scheduler.reschedule('tick');
+      rescheduleLocal();
     }
 
     function onVisibilityChange() {
@@ -171,7 +218,7 @@
         current = { snapshot: current.snapshot, freshness: 'syncing' };
       }
       render();
-      scheduler.reschedule('tick');
+      rescheduleLocal();
     }
 
     function start() {
@@ -185,8 +232,17 @@
       view = PillView.mountPill({ document, window, onActivate, headerSelectors });
       render();
       scheduler = Scheduler.createScheduler({ setTimeout: setTimer, clearTimeout: clearTimer, now, random, isHidden });
+      jobsAddedAt = now();
       scheduler.addJob('poll', { delay: pollDelay, run: poll });
-      scheduler.addJob('tick', { delay: () => (needsTick() ? Scheduler.CADENCE_MS.TICK : null), run: () => render() });
+      scheduler.addJob('tick', { delay: () => (needsTick() ? Scheduler.CADENCE_MS.TICK : null), run: tick });
+      scheduler.addJob('freshness', {
+        delay: freshnessDelay,
+        run: () => {
+          if (!ageFollower()) return;
+          render();
+          if (scheduler) scheduler.reschedule('tick');
+        }
+      });
       leader = TabLeader.createTabLeader({
         tabId,
         locks,
@@ -196,7 +252,8 @@
         setTimeout: setTimer,
         clearTimeout: clearTimer,
         onChange: onLeaderChange,
-        onSnapshot: onBroadcast
+        onSnapshot: onBroadcast,
+        onStateRequest
       });
       document.addEventListener('visibilitychange', onVisibilityChange);
       scheduler.start();
@@ -221,7 +278,7 @@
       sheetOpen = Boolean(open);
       if (!scheduler) return;
       scheduler.reschedule('poll');
-      scheduler.reschedule('tick');
+      rescheduleLocal();
     }
 
     function refresh() {

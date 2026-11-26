@@ -540,3 +540,83 @@ test('refresh() during an in-flight poll is not lost', async () => {
   assert.equal(pillText(engine), 'Revive me · 4 online');
   engine.stop();
 });
+
+test('a follower showing live data ages to syncing after 2 × cadence without broadcasts, and never polls or writes the cache', async () => {
+  const clock = createFakeTimers();
+  const hang = deferred();
+  const apiA = scriptedApi([{ notModified: false, snapshot: snapshot() }, hang]);
+  const apiB = scriptedApi([{ notModified: false, snapshot: snapshot() }]);
+  const { tabs: [a, b] } = lockTabs({ clock, specs: [{ tabId: 'a', api: apiA }, { tabId: 'b', api: apiB }] });
+  a.engine.start();
+  b.engine.start();
+  const fetchedAt = clock.now();
+  await clock.advance(0);
+  assert.equal(b.engine.viewModel().syncing, false);
+  await clock.advance(fetchedAt + 120000 - clock.now());
+  assert.equal(apiA.calls, 2, 'the leader\'s second poll hangs, so nothing is broadcast');
+  assert.equal(b.engine.viewModel().syncing, false);
+  await clock.advance(1);
+  assert.equal(b.engine.viewModel().syncing, true);
+  assert.equal(pillText(b.engine), 'Revive me · 2 online');
+  assert.equal(apiB.calls, 0);
+  assert.equal(b.storage.values[SNAPSHOT_KEY], undefined);
+
+  hang.resolve({ notModified: false, snapshot: snapshot({ revivers: { online: 5 } }) });
+  await clock.flush();
+  assert.equal(b.engine.viewModel().syncing, false);
+  assert.equal(pillText(b.engine), 'Revive me · 5 online');
+  a.engine.stop();
+  b.engine.stop();
+});
+
+for (const mode of ['locks', 'heartbeat']) {
+  test(`${mode}: a new follower receives the leader's current state promptly, without polling`, async () => {
+    const clock = createFakeTimers();
+    const hub = createChannelHub();
+    const locks = mode === 'locks' ? createLockManager() : null;
+    function BroadcastChannel(name) { return hub.createChannel(name); }
+    const make = (tabId, api) => {
+      const window = createFakeWindow(locks ? { BroadcastChannel, locks } : { BroadcastChannel });
+      window.AbortController = function AbortController() { return createAbortController(); };
+      return { api, ...makeEngine({ clock, api, window, tabId }) };
+    };
+    const a = make('a', scriptedApi([{ notModified: false, snapshot: snapshot({ revivers: { online: 6 } }) }]));
+    a.engine.start();
+    await clock.advance(1000);
+    assert.equal(a.engine.isLeader(), true);
+    assert.equal(a.api.calls, 1);
+    await clock.advance(10000);
+    const b = make('b', scriptedApi([{ notModified: false, snapshot: snapshot() }]));
+    b.engine.start();
+    await clock.advance(1000);
+    assert.equal(b.engine.isLeader(), false);
+    assert.equal(pillText(b.engine), 'Revive me · 6 online');
+    assert.equal(b.engine.viewModel().syncing, false);
+    assert.equal(b.api.calls, 0);
+    assert.equal(b.storage.values[SNAPSHOT_KEY], undefined);
+    a.engine.stop();
+    b.engine.stop();
+  });
+}
+
+test('a follower whose 1 s tick is running ages on the tick (active request, 5 s cadence)', async () => {
+  const createdAt = new Date(Date.parse('2026-11-25T12:00:00.000Z') - 10000).toISOString();
+  const active = snapshot({ nextPollMs: 5000, activeRequest: { id: 'r1', state: 'AVAILABLE', createdAt, transactionId: null } });
+  const clock = createFakeTimers();
+  const hang = deferred();
+  const apiA = scriptedApi([{ notModified: false, snapshot: active }, hang]);
+  const apiB = scriptedApi([{ notModified: false, snapshot: active }]);
+  const { tabs: [a, b] } = lockTabs({ clock, specs: [{ tabId: 'a', api: apiA }, { tabId: 'b', api: apiB }] });
+  a.engine.start();
+  b.engine.start();
+  const fetchedAt = clock.now();
+  await clock.advance(0);
+  assert.equal(b.engine.viewModel().syncing, false);
+  await clock.advance(fetchedAt + 10000 - clock.now());
+  assert.equal(b.engine.viewModel().syncing, false);
+  await clock.advance(1000);
+  assert.equal(b.engine.viewModel().syncing, true);
+  assert.equal(apiB.calls, 0);
+  a.engine.stop();
+  b.engine.stop();
+});

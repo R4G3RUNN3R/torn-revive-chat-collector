@@ -456,3 +456,35 @@ test('heartbeat election: stepping down to a hidden leader that never answers re
   assert.equal(b.leader.isLeader(), true);
   rival.close();
 });
+
+test('a joining follower posts a state-request on rr-state and only the leader answers it', async () => {
+  for (const mode of ['locks', 'heartbeat']) {
+    const clock = createFakeTimers();
+    const hub = createChannelHub();
+    const locks = mode === 'locks' ? createLockManager() : null;
+    const requests = { a: 0, b: 0 };
+    const make = id => createTabLeader({
+      tabId: id,
+      locks,
+      createChannel: hub.createChannel,
+      createAbortController,
+      setTimeout: clock.setTimeout,
+      clearTimeout: clock.clearTimeout,
+      onStateRequest: () => { requests[id] += 1; }
+    });
+    const a = make('a');
+    a.start();
+    await clock.advance(ELECT);
+    assert.equal(a.isLeader(), true, mode);
+    const b = make('b');
+    b.start();
+    await clock.advance(ELECT + 10);
+    assert.equal(b.isLeader(), false, mode);
+    // Every joining tab asks once; a's own request at start found no leader to answer it.
+    const posted = hub.log.filter(entry => entry.name === 'rr-state' && entry.data.type === 'state-request');
+    assert.deepEqual(posted.map(entry => entry.data), [{ type: 'state-request', from: 'a' }, { type: 'state-request', from: 'b' }], mode);
+    assert.deepEqual(requests, { a: 1, b: 0 }, mode);
+    a.stop();
+    b.stop();
+  }
+});

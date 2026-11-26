@@ -35,7 +35,8 @@
     leaderTimeoutMs = DEFAULTS.leaderTimeoutMs,
     electionMs = DEFAULTS.electionMs,
     onChange = () => {},
-    onSnapshot = () => {}
+    onSnapshot = () => {},
+    onStateRequest = () => {}
   } = {}) {
     const id = String(tabId);
     let mode = 'solo';
@@ -99,9 +100,18 @@
       stateChannel = null;
     }
 
+    // rr-state carries two messages: { type: 'state', payload } from the leader, and
+    // { type: 'state-request' } from a joining follower, which only the leader answers.
     function onStateMessage(event) {
       const message = event && event.data;
-      if (!message || message.type !== 'state' || message.from === id || leader) return;
+      if (!message || typeof message !== 'object' || message.from === id || !started) return;
+      if (message.type === 'state-request') {
+        if (!leader) return;
+        try { onStateRequest(); } catch (_) { /* listener errors stay local */ }
+        return;
+      }
+      if (message.type !== 'state' || leader) return;
+      if (!message.payload || typeof message.payload !== 'object') return;
       try { onSnapshot(message.payload); } catch (_) { /* renderer errors stay local */ }
     }
 
@@ -379,6 +389,8 @@
         setLeader(true);
         return;
       }
+      // A joining tab asks the current leader (if any) for its state instead of waiting for the next poll.
+      post(stateChannel, { type: 'state-request' });
       if (lockApi) {
         mode = 'locks';
         if (!isHidden()) {
