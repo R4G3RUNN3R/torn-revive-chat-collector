@@ -429,3 +429,36 @@ test('each transaction state and role renders the server\'s actions, and each cl
     }
   }
 });
+
+// ---- the panel follows the pill's transaction ---------------------------------
+
+const reviverMarkup = harness => harness.document.getElementById('rr-reviver-content').innerHTML;
+const REVIVING = Object.freeze({ id: 'tx-7', state: 'WAITING_FOR_REVIVE', participantRole: 'reviver', requester: { tornId: 3003, name: 'Patient3003' } });
+
+test('a fresh page whose pill shows a reviver transaction fetches and renders it when the pill opens', async () => {
+  const harness = await bootMain();
+  harness.transactions['tx-7'] = REVIVING;
+  harness.view = { role: 'reviver', state: 'WAITING_FOR_REVIVE', transactionId: 'tx-7', sheet: 'reviver-revive-now' };
+  await openPanel(harness);
+  assert.equal(harness.count('GET /v1/transactions/tx-7'), 1);
+  assert.equal(harness.main.state.activeTransaction.id, 'tx-7');
+  assert.match(reviverMarkup(harness), /Accepted revive/);
+  assert.match(reviverMarkup(harness), /Patient3003/);
+  assert.doesNotMatch(reviverMarkup(harness), /No accepted revive transaction/);
+});
+
+test('a new transaction id from /v1/state reaches the open panel and is kept current without duplicate fetches', async () => {
+  const harness = await bootMain();
+  harness.view = { sheet: 'reviver-queue' };
+  await openPanel(harness);
+  assert.equal(harness.main.state.activeTransaction, null);
+  harness.transactions['tx-7'] = REVIVING;
+  harness.view = { role: 'reviver', state: 'WAITING_FOR_REVIVE', transactionId: 'tx-7', sheet: 'reviver-revive-now' };
+  harness.main.handlePillRender({ snapshot: { stateVersion: 'accepted-elsewhere' } });
+  await harness.clock.flush();
+  assert.equal(harness.count('GET /v1/transactions/tx-7'), 1);
+  assert.match(reviverMarkup(harness), /Patient3003/);
+  harness.main.handlePillRender({ snapshot: { stateVersion: 'next' } });
+  await harness.clock.flush();
+  assert.equal(harness.count('GET /v1/transactions/tx-7'), 2, 'the reviver-side refresh keeps it current');
+});

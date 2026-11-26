@@ -98,6 +98,7 @@ function defaultResponder(harness) {
     if (route === 'GET /v1/reviver/eligibility') return { eligibility: { status: 'ELIGIBLE', canRevive: true } };
     if (route === 'GET /v1/reviver/queue') return { requests: [] };
     if (route === 'POST /v1/requests') return { request: { id: 'r1', state: 'OPEN' } };
+    if (route.startsWith('GET /v1/transactions/')) return { transaction: harness.transactions[route.split('/').pop()] || null };
     return {};
   };
 }
@@ -126,6 +127,7 @@ function loadMain({ store = {}, initialize = null, clock = createFakeTimers(), r
     store,
     requests: [],
     activeRequest: null,
+    transactions: {},
     lastToken: '',
     boots: [],
     telemetry: [],

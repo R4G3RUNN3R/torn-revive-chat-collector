@@ -961,6 +961,9 @@
       if (tab === 'request' || tab === 'activity') await refreshActiveRequest();
       if (reviverSide) await refreshReviverQueue();
       if (reviverSide && state.activeTransaction?.participantRole === 'reviver') await refreshActiveTransaction();
+      // The pill's transaction (accepted before a navigation or in another tab) reaches the panel.
+      const pillTransactionId = liteBoot ? liteBoot.engine.viewModel()?.transactionId : null;
+      if (pillTransactionId && String(state.activeTransaction?.id) !== pillTransactionId) await refreshActiveTransaction(pillTransactionId);
       if (state.currentInvoice?.state === 'PENDING') await refreshCurrentInvoice();
     }).catch(error => {
       if (Number(error?.status) === 401) clearSession('Your ReviveRelay session expired. Verify & connect again.');
