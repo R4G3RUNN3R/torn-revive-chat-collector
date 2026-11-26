@@ -43,7 +43,7 @@ ReviveRelay 1.0.0 does **not scrape public chat** and performs no public chat co
 
 ## Diagnostics
 
-Sanitized client diagnostics are **off by default** and are sent only after the user enables the Diagnostics option. Diagnostic envelopes are bounded and sanitized. They exclude Torn API keys, ReviveRelay bearer/session tokens, merchant credentials, raw Torn API responses, request bodies and public chat content.
+ReviveRelay 1.0.1 sends **no client diagnostics**. The 0.7.x Diagnostics option, which was off by default, is removed; the server keeps accepting bounded, sanitized envelopes from older clients that still have it enabled.
 
 Raw telemetry occurrences are deleted by the implemented retention job after 30 days. Aggregate error fingerprints/version statistics may be retained for regression analysis.
 

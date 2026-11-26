@@ -28,7 +28,7 @@ test('userscript checks the permanent dist metadata feed directly rather than us
 test('userscript checks for updates once per page load, throttled to 12 hours by the update manager', () => {
   const source=fs.readFileSync('torn-revive-chat-collector.user.js','utf8');
   assert.doesNotMatch(source,/updateTimer|setInterval\(/);
-  assert.match(source,/checkUpdates\(false\)\.catch\(error => captureClientError\(error, 'update\.initial'\)\)/);
+  assert.match(source,/checkUpdates\(false\)\.catch\(\(\) => \{\}\)/);
   assert.equal(require('../src/update-manager').UPDATE_CHECK_MS,43_200_000);
 });
 

@@ -224,7 +224,7 @@ test('"Request certified revive" shows only once the panel has loaded and there 
 test('a failed init is reported and retried on the next visible visibilitychange or pageshow, until it starts', async () => {
   let attempts = 0;
   const harness = loadMain({
-    store: { ...SIGNED_IN, reviverelay_client_diagnostics_enabled: true },
+    store: { ...SIGNED_IN },
     initialize: async real => {
       attempts += 1;
       if (attempts === 1) throw Object.assign(new Error('TORNPDA_STORAGE_TIMEOUT'), { code: 'TORNPDA_STORAGE_TIMEOUT' });
@@ -235,7 +235,6 @@ test('a failed init is reported and retried on the next visible visibilitychange
   await harness.clock.flush();
   assert.equal(attempts, 1);
   assert.equal(harness.boots.length, 0);
-  assert.deepEqual(harness.telemetry.map(entry => entry.meta.operation), ['init']);
   assert.equal(harness.clock.pending(), 0, 'no retry timer');
 
   harness.setVisibility('hidden');
@@ -266,7 +265,7 @@ test('a Lite boot that throws is retried once on pageshow', async () => {
   await harness.clock.flush();
   assert.equal(harness.boots.length, 2);
   assert.deepEqual(harness.boot.calls, ['start']);
-  assert.equal(harness.window.count('error'), 1, 'global error hooks are installed once');
+  assert.equal(harness.window.count('error'), 0, '1.0.1 sends no diagnostics, so it installs no global error hooks');
 });
 
 // ---- tab switch loads data ---------------------------------------------------

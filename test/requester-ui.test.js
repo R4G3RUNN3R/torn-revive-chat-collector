@@ -75,7 +75,7 @@ test('main navigation presents ReviveRelay Pro separately and opens Settings fro
 test('Settings is a collapsible drawer and Pro billing stays out of it', () => {
   assert.match(source, /function renderSettingsDrawer\(\)/);
   assert.match(source, /<details[^>]*class=["'][^"']*rr-settings-section/);
-  for (const label of ['Revive Me preset', 'Torn API Key', 'Notifications', 'Updates', 'Diagnostics / Advanced']) {
+  for (const label of ['Revive Me preset', 'Torn API Key', 'Notifications', 'Updates']) {
     assert.match(source, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   }
   const settingsRenderer = source.match(/function renderSettingsDrawer\(\)\s*\{([\s\S]*?)\n\s*\}\n\n\s*function/)?.[1] || '';

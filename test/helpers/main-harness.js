@@ -132,7 +132,6 @@ function loadMain({ store = {}, initialize = null, clock = createFakeTimers(), r
     lastToken: '',
     boots: [],
     pills: [],
-    telemetry: [],
     view: null,
     pending: null,
     tornIdForToken: token => (String(token).startsWith('token-') ? Number(String(token).slice(6)) : 1001),
@@ -203,9 +202,6 @@ function loadMain({ store = {}, initialize = null, clock = createFakeTimers(), r
     ReviveRelayPanelApiClient: PanelApiClient,
     ReviveRelayVersioning: Versioning,
     ReviveRelayUpdateManager: { createUpdateManager: () => ({ check: async () => ({}), openUpdate: () => false }) },
-    ReviveRelayTelemetryClient: {
-      createTelemetryClient: () => ({ captureError: (error, meta) => harness.telemetry.push({ error, meta }), drain: async () => ({ sent: 0 }) })
-    },
     ReviveRelayRequestPreset: RequestPreset,
     ReviveRelayLiteBoot: liteBootModule,
     // Records the pills MAIN mounts itself (the retry pill after a failed init).

@@ -16,7 +16,7 @@ test('1.0 runtime has no timers of its own: the Lite engine polls, the open pane
   for (const token of [
     'refreshActiveRequest()','refreshProState()',
     'refreshReviverQueue()','refreshCurrentInvoice()','liteBoot.refresh()',
-    'state.telemetry.drain()','function refreshPanelData()'
+    'function refreshPanelData()'
   ]) assert.ok(source.includes(token), token);
   assert.doesNotMatch(source, /setInterval\(/);
   assert.doesNotMatch(source, /postJson\(|markSynced\(|handlePublicMessage\(/);

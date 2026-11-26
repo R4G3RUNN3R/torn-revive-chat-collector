@@ -9,7 +9,6 @@ const REQUIRED_METHODS = [
   'getActiveRequest',
   'cancelRequest',
   'getMe',
-  'submitTelemetry',
   'getVerificationCredential',
   'bindVerificationCredential',
   'revokeVerificationCredential',
@@ -70,7 +69,6 @@ test('direct API client maps the marketplace routes and carries the bound sessio
   await api.getActiveRequest();
   await api.cancelRequest('request id');
   await api.getMe();
-  await api.submitTelemetry([]);
   await api.getVerificationCredential();
   await api.bindVerificationCredential('restricted-key');
   await api.revokeVerificationCredential();
@@ -96,7 +94,6 @@ test('direct API client maps the marketplace routes and carries the bound sessio
     ['GET', '/v1/requests/active'],
     ['POST', '/v1/requests/request%20id/cancel'],
     ['GET', '/v1/me'],
-    ['POST', '/v1/telemetry/errors'],
     ['GET', '/v1/verification-credential'],
     ['POST', '/v1/verification-credential'],
     ['POST', '/v1/verification-credential/revoke'],
@@ -125,9 +122,9 @@ test('direct API client maps the marketplace routes and carries the bound sessio
     assert.equal(call.headers['X-ReviveRelay-Channel'], 'manual');
   }
   assert.deepEqual(calls[0].body, { apiKey: 'identity-key', clientVersion: '0.5.0' });
-  assert.deepEqual(calls[16].body, { decision: 'accept' });
-  assert.deepEqual(calls[21].body, { planId: 'monthly', currency: 'xanax' });
-  assert.deepEqual(calls[23].body, { confirm: 'DELETE REVIVERELAY ACCOUNT' });
+  assert.deepEqual(calls[15].body, { decision: 'accept' });
+  assert.deepEqual(calls[20].body, { planId: 'monthly', currency: 'xanax' });
+  assert.deepEqual(calls[22].body, { confirm: 'DELETE REVIVERELAY ACCOUNT' });
 });
 
 test('direct API client contains no chat candidate or retry-outbox machinery', () => {

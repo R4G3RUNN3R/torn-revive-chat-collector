@@ -83,7 +83,6 @@
         return result;
       },
       getMe() { return call('GET', '/v1/me'); },
-      submitTelemetry(errors) { return call('POST', '/v1/telemetry/errors', { errors: Array.isArray(errors) ? errors : [] }); },
       getActiveRequest() { return call('GET', '/v1/requests/active'); },
       getVerificationCredential() { return call('GET', '/v1/verification-credential'); },
       bindVerificationCredential(apiKey) { return call('POST', '/v1/verification-credential', { apiKey: String(apiKey || '') }); },

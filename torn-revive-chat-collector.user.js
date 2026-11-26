@@ -67,11 +67,10 @@
   const DirectApiClient = globalThis.ReviveRelayDirectApiClient;
   const PanelApiClient = globalThis.ReviveRelayPanelApiClient;
   const UpdateManager = globalThis.ReviveRelayUpdateManager;
-  const TelemetryClient = globalThis.ReviveRelayTelemetryClient;
   const RequestPreset = globalThis.ReviveRelayRequestPreset;
   const LiteBoot = globalThis.ReviveRelayLiteBoot;
 
-  if (!Platform || !Core || !DirectApiClient || !PanelApiClient || !UpdateManager || !TelemetryClient || !RequestPreset || !LiteBoot) {
+  if (!Platform || !Core || !DirectApiClient || !PanelApiClient || !UpdateManager || !RequestPreset || !LiteBoot) {
     console.error('[ReviveRelay] Required direct-runtime dependency unavailable.');
     return;
   }
@@ -94,7 +93,6 @@
   const requestTransport = platform.request;
   const state = {
     api: null,
-    telemetry: null,
     updateManager: null,
     sessionToken: '',
     identity: null,
@@ -138,7 +136,6 @@
   let statusIsError = false;
   let panelSlowRefreshAt = null;
   let panelProRolesKey = null;
-  let errorHooksInstalled = false;
   let initRetry = null;
   let retryPill = null;
   let updateResult = null;
@@ -152,14 +149,6 @@
     request: requestTransport,
     clientVersion: VERSION,
     releaseChannel: UPDATE_CHANNEL
-  });
-
-  state.telemetry = TelemetryClient.createTelemetryClient({
-    submit: payload => state.api.submitTelemetry(payload.errors),
-    getStoredQueue: () => storage.get(KEYS.telemetryOutbox, []),
-    saveStoredQueue: queue => storage.set(KEYS.telemetryOutbox, Array.isArray(queue) ? queue : []),
-    version: VERSION,
-    buildCommit: BUILD_COMMIT
   });
 
   state.updateManager = UpdateManager.createUpdateManager({
@@ -369,15 +358,6 @@
     return { tornId: state.identity.tornId, name: state.identity.name };
   }
 
-  function captureClientError(error, operation) {
-    if (!storage.get(KEYS.clientDiagnosticsEnabled, false)) return;
-    try {
-      state.telemetry.captureError(error, { operation });
-    } catch (_) {
-      // Diagnostics must never block ReviveRelay.
-    }
-  }
-
   function setStatus(message, isError = false) {
     statusMessage = String(message || '');
     statusIsError = Boolean(isError);
@@ -414,7 +394,6 @@
   }
 
   function handleApiFailure(error, operation, userMessage = 'ReviveRelay request failed.') {
-    captureClientError(error, operation);
     if (apiErrorCode(error) === 'AUTH_REQUIRED') {
       clearSession('Your ReviveRelay session expired. Verify & connect again.');
       return;
@@ -576,7 +555,6 @@
         applyAuthoritativeState('eligibility', revision, () => {
           state.reviverEligibility = { status: timedOut ? 'TIMEOUT' : 'UNAVAILABLE', canRevive: null };
         });
-        captureClientError(error, 'reviver.eligibility');
       }
     });
   }
@@ -618,8 +596,8 @@
             activatePanelTab('reviver');
           }
         });
-      } catch (error) {
-        captureClientError(error, 'notification.certified_request');
+      } catch (_) {
+        // A notification failure never blocks the queue.
       }
     }
     writeSeenRequestIds(next);
@@ -1007,7 +985,6 @@
     if (problem) setStatus(`Needs attention: ${problem}. Report it to the ReviveRelay operator.`, true);
     panelStateVersion = latestPillStateVersion;
     refreshPanelData();
-    if (storage.get(KEYS.clientDiagnosticsEnabled, false)) state.telemetry.drain().catch(() => {});
   }
 
   // Runs after every pill render (each poll, and every second while the panel is open).
@@ -1520,17 +1497,10 @@
         <p><strong>Data stored.</strong> ReviveRelay stores the service data needed for your account, certified revive workflow, entitlement and limited security/audit history. Your Torn API key is encrypted at rest; plaintext credentials are never returned after connection and credentials are not sold or shared with advertisers or unrelated third parties.</p>
         <p><strong>Recommended permissions.</strong> Use one Custom Torn API key with Basic, Profile, Revives, Perks, and the restricted Money/Items incoming and outgoing log categories used for payment/refund evidence. A Broad/Full Access key may work, but grants more access than ReviveRelay needs.</p>
         <p><strong>Subscription terms.</strong> Requester access is free. Where Reviver Pro payments are enabled, subscriptions are prepaid and payment is sent manually in Torn to the server-listed Payment recipient. ReviveRelay never sends payment for you.</p>
-        <p><strong>Diagnostics consent.</strong> Sanitized diagnostics are off by default and are sent only when you enable the Diagnostics option.</p>
+        <p><strong>Diagnostics.</strong> The old Diagnostics option (off by default) is removed: ReviveRelay sends no error diagnostics.</p>
         <p><strong>Revoke the Torn API key.</strong> Disconnect the stored key above, then delete the same key in Torn API settings if you want Torn to invalidate it completely.</p>
         <p><a href="https://github.com/R4G3RUNN3R/torn-revive-chat-collector/blob/main/PRIVACY.md" target="_blank" rel="noopener noreferrer">Privacy document (PRIVACY.md)</a> · <a href="https://github.com/R4G3RUNN3R/torn-revive-chat-collector/tree/main/docs/review" target="_blank" rel="noopener noreferrer">Torn review documentation (docs/review)</a></p>
         ${state.sessionToken ? `<div class="rr-warning"><strong>Delete ReviveRelay account/data</strong><p>Operational account data is removed or invalidated immediately where safe. Minimal billing/payment and security/audit evidence may be retained to prevent payment evidence reuse and support refunds or disputes.</p><button id="rr-delete-account"${disabledAttr('account-delete')}>Delete ReviveRelay account/data</button></div>` : ''}
-      </div>
-    </details>
-    <details class="rr-settings-section">
-      <summary>Diagnostics / Advanced</summary>
-      <div class="rr-settings-body">
-        <label><input id="rr-diagnostics-enabled" type="checkbox" ${storage.get(KEYS.clientDiagnosticsEnabled, false) ? 'checked' : ''}> Send sanitized ReviveRelay error diagnostics</label>
-        <p class="rr-muted">Diagnostics exclude API keys, bearer tokens, payment receiver credentials and public chat content.</p>
       </div>
     </details>`;
   }
@@ -1832,9 +1802,6 @@
       if (event.target?.id === 'rr-desktop-notifications-enabled') {
         storage.set(KEYS.desktopNotificationsEnabled, Boolean(event.target.checked));
       }
-      if (event.target?.id === 'rr-diagnostics-enabled') {
-        storage.set(KEYS.clientDiagnosticsEnabled, Boolean(event.target.checked));
-      }
       if (event.target?.id === 'rr-queue-payment-filter') {
         state.queuePaymentFilter = ['all', 'cash', 'xanax'].includes(event.target.value) ? event.target.value : 'all';
         renderReviverPanel();
@@ -1862,17 +1829,6 @@
       persistPanelPosition();
     });
     renderAll();
-  }
-
-  function installGlobalErrorHooks() {
-    if (errorHooksInstalled) return;
-    errorHooksInstalled = true;
-    window.addEventListener('error', event => {
-      if (event?.error) captureClientError(event.error, 'window.error');
-    });
-    window.addEventListener('unhandledrejection', event => {
-      captureClientError(event?.reason instanceof Error ? event.reason : new Error(String(event?.reason || 'Unhandled rejection')), 'window.unhandledrejection');
-    });
   }
 
   // The engine reads the session from SHARED storage on every call, never this tab's memory,
@@ -1923,11 +1879,9 @@
     if (isTornPdaNow() && storage.mode() !== 'pda') {
       setStatus('TornPDA durable storage is unavailable. ReviveRelay is using compatibility storage for this session.', true);
     }
-    installGlobalErrorHooks();
     startLite();
-    if (storage.get(KEYS.clientDiagnosticsEnabled, false)) state.telemetry.drain().catch(() => {});
     // Update checks run once per page load; the update manager throttles them to every 12 h.
-    checkUpdates(false).catch(error => captureClientError(error, 'update.initial'));
+    checkUpdates(false).catch(() => {});
   }
 
   // A failed init (e.g. TornPDA storage timeout) leaves a "tap to retry" pill (no storage needed) and
@@ -1956,7 +1910,6 @@
     if (initPromise || liteBoot) return initPromise;
     initPromise = init().then(stopInitRetry, error => {
       console.error('[ReviveRelay] Initialization failed.', error);
-      captureClientError(error, 'init');
       retryInitWhenShown();
     }).finally(() => { initPromise = null; });
     return initPromise;

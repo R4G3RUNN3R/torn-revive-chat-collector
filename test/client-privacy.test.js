@@ -107,24 +107,3 @@ test('one-time identity bootstrap key is cleared and never persisted client-side
   assert.match(connect, /storage\.set\(KEYS\.sessionToken/);
   assert.doesNotMatch(connect, /storage\.set\([^\n]*(?:apiKey|api_key|identityKey|identity_key)/i);
 });
-
-test('client telemetry sanitizes API keys, bearer tokens, cookies and unsafe context fields', () => {
-  const { sanitizeClientEnvelope } = require('../src/telemetry-client');
-  const apiKey = 'abcdefghijklmnopqrstuvwx1234567890';
-  const bearer = 'Bearer eyJabcdefghijk.abcdefghijklmnop.qrstuvwxyz123456';
-  const cookie = 'session=super-secret-cookie';
-  const envelope = sanitizeClientEnvelope({
-    message: `api_key=${apiKey} Authorization: ${bearer} Cookie: ${cookie}`,
-    stack: `Error: token=${apiKey}\nAuthorization: ${bearer}`,
-    context: {
-      operation: 'privacy-test',
-      route: `https://reviverelay.voidsmithindustries.com/review/v1/me?token=${apiKey}`,
-      payload: `must-not-survive-${apiKey}`
-    }
-  });
-  const serialized = JSON.stringify(envelope);
-  assert.equal(serialized.includes(apiKey), false);
-  assert.equal(serialized.includes('super-secret-cookie'), false);
-  assert.equal(serialized.includes('payload'), false);
-  assert.match(serialized, /\[REDACTED\]/);
-});
