@@ -10,6 +10,7 @@ const vm = require('node:vm');
 const Platform = require('../../src/platform');
 const Core = require('../../src/core');
 const DirectApiClient = require('../../src/direct-api-client');
+const PanelApiClient = require('../../src/panel-api-client');
 const Versioning = require('../../src/versioning');
 const RequestPreset = require('../../src/request-preset');
 const { createFakeTimers } = require('./fake-timers');
@@ -199,6 +200,7 @@ function loadMain({ store = {}, initialize = null, clock = createFakeTimers(), r
     ReviveRelayPlatform: platformModule,
     TornReviveCore: Core,
     ReviveRelayDirectApiClient: DirectApiClient,
+    ReviveRelayPanelApiClient: PanelApiClient,
     ReviveRelayVersioning: Versioning,
     ReviveRelayUpdateManager: { createUpdateManager: () => ({ check: async () => ({}), openUpdate: () => false }) },
     ReviveRelayTelemetryClient: {

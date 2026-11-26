@@ -65,12 +65,13 @@
 
   const Core = globalThis.TornReviveCore;
   const DirectApiClient = globalThis.ReviveRelayDirectApiClient;
+  const PanelApiClient = globalThis.ReviveRelayPanelApiClient;
   const UpdateManager = globalThis.ReviveRelayUpdateManager;
   const TelemetryClient = globalThis.ReviveRelayTelemetryClient;
   const RequestPreset = globalThis.ReviveRelayRequestPreset;
   const LiteBoot = globalThis.ReviveRelayLiteBoot;
 
-  if (!Platform || !Core || !DirectApiClient || !UpdateManager || !TelemetryClient || !RequestPreset || !LiteBoot) {
+  if (!Platform || !Core || !DirectApiClient || !PanelApiClient || !UpdateManager || !TelemetryClient || !RequestPreset || !LiteBoot) {
     console.error('[ReviveRelay] Required direct-runtime dependency unavailable.');
     return;
   }
@@ -146,7 +147,7 @@
   const mutationFlights = new Set();
   const authoritativeStateRevisions = new Map();
 
-  state.api = DirectApiClient.createDirectApiClient({
+  state.api = PanelApiClient.createPanelApiClient({
     baseUrl: API_BASE,
     getToken: () => state.sessionToken,
     request: requestTransport,
@@ -268,7 +269,7 @@
   }
 
   function applyRuntimeContract(runtime) {
-    const result = DirectApiClient.validateReviewRuntime(runtime, {
+    const result = PanelApiClient.validateReviewRuntime(runtime, {
       clientVersion: VERSION,
       releaseChannel: UPDATE_CHANNEL
     });

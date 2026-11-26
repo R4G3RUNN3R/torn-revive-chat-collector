@@ -31,11 +31,11 @@ const REQUIRED_METHODS = [
 ];
 
 test('direct API client exposes only the direct marketplace/session surface', () => {
-  const direct = require('../src/direct-api-client');
-  assert.equal(typeof direct.createDirectApiClient, 'function');
+  const direct = require('../src/panel-api-client');
+  assert.equal(typeof direct.createPanelApiClient, 'function');
 
   const calls = [];
-  const api = direct.createDirectApiClient({
+  const api = direct.createPanelApiClient({
     baseUrl: 'https://reviverelay.example',
     getToken: () => 'session-token',
     request: async request => {
@@ -51,9 +51,9 @@ test('direct API client exposes only the direct marketplace/session surface', ()
 
 
 test('direct API client maps the marketplace routes and carries the bound session', async () => {
-  const direct = require('../src/direct-api-client');
+  const direct = require('../src/panel-api-client');
   const calls = [];
-  const api = direct.createDirectApiClient({
+  const api = direct.createPanelApiClient({
     baseUrl: 'https://reviverelay.example/',
     getToken: () => '',
     request: async request => {
@@ -152,7 +152,7 @@ test('0.5.0 runtime consumes the direct API client global only', () => {
 
 
 test('unified client preserves bounded server error codes and retryability', async () => {
-  const direct = require('../src/direct-api-client');
+  const direct = require('../src/panel-api-client');
   const cases = [
     [{ status:403, body:{ error:'REVIVER_PRO_REQUIRED', secret:'must-not-survive' } }, 'REVIVER_PRO_REQUIRED', false],
     [{ status:409, body:{ error:'REVIVE_ABILITY_PERMISSION_REQUIRED' } }, 'REVIVE_ABILITY_PERMISSION_REQUIRED', false],
@@ -160,7 +160,7 @@ test('unified client preserves bounded server error codes and retryability', asy
     [{ status:503, body:{ error:'TORN_UNAVAILABLE' } }, 'TORN_UNAVAILABLE', true]
   ];
   for (const [response, expectedCode, retryable] of cases) {
-    const api=direct.createDirectApiClient({
+    const api=direct.createPanelApiClient({
       baseUrl:'https://reviverelay.example',getToken:()=> 'token',request:async()=>response
     });
     await assert.rejects(()=>api.getProStatus(),error=>{
@@ -172,7 +172,7 @@ test('unified client preserves bounded server error codes and retryability', asy
     });
   }
 
-  const unsafe=direct.createDirectApiClient({
+  const unsafe=direct.createPanelApiClient({
     baseUrl:'https://reviverelay.example',getToken:()=> 'token',
     request:async()=>({status:503,body:{error:'<script>alert(1)</script>',token:'leak'}})
   });
@@ -185,9 +185,9 @@ test('unified client preserves bounded server error codes and retryability', asy
 });
 
 test('unified client validates invoice selection before transport', async () => {
-  const direct=require('../src/direct-api-client');
+  const direct=require('../src/panel-api-client');
   const calls=[];
-  const api=direct.createDirectApiClient({
+  const api=direct.createPanelApiClient({
     baseUrl:'https://reviverelay.example',getToken:()=> 'token',
     request:async input=>{calls.push(input);return {status:200,body:{}};}
   });
@@ -206,9 +206,9 @@ test('unified client validates invoice selection before transport', async () => 
 
 
 test('review API base preserves the /review prefix for all v1 calls', async () => {
-  const direct=require('../src/direct-api-client');
+  const direct=require('../src/panel-api-client');
   const calls=[];
-  const api=direct.createDirectApiClient({
+  const api=direct.createPanelApiClient({
     baseUrl:'https://reviverelay.voidsmithindustries.com/review',
     getToken:()=> 'review-token',
     request:async input=>{calls.push(input);return {status:200,body:{}};},
@@ -224,9 +224,9 @@ test('review API base preserves the /review prefix for all v1 calls', async () =
 
 
 test('direct client can clear the transient bound token after failed unified onboarding', async () => {
-  const direct=require('../src/direct-api-client');
+  const direct=require('../src/panel-api-client');
   const calls=[];
-  const api=direct.createDirectApiClient({
+  const api=direct.createPanelApiClient({
     baseUrl:'https://reviverelay.example',getToken:()=>'',
     request:async input=>{
       calls.push(input);
@@ -238,4 +238,15 @@ test('direct client can clear the transient bound token after failed unified onb
   api.clearBoundToken();
   await api.getMe();
   assert.equal(calls[1].headers.Authorization,undefined);
+});
+
+test('the Lite core client carries only the everyday request and transaction endpoints', () => {
+  const direct = require('../src/direct-api-client');
+  const core = direct.createDirectApiClient({ baseUrl: 'https://reviverelay.example', request: async () => ({ status: 200, body: {} }) });
+  assert.deepEqual(Object.keys(core).sort(), [
+    'acceptRequest', 'call', 'cancelRequest', 'checkPayment', 'checkRefund', 'clearBoundToken',
+    'createRequest', 'getReviverQueue', 'requestRefund', 'requestRetry', 'respondRetry', 'setBoundToken'
+  ]);
+  assert.equal(direct.validateReviewRuntime, undefined);
+  assert.equal(typeof require('../src/panel-api-client').validateReviewRuntime, 'function');
 });

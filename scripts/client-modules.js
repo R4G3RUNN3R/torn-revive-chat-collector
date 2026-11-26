@@ -19,6 +19,8 @@ const LITE_ENGINE_MODULES = Object.freeze([
 // Plan 3b replaces the panel; until then they are measured apart from the Lite core budget.
 const LEGACY_PANEL_MODULES = Object.freeze([
   'src/core.js',
+  'src/versioning.js',
+  'src/panel-api-client.js',
   'src/update-manager.js',
   'src/telemetry-client.js',
   'src/request-preset.js'
@@ -30,6 +32,7 @@ const DIRECT_SUPPORT_MODULES = Object.freeze([
   'src/core.js',
   'src/direct-api-client.js',
   'src/versioning.js',
+  'src/panel-api-client.js',
   'src/update-manager.js',
   'src/telemetry-client.js',
   'src/request-preset.js',

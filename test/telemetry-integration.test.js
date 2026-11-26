@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const { createDirectApiClient } = require('../src/direct-api-client');
+const { createPanelApiClient: createDirectApiClient } = require('../src/panel-api-client');
 
 test('direct API client submits telemetry to the dedicated endpoint', async () => {
   const requests=[];
