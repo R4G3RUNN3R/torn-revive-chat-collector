@@ -8,8 +8,7 @@
   const STATE_PATH = '/v1/state';
   const STATE_VERSION_PATTERN = /^[0-9a-f]{16}$/;
   const TORN_ID_PATTERN = /^[1-9][0-9]{0,11}$/;
-  const BADGE_CACHE = Object.freeze({ ttlMs: 10 * 60 * 1000, maxEntries: 200 });
-
+  const BADGE_CACHE = Object.freeze({ ttlMs: 10 * 60 * 1000, maxEntries: 200, key: 'reviverelay_badge_cache_v1' });
 
   const directApi = () => globalThis.ReviveRelayDirectApiClient || require('../direct-api-client');
 
@@ -18,13 +17,31 @@
     return new DirectApiClientError(code, options);
   }
 
-  function createStateClient({ baseUrl, request, getToken = () => '', clientVersion = '', releaseChannel = '', now = () => Date.now() } = {}) {
+  const validBadge = body => Boolean(body && typeof body.requesterVerified === 'boolean' && typeof body.reviverVerified === 'boolean');
+
+  function createStateClient({ baseUrl, request, getToken = () => '', clientVersion = '', releaseChannel = '', now = () => Date.now(), storage = null } = {}) {
     const base = String(baseUrl || '').trim().replace(/\/+$/, '');
     if (!/^https?:\/\//i.test(base)) throw new Error('A valid ReviveRelay baseUrl is required');
     if (typeof request !== 'function') throw new Error('request transport is required');
 
     let lastStateVersion = null;
-    const badges = new Map();
+    let badges = null;
+
+    function badgeMap() {
+      if (badges) return badges;
+      badges = new Map();
+      let stored = null;
+      try { stored = storage ? storage.get(BADGE_CACHE.key, null) : null; } catch (_) { stored = null; }
+      for (const entry of Array.isArray(stored) ? stored.slice(-BADGE_CACHE.maxEntries) : []) {
+        const [key, value] = Array.isArray(entry) ? entry : [];
+        if (TORN_ID_PATTERN.test(String(key)) && value && validBadge(value.badge) && Number.isFinite(value.expiresAt)) badges.set(String(key), value);
+      }
+      return badges;
+    }
+
+    function saveBadges() {
+      try { if (storage) storage.set(BADGE_CACHE.key, [...badgeMap()]); } catch (_) {}
+    }
 
     function headers(extra = {}) {
       const result = {
@@ -66,25 +83,31 @@
     }
 
     function rememberBadge(key, badge) {
-      badges.delete(key);
-      badges.set(key, { badge, expiresAt: now() + BADGE_CACHE.ttlMs });
-      while (badges.size > BADGE_CACHE.maxEntries) badges.delete(badges.keys().next().value);
+      const map = badgeMap();
+      map.delete(key);
+      map.set(key, { badge, expiresAt: now() + BADGE_CACHE.ttlMs });
+      while (map.size > BADGE_CACHE.maxEntries) map.delete(map.keys().next().value);
+      saveBadges();
     }
 
     async function getPlayerBadge(tornId) {
       const key = String(tornId == null ? '' : tornId).trim();
       if (!TORN_ID_PATTERN.test(key)) throw clientError('INVALID_TORN_ID');
-      const cached = badges.get(key);
+      const map = badgeMap();
+      const cached = map.get(key);
       if (cached && cached.expiresAt > now()) {
-        badges.delete(key);
-        badges.set(key, cached);
+        map.delete(key);
+        map.set(key, cached);
         return cached.badge;
       }
-      if (cached) badges.delete(key);
+      if (cached) map.delete(key);
       const response = await send(`/v1/players/${key}/badge`);
       const status = Number(response && response.status) || 0;
       const body = directApi().safeParseBody(response);
       if (status < 200 || status >= 300) throw directApi().mapHttpError(status, body);
+      if (!validBadge(body) || String(body.tornId) !== key) {
+        throw clientError('INVALID_BADGE_RESPONSE', { status, retryable: true });
+      }
       const badge = Object.freeze({
         tornId: Number(key),
         requesterVerified: body.requesterVerified === true,
@@ -100,9 +123,12 @@
       lastStateVersion: () => lastStateVersion,
       reset() {
         lastStateVersion = null;
-        badges.clear();
       },
-      badgeCacheSize: () => badges.size
+      clearBadges() {
+        badges = new Map();
+        saveBadges();
+      },
+      badgeCacheSize: () => badgeMap().size
     });
   }
 
