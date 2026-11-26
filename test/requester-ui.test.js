@@ -4,15 +4,15 @@ const fs = require('node:fs');
 const path = require('node:path');
 const source = fs.readFileSync(path.resolve(__dirname, '..', 'torn-revive-chat-collector.user.js'), 'utf8');
 
-test('free requester configures Cash/Xanax preset and uses exact sidebar action', () => {
-  assert.match(source, /ReviveRelay → Revive Me!/);
+test('free requester configures Cash/Xanax preset and uses the panel request action', () => {
+  assert.match(source, /Request certified revive/);
   assert.match(source, /Revive Me preset/);
   assert.match(source, /value=["']cash["']/i);
   assert.match(source, /value=["']xanax["']/i);
   assert.match(source, /500000/);
   assert.match(source, /Minimum: \$500,000 Cash or 1 Xanax/);
   assert.match(source, /maxlength=["']500["']/);
-  assert.match(source, /requestReviveFromSidebar/);
+  assert.match(source, /requestRevive/);
   assert.match(source, /state\.api\.createRequest\(validation\.preset\)/);
 });
 
@@ -46,17 +46,19 @@ test('tabs use an explicit ReviveRelay display class so inactive pages cannot me
   assert.doesNotMatch(source, /section\.hidden\s*=/);
 });
 
-test('background polling updates live state without rebuilding Settings form controls', () => {
+test('state-driven panel refresh updates live state without rebuilding Settings form controls', () => {
   assert.match(source, /function renderLiveState\(\)/);
   assert.match(source, /id=[\"']rr-invoice-status[\"'][^>]*>\$\{renderInvoice\(\)\}<\/div>/);
-  const timers = source.match(/function startTimers\(\)\s*\{([\s\S]*?)\n\s*\}\n\n\s*async function init/)?.[1] || '';
-  assert.ok(timers.length > 0);
-  assert.match(timers, /refreshActiveRequest\(\)\.then\(renderLiveState\)/);
-  assert.match(timers, /refreshProState[\s\S]*?then\(renderLiveState\)/);
-  assert.match(timers, /refreshReviverQueue\(\)\.then\(renderLiveState\)/);
-  assert.match(timers, /refreshCurrentInvoice\(\)\.then\(renderLiveState\)/);
-  assert.doesNotMatch(timers, /then\(renderAll\)/);
-  assert.doesNotMatch(timers, /\) renderAll\(\)/);
+  const refresh = source.match(/function refreshPanelData\(\)\s*\{([\s\S]*?)\n  \}/)?.[1] || '';
+  const onRender = source.match(/function handlePillRender\(\{ snapshot \}\)\s*\{([\s\S]*?)\n  \}/)?.[1] || '';
+  assert.ok(refresh.length > 0);
+  assert.ok(onRender.length > 0);
+  assert.match(refresh, /await restoreSession\(\)/);
+  assert.match(refresh, /refreshCurrentInvoice\(\)/);
+  assert.match(refresh, /renderLiveState\(\)/);
+  assert.match(onRender, /refreshPanelData\(\)/);
+  assert.match(onRender, /renderLiveState\(\)/);
+  for (const body of [refresh, onRender]) assert.doesNotMatch(body, /renderAll\(\)|renderSettingsDrawer\(\)/);
 });
 
 
@@ -93,10 +95,10 @@ test('Torn API key copy explains unified limited access and Tampermonkey handlin
 
 test('opening Settings from the header gear restores the entire minimized panel before showing the drawer', () => {
   const toggle = source.match(/function toggleSettingsDrawer\(\)\s*\{([\s\S]*?)\n\s*\}/)?.[1] || '';
+  const open = source.match(/function setPanelOpen\(open\)\s*\{([\s\S]*?)\n\s*\}/)?.[1] || '';
   assert.ok(toggle.length > 0);
-  assert.match(toggle, /state\.minimized/);
-  assert.match(toggle, /storage\.set\(KEYS\.minimized/);
-  assert.match(toggle, /panel\.style\.display/);
+  assert.match(toggle, /if \(opening && state\.minimized\) setPanelOpen\(true\)/);
+  assert.match(open, /panel\.style\.display/);
   assert.doesNotMatch(toggle, /body\.style\.display/);
 });
 
@@ -153,7 +155,7 @@ test('previously registered revivers remain gated by current Torn revive eligibi
 
 
 test('requester workflow remains independent of subscription mode', () => {
-  const requestStart=source.indexOf('async function requestReviveFromSidebar()');
+  const requestStart=source.indexOf('async function requestRevive()');
   const requestEnd=source.indexOf('async function cancelActiveRequest()',requestStart);
   const requestFn=requestStart>=0 && requestEnd>requestStart ? source.slice(requestStart,requestEnd) : '';
   assert.ok(requestFn.length>0);

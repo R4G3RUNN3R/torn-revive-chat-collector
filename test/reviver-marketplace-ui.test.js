@@ -104,10 +104,9 @@ test('queue grouping separates cash and Xanax without losing requests', () => {
 
 
 test('queue controls are not destroyed by the one-second transaction clock', () => {
-  const start = source.indexOf('clockTimer = setInterval(() => {');
-  const end = source.indexOf('}, 1000);', start);
-  const clock = start >= 0 && end > start ? source.slice(start, end) : '';
+  // The engine's 1 s tick (while the panel is open) re-renders only for an active transaction.
+  const clock = source.match(/function handlePillRender\(\{ snapshot \}\)\s*\{([\s\S]*?)\n  \}/)?.[1] || '';
   assert.ok(clock.length > 0);
-  assert.match(clock, /state\.activeTransaction/);
+  assert.match(clock, /else if \(state\.activeTransaction\) \{\s*renderLiveState\(\);/);
   assert.doesNotMatch(clock, /state\.reviverQueue\.length/);
 });

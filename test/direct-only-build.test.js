@@ -12,7 +12,6 @@ const REQUIRED = [
   'src/update-manager.js',
   'src/telemetry-client.js',
   'src/request-preset.js',
-  'src/sidebar-action.js',
   'src/lite/pill-state.js',
   'src/lite/scheduler.js',
   'src/lite/snapshot-cache.js',
@@ -31,7 +30,8 @@ const FORBIDDEN = [
   'src/public-channels.js',
   'src/client-chat-policy.js',
   'src/revive-classifier.js',
-  'src/candidate-pipeline.js'
+  'src/candidate-pipeline.js',
+  'src/sidebar-action.js'
 ];
 
 function bundledMarker(relativePath) {
@@ -51,16 +51,17 @@ test('the Lite state client loads after the direct API client and versioning it 
   assert.ok(index('src/lite/engine.js') < index('src/lite/boot.js'));
 });
 
-test('main bootstrap consumes the exact core global exported by src/core.js', () => {
+test('main bootstrap consumes the exact core and Lite boot globals', () => {
   const coreSource = fs.readFileSync(path.resolve(__dirname, '..', 'src', 'core.js'), 'utf8');
   const mainSource = fs.readFileSync(path.resolve(__dirname, '..', 'torn-revive-chat-collector.user.js'), 'utf8');
 
   assert.match(coreSource, /root\.TornReviveCore\s*=\s*api/);
   assert.match(mainSource, /const Core = globalThis\.TornReviveCore;/);
-  assert.doesNotMatch(mainSource, /TornReviveChatCollectorCore/);
+  assert.match(mainSource, /const LiteBoot = globalThis\.ReviveRelayLiteBoot;/);
+  assert.doesNotMatch(mainSource, /TornReviveChatCollectorCore|ReviveRelaySidebarAction/);
 });
 
-test('current review bundle contains direct support exactly once and zero legacy chat/candidate modules', () => {
+test('current review bundle contains direct support exactly once and zero legacy chat/candidate/sidebar modules', () => {
   const version = require('../package.json').version;
   const filename = `review/ReviveRelay-${version}.user.js`;
   const built = fs.readFileSync(path.resolve(__dirname, '..', 'dist', filename), 'utf8');
@@ -72,12 +73,14 @@ test('current review bundle contains direct support exactly once and zero legacy
   }
   assert.doesNotMatch(built, /\/v1\/candidates|Shared public chat requests|Live Capture|Rescan public chats/);
   assert.doesNotMatch(built, /ReviveRelayApiClient|ReviveRelayProClient|createProClient|submitCandidate|drainCandidateOutbox|createOutboxEntry/);
+  assert.doesNotMatch(built, /createSidebarController|ReviveRelay → Revive Me!/);
   assert.match(built, /ReviveRelayDirectApiClient/);
   assert.match(built, /ReviveRelayLiteBoot/);
-  assert.match(built, /ReviveRelay → Revive Me!/);
+  assert.match(built, /Request certified revive/);
   assert.match(built, /const UPDATE_CHANNEL = 'review'/);
 });
 
 test('ReviveRelay 1.0 is versioned 1.0.0', () => {
   assert.equal(require('../package.json').version, '1.0.0');
 });
+

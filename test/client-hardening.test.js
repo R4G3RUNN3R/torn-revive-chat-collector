@@ -41,7 +41,7 @@ test('important mutations use a shared in-flight guard and rendered buttons expo
   assert.match(source,/function disabledAttr\(key\)/);
   assert.match(source,/async function runMutation\(key, operation\)/);
   for(const [fn,key] of [
-    ['requestReviveFromSidebar','request-create'],
+    ['requestRevive','request-create'],
     ['cancelActiveRequest','request-cancel'],
     ['startProTrial','trial-start'],
     ['createProInvoice','invoice-create'],
@@ -120,8 +120,8 @@ test('unavailable, unlicensed, and inapplicable Pro eligibility states make no r
   await inapplicable();
   assert.equal(calls,1,'unlicensed and inapplicable states must not call the Pro-only endpoint');
 
-  const timers=functionSlice('startTimers','init');
-  assert.match(timers,/runtimeCompatible\(\)\s*\?\s*refreshProState[\s\S]*?:\s*refreshMe\(\)/,
+  const marketplace=functionSlice('refreshMarketplaceState','requestRevive');
+  assert.match(marketplace,/await refreshMe\(\);\s*if \(!runtimeCompatible\(\)\) return;\s*await refreshProState/,
     'entitlement refresh remains available for runtime reactivation');
 });
 

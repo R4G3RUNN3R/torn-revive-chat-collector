@@ -4,9 +4,9 @@ const fs=require('node:fs');
 const path=require('node:path');
 const source=fs.readFileSync(path.resolve(__dirname,'..','torn-revive-chat-collector.user.js'),'utf8');
 
-test('main runtime is direct-only and exposes the exact Torn sidebar action',()=>{
+test('main runtime is direct-only and exposes the panel request action',()=>{
   for(const required of [
-    'ReviveRelay → Revive Me!',
+    'Request certified revive',
     'Revive Me preset',
     'CERTIFIED REQUEST'
   ]) assert.match(source,new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')));
@@ -23,13 +23,13 @@ test('main runtime is direct-only and exposes the exact Torn sidebar action',()=
   ]) assert.equal(source.includes(forbidden),false,forbidden);
 });
 
-test('sidebar one-click request validates the saved preset and posts only to ReviveRelay request API',()=>{
+test('panel one-click request validates the saved preset and posts only to ReviveRelay request API',()=>{
   assert.match(source,/ReviveRelayRequestPreset/);
-  assert.match(source,/requestReviveFromSidebar/);
+  assert.match(source,/requestRevive/);
   assert.match(source,/validatePreset\(state\.preset\)/);
   assert.match(source,/state\.api\.createRequest\(validation\.preset\)/);
   assert.match(source,/submittingRequest/);
-  assert.doesNotMatch(source,/requestReviveFromSidebar[\s\S]{0,1600}(?:api\.bind\(|apiKey|Torn API|chat)/i);
+  assert.doesNotMatch(source,/requestRevive[\s\S]{0,1600}(?:api\.bind\(|apiKey|Torn API|chat)/i);
 });
 
 test('request preset is the only persisted revive request configuration and contains no credential fields',()=>{
@@ -39,7 +39,7 @@ test('request preset is the only persisted revive request configuration and cont
 });
 
 test('requester can create immediately while acceptance and reviver actions remain evidence-gated',()=>{
-  const requestFn=source.match(/async function requestReviveFromSidebar\(\)\s*\{([\s\S]*?)\n\s*\}/)?.[1]||'';
+  const requestFn=source.match(/async function requestRevive\(\)\s*\{([\s\S]*?)\n\s*\}/)?.[1]||'';
   assert.ok(requestFn.length>0);
   assert.match(requestFn,/if \(!state\.sessionToken \|\| !runtimeCompatible\(\) \|\| !validation\.ok \|\| state\.submittingRequest \|\| state\.activeRequest\) return/);
   assert.doesNotMatch(requestFn,/if \([^\n]*(?:verificationCredential|hasCredentialCapability)/);

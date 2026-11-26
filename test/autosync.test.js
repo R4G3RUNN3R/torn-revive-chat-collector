@@ -12,11 +12,12 @@ test('legacy raw Google Sheets and chat autosync paths are absent from direct ru
   ]) assert.equal(source.includes(token), false, token);
 });
 
-test('direct runtime polls only product state, Pro state, queue, invoice, sidebar and diagnostics', () => {
+test('1.0 runtime has no timers of its own: the Lite engine polls, the open panel refreshes on state changes', () => {
   for (const token of [
-    'refreshActiveRequest()','refreshProState({ includePlans: false })',
-    'refreshReviverQueue()','refreshCurrentInvoice()','refreshSidebarState',
-    'state.telemetry.drain()'
+    'refreshActiveRequest()','refreshProState({ includePlans',
+    'refreshReviverQueue()','refreshCurrentInvoice()','liteBoot.refresh()',
+    'state.telemetry.drain()','function refreshPanelData()'
   ]) assert.ok(source.includes(token), token);
+  assert.doesNotMatch(source, /setInterval\(/);
   assert.doesNotMatch(source, /postJson\(|markSynced\(|handlePublicMessage\(/);
 });

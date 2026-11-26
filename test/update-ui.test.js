@@ -25,11 +25,11 @@ test('userscript checks the permanent dist metadata feed directly rather than us
   assert.doesNotMatch(source,/fetchManifest:\s*\(\)\s*=>\s*state\.api\.getClientVersionManifest\(\)/);
 });
 
-test('userscript schedules a persisted 12-hour update check while Torn stays open', () => {
+test('userscript checks for updates once per page load, throttled to 12 hours by the update manager', () => {
   const source=fs.readFileSync('torn-revive-chat-collector.user.js','utf8');
-  assert.match(source,/let updateTimer = null;/);
-  assert.match(source,/updateTimer = setInterval\(\(\) => \{[\s\S]*?checkUpdates\(false\)[\s\S]*?\}, UpdateManager\.UPDATE_CHECK_MS\);/);
+  assert.doesNotMatch(source,/updateTimer|setInterval\(/);
   assert.match(source,/checkUpdates\(false\)\.catch\(error => captureClientError\(error, 'update\.initial'\)\)/);
+  assert.equal(require('../src/update-manager').UPDATE_CHECK_MS,43_200_000);
 });
 
 test('detected updates expose one-click verified installer handoff plus explicit fallback install button', () => {

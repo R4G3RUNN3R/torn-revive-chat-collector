@@ -11,7 +11,7 @@ test('direct runtime contains no Live Capture, classifier feed, or chat capture 
 });
 
 test('minimizing ReviveRelay affects only panel/invoice rendering, never revive discovery', () => {
-  assert.match(source, /state\.minimized = !state\.minimized/);
+  assert.match(source, /state\.minimized = !open/);
   assert.match(source, /state\.currentInvoice\?\.state !== 'PENDING'/);
   assert.doesNotMatch(source, /captureAllowed|discoverChats\(|handlePublicMessage\(|candidateOutbox/);
 });

@@ -12,7 +12,7 @@ test('transaction verification key is password-only, cleared after bind, and nev
 });
 
 test('free requester request creation is not blocked by credential state while later acceptance remains evidence-gated', () => {
-  const requestStart=source.indexOf('async function requestReviveFromSidebar()');
+  const requestStart=source.indexOf('async function requestRevive()');
   const requestEnd=source.indexOf('async function cancelActiveRequest()',requestStart);
   const requestFn=requestStart>=0 && requestEnd>requestStart ? source.slice(requestStart,requestEnd) : '';
   assert.ok(requestFn.length>0);

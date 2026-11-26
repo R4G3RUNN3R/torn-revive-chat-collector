@@ -24,8 +24,8 @@ const DIRECT_SUPPORT_MODULES = Object.freeze([
   'src/update-manager.js',
   'src/telemetry-client.js',
   'src/request-preset.js',
-  'src/sidebar-action.js',
   ...LITE_ENGINE_MODULES
 ]);
 
 module.exports = { DIRECT_SUPPORT_MODULES, LITE_ENGINE_MODULES };
+

@@ -18,7 +18,7 @@ for (const [relativePath, expected] of Object.entries(manifest.supportHashes).fi
 test('canonical 0.6.0 source keeps the proven document-idle bootstrap but is direct-only', () => {
   const source = fs.readFileSync('torn-revive-chat-collector.user.js', 'utf8');
   assert.match(source, /@run-at\s+document-idle/);
-  assert.match(source, /ReviveRelay → Revive Me!/);
+  assert.match(source, /Request certified revive/);
   assert.match(source, /ReviveRelayRequestPreset/);
   assert.doesNotMatch(source, /ReviveRelayProClient|createProClient|state\.proApi/);
   assert.doesNotMatch(source, /fetchRecentPublicCandidates|\/v1\/candidates|Shared public chat requests/);
