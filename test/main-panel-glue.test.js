@@ -96,7 +96,7 @@ test('after another tab signs out, this tab\'s next panel action sends nothing a
   await openPanel(harness);
   assert.equal(harness.main.connectionPill.textContent, 'CONNECTED');
   harness.main.state.activeRequest = { id: 'r1', state: 'OPEN' };
-  harness.main.state.activeTransaction = { id: 't1', state: 'REVIVE_FAILED', participantRole: 'requester' };
+  harness.main.state.activeTransaction = { id: 't1', state: 'FAILED_ATTEMPT_CHOICE', participantRole: 'requester' };
   // Another tab disconnects: only shared storage changes.
   harness.store.reviverelay_session_token = '';
   harness.store.reviverelay_public_identity = null;
@@ -305,7 +305,7 @@ function switchAccountElsewhere(harness) {
 test('runTransactionAction on a stale session sends nothing', async () => {
   const harness = await bootMain();
   await openPanel(harness);
-  harness.main.state.activeTransaction = { id: 't1', state: 'REVIVE_FAILED', participantRole: 'requester' };
+  harness.main.state.activeTransaction = { id: 't1', state: 'FAILED_ATTEMPT_CHOICE', participantRole: 'requester' };
   switchAccountElsewhere(harness);
   const before = harness.requests.length;
   await harness.main.runTransactionAction('check-payment');
@@ -378,4 +378,54 @@ test('a tab switch during an in-flight refresh loads the newly selected tab once
   await harness.clock.flush();
   assert.equal(harness.count('GET /v1/requests/active'), 1);
   assert.match(requesterMarkup(harness), /id="rr-request-revive"/);
+});
+
+// ---- transaction actions follow the server's states and roles ----------------
+
+// server/src/routes/transactions.js: retry/refund requests are the requester's, the retry answer
+// is the reviver's, and payment/refund checks are open to either participant in their states.
+const TX_ACTIONS = [
+  ['requester', 'WAITING_FOR_PAYMENT', ['check-payment']],
+  ['requester', 'PAYMENT_RECONCILING', ['check-payment']],
+  ['reviver', 'WAITING_FOR_PAYMENT', ['check-payment']],
+  ['requester', 'WAITING_FOR_REVIVE', []],
+  ['requester', 'FAILED_ATTEMPT_CHOICE', ['retry-request', 'refund-request']],
+  ['reviver', 'FAILED_ATTEMPT_CHOICE', []],
+  ['reviver', 'RETRY_OFFERED', ['retry-accept', 'retry-decline']],
+  ['requester', 'RETRY_OFFERED', []],
+  ['requester', 'REFUND_REQUIRED', ['check-refund']],
+  ['reviver', 'REFUND_RECONCILING', ['check-refund']],
+  ['requester', 'REFUNDED', []],
+  ['requester', 'REPORTABLE_MISSING_REFUND', []],
+  ['requester', 'COMPLETED', []]
+];
+const TX_CALLS = {
+  'check-payment': ['POST /v1/transactions/tx-1/check-payment', undefined],
+  'retry-request': ['POST /v1/transactions/tx-1/retry-request', undefined],
+  'retry-accept': ['POST /v1/transactions/tx-1/retry-response', { decision: 'accept' }],
+  'retry-decline': ['POST /v1/transactions/tx-1/retry-response', { decision: 'decline' }],
+  'refund-request': ['POST /v1/transactions/tx-1/request-refund', undefined],
+  'check-refund': ['POST /v1/transactions/tx-1/check-refund', undefined]
+};
+
+test('each transaction state and role renders the server\'s actions, and each click calls its API', async () => {
+  for (const [role, txState, expected] of TX_ACTIONS) {
+    const harness = await bootMain();
+    await openPanel(harness);
+    harness.main.state.activeTransaction = { id: 'tx-1', state: txState, participantRole: role };
+    harness.main.renderAll();
+    const rendered = [...requesterMarkup(harness).matchAll(/data-rr-tx-action="([^"]+)"/g)].map(match => match[1]);
+    assert.deepEqual(rendered, expected, `${role} ${txState}`);
+    for (const action of rendered) {
+      const before = harness.requests.length;
+      const button = { dataset: { rrTxAction: action } };
+      harness.main.panel.listeners.get('click')({ target: { closest: selector => (selector === '[data-rr-tx-action]' ? button : null) } });
+      await harness.clock.flush();
+      const sent = harness.requests[before];
+      const [route, body] = TX_CALLS[action];
+      assert.equal(`${sent.method} ${new URL(sent.url).pathname.replace(/^\/review/, '')}`, route, action);
+      assert.deepEqual(sent.body, body, action);
+      harness.main.state.activeTransaction = { id: 'tx-1', state: txState, participantRole: role };
+    }
+  }
 });

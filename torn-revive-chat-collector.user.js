@@ -1033,14 +1033,20 @@
       <div><span>${escapeHtml(label)}</span><strong>${escapeHtml(formatCountdown(value))}</strong></div>`).join('')}</div>`;
   }
 
+  // States and roles as server/src/routes/transactions.js accepts them; checks are open to both parties.
   function transactionActions(transaction) {
     if (!transaction) return '';
     const role = transaction.participantRole;
-    const actions = [];
-    if (role === 'requester' && ['WAITING_FOR_PAYMENT', 'PAYMENT_PENDING'].includes(transaction.state)) actions.push(['check-payment', 'Check payment']);
-    if (role === 'requester' && transaction.state === 'REVIVE_FAILED') actions.push(['retry-request', 'Request retry'], ['refund-request', 'Request refund']);
-    if (role === 'reviver' && transaction.state === 'RETRY_REQUESTED') actions.push(['retry-accept', 'Accept retry'], ['retry-decline', 'Decline retry']);
-    if (role === 'requester' && String(transaction.state || '').includes('REFUND')) actions.push(['check-refund', 'Check refund']);
+    const payment = [['check-payment', 'Check payment']];
+    const refund = [['check-refund', 'Check refund']];
+    const actions = {
+      WAITING_FOR_PAYMENT: payment,
+      PAYMENT_RECONCILING: payment,
+      FAILED_ATTEMPT_CHOICE: role === 'requester' ? [['retry-request', 'Request retry'], ['refund-request', 'Request refund']] : [],
+      RETRY_OFFERED: role === 'reviver' ? [['retry-accept', 'Accept retry'], ['retry-decline', 'Decline retry']] : [],
+      REFUND_REQUIRED: refund,
+      REFUND_RECONCILING: refund
+    }[transaction.state] || [];
     if (!actions.length) return '';
     return `<div class="rr-actions">${actions.map(([action, label]) => `<button data-rr-tx-action="${action}">${escapeHtml(label)}</button>`).join('')}</div>`;
   }
