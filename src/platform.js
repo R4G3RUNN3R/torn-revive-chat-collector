@@ -330,28 +330,6 @@
     };
   }
 
-  function installResumeHooks({ runtime, window, document, callback }) {
-    if (!runtime.isTornPda || typeof callback !== 'function') return () => {};
-    let timer = null;
-    const schedule = () => {
-      if (document && document.visibilityState && document.visibilityState !== 'visible') return;
-      clearTimeout(timer);
-      timer = setTimeout(() => callback(), 100);
-    };
-    const onVisibility = () => {
-      if (!document || document.visibilityState === 'visible') schedule();
-    };
-    window?.addEventListener?.('focus', schedule);
-    window?.addEventListener?.('pageshow', schedule);
-    document?.addEventListener?.('visibilitychange', onVisibility);
-    return () => {
-      clearTimeout(timer);
-      window?.removeEventListener?.('focus', schedule);
-      window?.removeEventListener?.('pageshow', schedule);
-      document?.removeEventListener?.('visibilitychange', onVisibility);
-    };
-  }
-
   function createPlatform({
     globalObject = globalThis,
     window = globalThis.window,
@@ -421,8 +399,7 @@
       notify,
       addStyle,
       openUrl,
-      initialize: () => storage.initialize(),
-      onResume: callback => installResumeHooks({ runtime, window, document, callback })
+      initialize: () => storage.initialize()
     });
   }
 
@@ -438,7 +415,6 @@
     createStorage,
     createRequestAdapter,
     createNotifier,
-    installResumeHooks,
     createPlatform
   });
 });

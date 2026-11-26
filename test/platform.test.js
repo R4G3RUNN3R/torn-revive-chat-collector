@@ -235,27 +235,6 @@ test('desktop request adapter preserves GM transport JSON behavior', async () =>
   assert.deepEqual(response.body,{ok:true});
 });
 
-test('resume hooks coalesce TornPDA focus/pageshow/visibility events', async () => {
-  const listeners=new Map();
-  const window={
-    addEventListener:(name,fn)=>listeners.set('w:'+name,fn),
-    removeEventListener:()=>{}
-  };
-  const document={
-    visibilityState:'visible',
-    addEventListener:(name,fn)=>listeners.set('d:'+name,fn),
-    removeEventListener:()=>{}
-  };
-  let calls=0;
-  const cleanup=Platform.installResumeHooks({runtime:{isTornPda:true},window,document,callback:()=>{calls++;}});
-  listeners.get('w:focus')();
-  listeners.get('w:pageshow')();
-  listeners.get('d:visibilitychange')();
-  await new Promise(resolve=>setTimeout(resolve,150));
-  assert.equal(calls,1);
-  cleanup();
-});
-
 test('PDA notifier stacks multiple notifications instead of overlapping fixed toasts', () => {
   const byId=new Map();
   function node(tag) {
