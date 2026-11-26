@@ -178,7 +178,8 @@ test('start/stop are idempotent: no duplicated hosts, listeners or timers across
     assert.equal(window.listenerCount('resize'), 0);
     assert.equal(clock.pending(), 0);
   }
-  assert.equal(api.calls, 5);
+  // Only the first cycle polls: later restarts find a cache younger than the 60 s cadence.
+  assert.equal(api.calls, 1);
   assert.equal(engine.isStarted(), false);
 });
 
@@ -617,6 +618,74 @@ test('a follower whose 1 s tick is running ages on the tick (active request, 5 s
   await clock.advance(1000);
   assert.equal(b.engine.viewModel().syncing, true);
   assert.equal(apiB.calls, 0);
+  a.engine.stop();
+  b.engine.stop();
+});
+
+test('boot with a cache younger than the cadence waits until fetchedAt + cadence, showing it as syncing', async () => {
+  const clock = createFakeTimers();
+  const fetchedAt = clock.now() - 10000;
+  const storage = memoryStorage({ [SNAPSHOT_KEY]: { stateVersion: '0123456789abcdef', fetchedAt, data: snapshot({ revivers: { online: 7 } }) } });
+  const api = fakeApi([{ notModified: false, snapshot: snapshot({ revivers: { online: 4 } }) }]);
+  const { engine } = makeEngine({ clock, api, storage });
+  engine.start();
+  await clock.advance(0);
+  assert.equal(api.calls, 0);
+  assert.equal(pillText(engine), 'Revive me · 7 online');
+  assert.equal(engine.viewModel().syncing, true);
+  assert.equal(clock.pending(), 1);
+  await clock.advance(fetchedAt + 60000 - clock.now() - 1);
+  assert.equal(api.calls, 0);
+  await clock.advance(1);
+  assert.equal(api.calls, 1);
+  assert.equal(pillText(engine), 'Revive me · 4 online');
+  assert.equal(engine.viewModel().syncing, false);
+  engine.stop();
+});
+
+test('boot with a cache older than the cadence polls at once', async () => {
+  const clock = createFakeTimers();
+  const storage = memoryStorage({ [SNAPSHOT_KEY]: { stateVersion: '0123456789abcdef', fetchedAt: clock.now() - 2 * 60000, data: snapshot() } });
+  const api = fakeApi([{ notModified: false, snapshot: snapshot() }]);
+  const { engine } = makeEngine({ clock, api, storage });
+  engine.start();
+  await clock.advance(0);
+  assert.equal(api.calls, 1);
+  engine.stop();
+});
+
+test('five page loads within a minute make at most one request at idle', async () => {
+  const clock = createFakeTimers();
+  const startedAt = clock.now();
+  const storage = memoryStorage();
+  const api = fakeApi([{ notModified: false, snapshot: snapshot() }]);
+  for (let load = 0; load < 5; load += 1) {
+    const { engine } = makeEngine({ clock, api, storage, window: createFakeWindow(), document: createFakeDocument() });
+    engine.start();
+    await clock.advance(11000);
+    engine.stop();
+  }
+  await clock.advance(startedAt + 60000 - clock.now() - 1);
+  assert.equal(api.calls, 1);
+});
+
+test('a leader hand-off between running tabs still polls promptly despite a fresh cache', async () => {
+  const clock = createFakeTimers();
+  const storage = memoryStorage();
+  const apiA = scriptedApi([{ notModified: false, snapshot: snapshot() }]);
+  const apiB = scriptedApi([{ notModified: false, snapshot: snapshot() }]);
+  const { tabs: [a, b] } = lockTabs({ clock, sharedStorage: storage, specs: [{ tabId: 'a', api: apiA }, { tabId: 'b', api: apiB }] });
+  a.engine.start();
+  await clock.advance(0);
+  assert.equal(apiA.calls, 1);
+  await clock.advance(5000);
+  b.engine.start();
+  await clock.advance(5000);
+  assert.equal(apiB.calls, 0);
+  a.document.setVisibility('hidden');
+  await clock.advance(0);
+  assert.equal(b.engine.isLeader(), true);
+  assert.equal(apiB.calls, 1);
   a.engine.stop();
   b.engine.stop();
 });

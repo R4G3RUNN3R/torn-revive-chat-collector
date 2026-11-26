@@ -61,6 +61,8 @@
     let lastFetchedAt = null;
     let resyncSoon = false;
     let jobsAddedAt = 0;
+    // Set at boot when the cached snapshot is younger than the cadence: the first poll waits for it.
+    let deferredPollAt = null;
 
     function isHidden() {
       return document.visibilityState === 'hidden' || document.hidden === true;
@@ -132,6 +134,7 @@
     function pollDelay() {
       if (!isLeader()) return null;
       if (resyncSoon && !isHidden()) return Scheduler.POLL_BOUNDS_MS.min;
+      if (deferredPollAt !== null && !isHidden()) return deferredPollAt - jobsAddedAt;
       return cadenceMs(isHidden());
     }
 
@@ -151,6 +154,7 @@
 
     async function poll() {
       if (!isLeader()) return;
+      deferredPollAt = null;
       const runEpoch = epoch;
       const requestedAt = now();
       let result;
@@ -184,9 +188,14 @@
 
     function onLeaderChange(nowLeader) {
       // Losing leadership invalidates any poll still in flight.
-      if (!nowLeader) epoch += 1;
+      if (!nowLeader) {
+        epoch += 1;
+        deferredPollAt = null;
+      }
       if (!scheduler) return;
-      if (nowLeader) scheduler.trigger('poll');
+      // The first leadership of a fresh page load honours a young cache; a hand-off polls at once.
+      if (nowLeader && deferredPollAt !== null) scheduler.reschedule('poll');
+      else if (nowLeader) scheduler.trigger('poll');
       else scheduler.reschedule('poll');
       scheduler.reschedule('freshness');
     }
@@ -199,6 +208,8 @@
 
     function onBroadcast(payload) {
       if (!started || isLeader() || !payload || typeof payload !== 'object') return;
+      // Another tab is leading, so a later hand-off to this tab must poll promptly.
+      deferredPollAt = null;
       const freshness = PillState.FRESHNESS.includes(payload.freshness) ? payload.freshness : 'syncing';
       current = { snapshot: payload.snapshot || current.snapshot, freshness };
       if (freshness === 'live' && Number.isFinite(payload.fetchedAt)) lastFetchedAt = payload.fetchedAt;
@@ -229,6 +240,17 @@
       resyncSoon = false;
       const cached = cache.read();
       current = { snapshot: cached ? cached.snapshot : null, freshness: 'syncing' };
+      // Torn navigation is mostly full page loads: a cache younger than the cadence (the last
+      // successful poll in this profile) defers the first poll to fetchedAt + cadence, never
+      // sooner than the scheduler's minimum.
+      deferredPollAt = null;
+      if (cached) {
+        const cadence = cadenceMs(false);
+        const age = now() - cached.fetchedAt;
+        if (cadence !== null && age >= 0 && age < cadence) {
+          deferredPollAt = Math.max(cached.fetchedAt + cadence, now() + Scheduler.POLL_BOUNDS_MS.min);
+        }
+      }
       view = PillView.mountPill({ document, window, onActivate, headerSelectors });
       render();
       scheduler = Scheduler.createScheduler({ setTimeout: setTimer, clearTimeout: clearTimer, now, random, isHidden });
@@ -272,6 +294,7 @@
       scheduler = null;
       view = null;
       lastView = null;
+      deferredPollAt = null;
     }
 
     function setSheetOpen(open) {
