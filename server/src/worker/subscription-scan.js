@@ -1,3 +1,5 @@
+const { paymentWindowEnd } = require('../db/pro-invoices');
+
 const SCAN_INTERVAL_MS = 60 * 1000;
 
 function validDate(value) {
@@ -7,7 +9,7 @@ function validDate(value) {
 function createSubscriptionScanHandler({invoiceRepository,evidenceService,clock=()=>new Date()}) {
   if (!invoiceRepository ||
       typeof invoiceRepository.expireDue!=='function' ||
-      typeof invoiceRepository.listPending!=='function' ||
+      typeof invoiceRepository.listScannable!=='function' ||
       typeof invoiceRepository.markPaidWithEvidence!=='function') {
     throw new Error('invoiceRepository is required');
   }
@@ -21,15 +23,16 @@ function createSubscriptionScanHandler({invoiceRepository,evidenceService,clock=
     if (!validDate(now)) throw new Error('clock returned an invalid date');
 
     await invoiceRepository.expireDue(now);
-    const invoices=await invoiceRepository.listPending(now);
+    const invoices=await invoiceRepository.listScannable(now);
     const runAt=new Date(now.getTime()+SCAN_INTERVAL_MS);
     if (!Array.isArray(invoices) || invoices.length===0) return {status:'reschedule',runAt};
 
     const validInvoices=invoices.filter(row => validDate(row.createdAt) && validDate(row.expiresAt));
     if (validInvoices.length===0) return {status:'reschedule',runAt};
     const from=new Date(Math.min(...validInvoices.map(row=>row.createdAt.getTime())));
-    const latestExpiry=Math.max(...validInvoices.map(row=>row.expiresAt.getTime()));
-    const to=new Date(Math.min(now.getTime(),latestExpiry));
+    const latestWindowEnd=Math.max(...validInvoices.map(paymentWindowEnd));
+    const to=new Date(Math.min(now.getTime(),latestWindowEnd));
+    if (to.getTime()<from.getTime()) return {status:'reschedule',runAt};
 
     const currencies=[...new Set(validInvoices.map(row=>row.currency).filter(value=>value==='cash'||value==='xanax'))];
     const evidence=[];
@@ -54,7 +57,7 @@ function createSubscriptionScanHandler({invoiceRepository,evidenceService,clock=
         && Number(row.amount)===Number(invoice.expectedAmount)
         && validDate(row.at)
         && row.at.getTime()>=invoice.createdAt.getTime()
-        && row.at.getTime()<=invoice.expiresAt.getTime()
+        && row.at.getTime()<=paymentWindowEnd(invoice)
       );
       for (const match of matches) {
         const result=await invoiceRepository.markPaidWithEvidence({

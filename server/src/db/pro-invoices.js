@@ -2,6 +2,10 @@ const { getProPlan, amountForCurrency } = require('../domain/pro-plans');
 const { activatePaidWithClient } = require('./pro-entitlements');
 
 const INVOICE_TTL_MS = 24 * 60 * 60 * 1000;
+// Unpaid invoices closed by replacement or expiry stay matchable this long, so a
+// payment made while the invoice was open survives a replacement race or a late scan.
+const CLOSED_INVOICE_RECOVERY_MS = 7 * 24 * 60 * 60 * 1000;
+const RECOVERABLE_STATES = new Set(['PENDING', 'CANCELLED', 'EXPIRED']);
 
 function assertDate(value, code) {
   if (!(value instanceof Date) || Number.isNaN(value.getTime())) throw new Error(code);
@@ -99,6 +103,18 @@ async function listPending(pool, now = new Date()) {
   return result.rows.map(rowToInvoice);
 }
 
+async function listScannable(pool, now = new Date()) {
+  assertDate(now, 'INVALID_LIST_DATE');
+  const result = await pool.query(`
+    SELECT *
+    FROM pro_invoices
+    WHERE (state = 'PENDING' AND expires_at > $1)
+       OR (state IN ('CANCELLED','EXPIRED') AND expires_at > $2)
+    ORDER BY created_at ASC, id ASC
+  `, [now, new Date(now.getTime() - CLOSED_INVOICE_RECOVERY_MS)]);
+  return result.rows.map(rowToInvoice);
+}
+
 async function expireDue(pool, now = new Date()) {
   assertDate(now, 'INVALID_EXPIRY_DATE');
   const result = await pool.query(`
@@ -125,6 +141,14 @@ async function cancelOpenForUser(pool, userId, now = new Date()) {
   return result.rowCount;
 }
 
+// A cancelled invoice was open from creation until it was cancelled (its last update).
+function paymentWindowEnd(invoice) {
+  const expiresAt = invoice.expiresAt.getTime();
+  if (invoice.state !== 'CANCELLED') return expiresAt;
+  const cancelledAt = invoice.updatedAt instanceof Date ? invoice.updatedAt.getTime() : NaN;
+  return Number.isNaN(cancelledAt) ? invoice.createdAt.getTime() - 1 : Math.min(expiresAt, cancelledAt);
+}
+
 function evidenceMatchesInvoice(invoice, evidence) {
   return Number(evidence.senderTornId) === invoice.purchaserTornId
     && evidence.currency === invoice.currency
@@ -132,7 +156,7 @@ function evidenceMatchesInvoice(invoice, evidence) {
     && evidence.evidenceAt instanceof Date
     && !Number.isNaN(evidence.evidenceAt.getTime())
     && evidence.evidenceAt.getTime() >= invoice.createdAt.getTime()
-    && evidence.evidenceAt.getTime() <= invoice.expiresAt.getTime();
+    && evidence.evidenceAt.getTime() <= paymentWindowEnd(invoice);
 }
 
 async function markPaidWithEvidence(pool, input) {
@@ -171,7 +195,7 @@ async function markPaidWithEvidence(pool, input) {
         invoice
       };
     }
-    if (invoice.state !== 'PENDING') {
+    if (!RECOVERABLE_STATES.has(invoice.state)) {
       await client.query('ROLLBACK');
       return { paid:false, reason:'INVOICE_NOT_PENDING', invoice };
     }
@@ -232,7 +256,8 @@ async function markPaidWithEvidence(pool, input) {
       senderTornId: Number(senderTornId),
       currency,
       amount: Number(amount),
-      evidenceAt: evidenceAt.toISOString()
+      evidenceAt: evidenceAt.toISOString(),
+      ...(invoice.state === 'PENDING' ? {} : { recoveredFromState: invoice.state })
     }), paidAt]);
 
     await client.query('COMMIT');
@@ -253,6 +278,7 @@ function createProInvoiceRepository(pool) {
     createInvoice(input) { return createInvoice(pool, input); },
     getInvoiceForUser(input) { return getInvoiceForUser(pool, input); },
     listPending(now) { return listPending(pool, now); },
+    listScannable(now) { return listScannable(pool, now); },
     markPaidWithEvidence(input) { return markPaidWithEvidence(pool, input); },
     expireDue(now) { return expireDue(pool, now); },
     cancelOpenForUser(userId, now) { return cancelOpenForUser(pool, userId, now); }
@@ -261,11 +287,14 @@ function createProInvoiceRepository(pool) {
 
 module.exports = {
   INVOICE_TTL_MS,
+  CLOSED_INVOICE_RECOVERY_MS,
   rowToInvoice,
+  paymentWindowEnd,
   evidenceMatchesInvoice,
   createInvoice,
   getInvoiceForUser,
   listPending,
+  listScannable,
   markPaidWithEvidence,
   expireDue,
   cancelOpenForUser,
