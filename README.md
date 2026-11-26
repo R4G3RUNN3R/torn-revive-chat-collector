@@ -63,7 +63,7 @@ The server is authoritative for request state, acceptance, payment deadlines, re
 
 The same pasted Torn API key is used once to bind Torn identity and to establish the persistent ReviveRelay Verification credential, encrypted server-side, used only for the evidence required by the user's ReviveRelay role. The raw key itself is never stored in Tampermonkey, local storage or logs.
 
-The 1.0.1 client sends no diagnostics (the old Diagnostics option, off by default, is removed). Older 0.7.x clients may still send sanitized diagnostics if their users enabled them; raw telemetry occurrences are subject to the implemented retention job.
+The 1.0.1 client sends no diagnostics (the old Diagnostics option, off by default, is removed). Clients before 1.0.1 may still send sanitized diagnostics if their users enabled them; raw telemetry occurrences are subject to the implemented retention job.
 
 Users can revoke ReviveRelay Verification and can request deletion of ReviveRelay account data from Settings. Operational account/session/credential data is removed or invalidated where safe. Minimal billing/payment and security/audit evidence may be retained where needed to prevent payment-evidence reuse and support refunds, disputes or service integrity.
 

@@ -44,7 +44,9 @@ ReviveRelay 1.0.0 does **not scrape public chat** and performs no public chat co
 
 ## Diagnostics
 
-ReviveRelay 1.0.1 sends **no client diagnostics**. The 0.7.x Diagnostics option, which was off by default, is removed; the server keeps accepting bounded, sanitized envelopes from older clients that still have it enabled.
+ReviveRelay 1.0.1 sends **no client diagnostics**. The Diagnostics option of clients before 1.0.1, which was off by default, is removed; the server keeps accepting bounded, sanitized envelopes from older clients that still have it enabled.
+
+If an older client queued diagnostics in your userscript manager's storage, 1.0.1 never sends them; they stay in your browser and are cleared when you delete your ReviveRelay account.
 
 Raw telemetry occurrences are deleted by the implemented retention job after 30 days. Aggregate error fingerprints/version statistics may be retained for regression analysis.
 

@@ -71,7 +71,7 @@ Payment destination returned by the server is **R4G3RUNN3R [3877028]** when paym
 
 | Method | Route | Purpose |
 | --- | --- | --- |
-| POST | `/v1/telemetry/errors` | Bounded sanitized technical error envelopes from 0.7.x clients (diagnostics off by default); the 1.0.1 client never calls it. |
+| POST | `/v1/telemetry/errors` | Bounded sanitized technical error envelopes from clients before 1.0.1 (diagnostics off by default); the 1.0.1 client never calls it. |
 
 ## Conditional administration
 

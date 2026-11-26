@@ -39,7 +39,7 @@ Published review artifacts are immutable. Published 0.6.4 and 0.6.5 remain histo
 - [x] Confirm reviver/combined recommended access adds Perks and restricted Money/Items logs.
 - [x] Confirm the subscription worker uses a separate restricted merchant incoming-payment credential that is never exposed to the userscript.
 - [x] Confirm users can revoke ReviveRelay Verification and delete account data.
-- [x] Confirm diagnostics are off by default and sanitized (0.7.x); the 1.0.1 client has no diagnostics.
+- [x] Confirm diagnostics are off by default and sanitized (clients before 1.0.1); the 1.0.1 client has no diagnostics.
 
 ## Request / transaction safety
 

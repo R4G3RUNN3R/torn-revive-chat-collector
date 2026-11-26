@@ -48,4 +48,4 @@ Paid public launch is awaiting Torn approval. Public production remains 0.4.4 an
 
 User ReviveRelay Verification credentials are encrypted at rest. Account deletion removes active credentials/sessions but deliberately retains minimal billing/payment evidence needed for payment-reuse protection and audit history.
 
-Sanitized diagnostics (0.7.x only, off by default; the 1.0.1 client sends none) do not include the merchant credential, user Torn API keys or raw payment log payloads.
+Sanitized diagnostics (clients before 1.0.1 only, off by default; the 1.0.1 client sends none) do not include the merchant credential, user Torn API keys or raw payment log payloads.
