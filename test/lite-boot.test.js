@@ -304,6 +304,8 @@ test('the leader notifies a live transaction event once, with the panel closed, 
   const platform = fakePlatform({ body });
   const notes = [];
   platform.notify = options => { notes.push(options.text); return true; };
+  // A recent baseline (the 1.0.1 notifier stays silent on the first snapshot after install).
+  platform.values.reviverelay_notified_events_v1 = { ids: [], at: Date.parse('2026-11-25T12:00:00.000Z') / 6e4 | 0 };
   const { boot, clock } = setup({ platform });
   boot.start();
   await clock.advance(0);

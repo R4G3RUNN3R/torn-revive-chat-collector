@@ -158,7 +158,12 @@
   let initRetry = null;
   let retryPill = null;
   let updateResult = null;
-  let expiredInvoiceChecked = null;
+  // The server flips invoices to EXPIRED in a 60 s worker scan, so an open panel keeps asking after
+  // expiry: at most every 15 s, for 3 min past expiry, only while the panel is open and visible.
+  const INVOICE_RECHECK_MS = 15000;
+  const INVOICE_RECHECK_LIMIT_MS = 180000;
+  let invoiceRecheck = { id: null, at: 0 };
+  let announcedUpdate = null;
   const pollFlights = new Map();
   const mutationFlights = new Set();
   const authoritativeStateRevisions = new Map();
@@ -1000,11 +1005,15 @@
     const proRolesKey = JSON.stringify([snapshot?.pro ?? null, snapshot?.me?.roles ?? null]);
     if (panelProRolesKey !== null && proRolesKey !== panelProRolesKey) panelSlowRefreshAt = null;
     panelProRolesKey = proRolesKey;
+    announceUpdate();
     // A hidden page keeps its old version, so it catches up once visible.
     if (!panel || state.minimized || pageHidden()) return;
     const invoice = state.currentInvoice;
-    if (invoice?.state === 'PENDING' && invoice.id !== expiredInvoiceChecked && Date.parse(invoice.expiresAt) <= Date.now()) {
-      expiredInvoiceChecked = invoice.id;
+    const now = Date.now();
+    const pastExpiry = now - Date.parse(invoice?.expiresAt);
+    if (invoice?.state === 'PENDING' && pastExpiry >= 0 && pastExpiry <= INVOICE_RECHECK_LIMIT_MS &&
+        !(invoice.id === invoiceRecheck.id && now - invoiceRecheck.at < INVOICE_RECHECK_MS)) {
+      invoiceRecheck = { id: invoice.id, at: now };
       refreshCurrentInvoice().then(renderLiveState, () => {});
     }
     if (latestPillStateVersion && latestPillStateVersion !== panelStateVersion) {
@@ -1695,14 +1704,23 @@
         }
       } else {
         setStatus(`ReviveRelay ${updateResult.latestVersion} update available. Open Settings → Updates to install it.`);
-        if (liteBoot?.engine.isLeader()) liteBoot.notifier.notifyOnce(`update:${updateResult.latestVersion}`, `ReviveRelay ${updateResult.latestVersion} is available. Open the panel: Settings → Updates.`);
       }
     } else if (force && updateResult?.error) {
       setStatus('Update check failed. A previously detected update, if shown below, can still be retried manually.', true);
     } else if (force) {
       setStatus('ReviveRelay is already up to date.');
     }
+    if (!force) announceUpdate();
     if (force || state.settingsOpen) renderSettingsDrawer();
+  }
+
+  // The update notification comes from the leader tab only. A known update (also from a throttled
+  // check) waits here until this tab leads, so a check made in a non-leader tab is not dropped.
+  function announceUpdate() {
+    const version = updateResult?.updateAvailable && !updateResult.error && !updateResult.dismissed && updateResult.latestVersion;
+    if (!version || announcedUpdate === version || !liteBoot?.engine.isLeader()) return;
+    announcedUpdate = version;
+    liteBoot.notifier.notifyOnce(`update:${version}`, `ReviveRelay ${version} is available. Open the panel: Settings → Updates.`);
   }
 
   function openAvailableUpdate() {

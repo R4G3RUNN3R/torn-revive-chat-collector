@@ -36,9 +36,11 @@
     return from < to ? hour < from || hour >= to : hour < from && hour >= to;
   }
 
+  let audio;
   function playChime(window) {
     try {
-      const context = new (window.AudioContext || window.webkitAudioContext)();
+      const context = audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+      context.resume();
       const tone = context.createOscillator();
       const gain = context.createGain();
       const t = context.currentTime;
@@ -47,7 +49,6 @@
       gain.gain.exponentialRampToValueAtTime(0.08, t + 0.02);
       gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.35);
       tone.connect(gain).connect(context.destination);
-      tone.onended = () => context.close();
       tone.start(t);
       tone.stop(t + 0.4);
       return true;
@@ -72,7 +73,7 @@
 
     function seenState() {
       const seen = read(storage, SEEN_KEY);
-      return { ids: Array.isArray(seen.ids) ? seen.ids : [], queueCount: Number.isFinite(seen.queueCount) ? seen.queueCount : null, queueAt: Number(seen.queueAt) || 0 };
+      return { ids: Array.isArray(seen.ids) ? seen.ids : [], queueCount: Number.isFinite(seen.queueCount) ? seen.queueCount : null, queueAt: Number(seen.queueAt) || 0, at: seen.at || 0 };
     }
 
     function onSnapshot(snapshot) {
@@ -80,13 +81,15 @@
       const settings = read(storage, SETTINGS_KEY);
       const seen = seenState();
       const before = JSON.stringify(seen);
+      const m = now() / 6e4 | 0, quiet = m - seen.at > 10;
+      seen.at = m;
       let fired = 0;
       for (const tx of [].concat(snapshot.activeTransactions || [], snapshot.recentlyClosed || [])) {
         const event = tx && EVENTS[`${tx.participantRole}:${tx.state}`];
         const id = event && `${tx.id}:${tx.state}`;
         if (!id || seen.ids.includes(id)) continue;
         seen.ids.push(id);
-        if (deliver(event[0], event[1], event[2], settings)) fired += 1;
+        if (!quiet && deliver(event[0], event[1], event[2], settings)) fired += 1;
       }
       const count = snapshot.queue ? Number(snapshot.queue.count) : NaN;
       if (Number.isFinite(count)) {

@@ -578,6 +578,28 @@ test('a background update check announces a new version once, from the leader ta
   }
 });
 
+test('Minor 2: an update found by a non-leader tab is announced once when that tab becomes leader', async () => {
+  const harness = loadMain({ store: { ...SIGNED_IN } });
+  harness.leader = false;
+  harness.context.ReviveRelayUpdateManager = { createUpdateManager: () => ({ check: async () => ({ updateAvailable: true, latestVersion: '1.0.2' }), openUpdate: () => false }) };
+  harness.run();
+  await harness.clock.flush();
+  harness.main.handlePillRender({ snapshot: {} });
+  assert.deepEqual(harness.boot.notifier.notes, [], 'never from a non-leader tab');
+  harness.leader = true;
+  harness.main.handlePillRender({ snapshot: {} });
+  harness.main.handlePillRender({ snapshot: {} });
+  assert.deepEqual(harness.boot.notifier.notes.map(([id]) => id), ['update:1.0.2']);
+});
+
+test('Minor 2: a throttled (skipped) check still lets the leader announce a known update', async () => {
+  const harness = loadMain({ store: { ...SIGNED_IN } });
+  harness.context.ReviveRelayUpdateManager = { createUpdateManager: () => ({ check: async () => ({ updateAvailable: true, latestVersion: '1.0.2', skipped: true }), openUpdate: () => false }) };
+  harness.run();
+  await harness.clock.flush();
+  assert.deepEqual(harness.boot.notifier.notes.map(([id]) => id), ['update:1.0.2']);
+});
+
 test('account deletion clears the Lite notification and badge storage', async () => {
   const harness = await bootMain({ store: { ...SIGNED_IN, reviverelay_notified_events_v1: { ids: ['tx1:COMPLETED'] }, reviverelay_badge_cache_v1: [['42', {}]] } });
   harness.view = { sheet: 'request' };
@@ -600,6 +622,55 @@ test('an open panel re-checks a PENDING invoice once when its expiry passes', as
   harness.main.handlePillRender({ snapshot: {} });
   await harness.clock.flush();
   assert.equal(harness.count('GET /v1/pro/invoices/inv-1'), 1);
+});
+
+test('I-1: an open, visible panel keeps re-checking an expired PENDING invoice (throttled, bounded) until the server flips it', async () => {
+  const harness = await bootMain();
+  harness.view = { sheet: 'reviver-pro' };
+  await openPanel(harness);
+  // The server marks invoices EXPIRED only in its 60 s worker scan: it still answers PENDING for a while.
+  harness.invoice = { id: 'inv-1', state: 'PENDING', expiresAt: new Date(harness.clock.now() - 1000).toISOString() };
+  harness.main.state.currentInvoice = { ...harness.invoice };
+  const tick = async seconds => {
+    for (let i = 0; i < seconds; i += 1) {
+      harness.main.handlePillRender({ snapshot: {} });
+      await harness.clock.advance(1000);
+    }
+  };
+  await tick(10);
+  assert.equal(harness.count('GET /v1/pro/invoices/inv-1'), 1, 'throttled: one check in the first 10 s');
+  await tick(50);
+  const checks = harness.count('GET /v1/pro/invoices/inv-1');
+  assert.ok(checks >= 3 && checks <= 4, `re-checks every 15-20 s while still PENDING (got ${checks})`);
+  // Hidden tab or closed panel: no re-checks.
+  harness.setVisibility('hidden');
+  await tick(40);
+  harness.setVisibility('visible');
+  harness.main.setPanelOpen(false);
+  await tick(40);
+  assert.equal(harness.count('GET /v1/pro/invoices/inv-1'), checks, 'no re-check while hidden or closed');
+  harness.main.setPanelOpen(true);
+  harness.invoice = { ...harness.invoice, state: 'EXPIRED' };
+  await tick(20);
+  assert.equal(harness.main.state.currentInvoice.state, 'EXPIRED');
+  const settled = harness.count('GET /v1/pro/invoices/inv-1');
+  await tick(60);
+  assert.equal(harness.count('GET /v1/pro/invoices/inv-1'), settled, 'stops once EXPIRED');
+});
+
+test('I-1: re-checks of a PENDING invoice give up about 3 minutes past expiry', async () => {
+  const harness = await bootMain();
+  harness.view = { sheet: 'reviver-pro' };
+  await openPanel(harness);
+  harness.invoice = { id: 'inv-2', state: 'PENDING', expiresAt: new Date(harness.clock.now() - 1000).toISOString() };
+  harness.main.state.currentInvoice = { ...harness.invoice };
+  for (let i = 0; i < 300; i += 1) {
+    harness.main.handlePillRender({ snapshot: {} });
+    await harness.clock.advance(1000);
+  }
+  const checks = harness.count('GET /v1/pro/invoices/inv-2');
+  assert.ok(checks >= 9 && checks <= 13, `bounded re-checks (got ${checks})`);
+  assert.equal(harness.main.state.currentInvoice.state, 'PENDING');
 });
 
 test('M2: a closed reviver transaction the pill no longer shows is dropped, not refetched', async () => {

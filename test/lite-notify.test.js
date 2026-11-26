@@ -7,12 +7,15 @@ function memoryStorage(initial = {}) {
   return { values, get: (key, fallback) => (key in values ? values[key] : fallback), set: (key, value) => { values[key] = value; } };
 }
 
-function setup({ settings = null, hour = 12, shown = true, hidden = false } = {}) {
-  const storage = memoryStorage(settings ? { [SETTINGS_KEY]: settings } : {});
+// A notifier that has already taken its silent baseline a minute ago (see the baseline tests).
+const baseline = ms => ({ [SEEN_KEY]: { ids: [], at: (ms - 60000) / 6e4 | 0 } });
+
+function setup({ settings = null, hour = 12, shown = true, hidden = false, fresh = false } = {}) {
+  const at = new Date(2026, 10, 26, hour, 0, 0).getTime();
+  const storage = memoryStorage({ ...(fresh ? {} : baseline(at)), ...(settings ? { [SETTINGS_KEY]: settings } : {}) });
   const shownList = [];
   const chimes = [];
   const document = { hidden, title: 'Torn' };
-  const at = new Date(2026, 10, 26, hour, 0, 0).getTime();
   let now = at;
   const notifier = createNotifier({
     storage,
@@ -87,7 +90,7 @@ test('master switch, per-type toggles, sound toggle and quiet hours', () => {
 });
 
 test('a failing notification API still marks the event seen and plays the chime', () => {
-  const storage = memoryStorage();
+  const storage = memoryStorage(baseline(Date.now()));
   const chimes = [];
   const notifier = createNotifier({ storage, notify: () => { throw new Error('denied'); }, chime: () => chimes.push(1) });
   assert.equal(notifier.onSnapshot({ activeTransactions: [tx('a', 'requester', 'COMPLETED')] }), 1);
@@ -120,4 +123,64 @@ test('a queue notification carries only the count, never request details', () =>
   notifier.onSnapshot({ queue: { count: 2 }, activeTransactions: [] });
   assert.deepEqual(shownList.map(entry => entry.text), ['New revive request (2 in queue)']);
   assert.equal(notifier.onSnapshot({ queue: null }), 0, 'no queue access, no queue notification');
+});
+
+test('Minor 3: the first snapshot after install is a silent baseline; only later changes notify', () => {
+  const { notifier, shownList, chimes, storage } = setup({ fresh: true });
+  const open = { activeTransactions: [tx('t1', 'requester', 'WAITING_FOR_PAYMENT'), tx('t2', 'reviver', 'WAITING_FOR_REVIVE')], recentlyClosed: [tx('t0', 'requester', 'COMPLETED')] };
+  assert.equal(notifier.onSnapshot(open), 0, 'no burst for transactions already open');
+  assert.equal(shownList.length + chimes.length, 0);
+  assert.deepEqual(storage.values[SEEN_KEY].ids, ['t1:WAITING_FOR_PAYMENT', 't2:WAITING_FOR_REVIVE', 't0:COMPLETED'], 'baseline recorded');
+  assert.equal(notifier.onSnapshot({ activeTransactions: [tx('t1', 'requester', 'WAITING_FOR_REVIVE')] }), 1);
+  assert.deepEqual(shownList.map(entry => entry.text), ['Payment verified']);
+});
+
+test('Minor 3: an idle first snapshot still records the baseline, so the next event notifies', () => {
+  const { notifier, shownList } = setup({ fresh: true });
+  notifier.onSnapshot({ activeTransactions: [] });
+  assert.equal(notifier.onSnapshot({ activeTransactions: [tx('t1', 'requester', 'WAITING_FOR_PAYMENT')] }), 1);
+  assert.equal(shownList.length, 1);
+});
+
+test('Minor 3: after a long absence (over 10 min without a live snapshot) the next snapshot is a silent baseline', () => {
+  const { notifier, shownList, advance } = setup();
+  notifier.onSnapshot({ activeTransactions: [tx('t1', 'requester', 'WAITING_FOR_PAYMENT')] });
+  assert.equal(shownList.length, 1);
+  advance(5 * 60000);
+  notifier.onSnapshot({ activeTransactions: [tx('t1', 'requester', 'WAITING_FOR_REVIVE')] });
+  assert.equal(shownList.length, 2, 'a short gap still notifies');
+  advance(30 * 60000);
+  assert.equal(notifier.onSnapshot({ activeTransactions: [tx('t1', 'requester', 'COMPLETED')] }), 0, 'silent after a long absence');
+  assert.equal(notifier.onSnapshot({ activeTransactions: [tx('t2', 'requester', 'WAITING_FOR_PAYMENT')] }), 1, 'then changes notify again');
+});
+
+test('Minor 3: steady polling refreshes the baseline at most once a minute', () => {
+  const writes = [];
+  const values = baseline(Date.now());
+  let now = Date.now();
+  const storage = { get: (key, fallback) => (key in values ? values[key] : fallback), set: (key, value) => { writes.push(key); values[key] = value; } };
+  const notifier = createNotifier({ storage, notify: () => true, chime: () => {}, now: () => now });
+  for (let i = 0; i < 120; i += 1) {
+    notifier.onSnapshot({ activeTransactions: [] });
+    now += 5000;
+  }
+  assert.ok(writes.length <= 11, `about one write a minute over 10 min (got ${writes.length})`);
+  assert.equal(notifier.onSnapshot({ activeTransactions: [tx('a', 'requester', 'COMPLETED')] }), 1, 'an idle but polling tab is not "absent"');
+});
+
+test('Minor 1: the chime reuses one AudioContext per page and resumes it, never leaking a suspended one per event', () => {
+  const { playChime } = require('../src/lite/notify');
+  const created = [];
+  class FakeAudioContext {
+    constructor() { this.state = 'suspended'; this.currentTime = 0; this.destination = {}; this.resumes = 0; created.push(this); }
+    resume() { this.resumes += 1; return Promise.resolve(); }
+    createOscillator() { return { frequency: {}, connect: node => node, start() {}, stop() {} }; }
+    createGain() { return { gain: { setValueAtTime() {}, exponentialRampToValueAtTime() {} }, connect: node => node }; }
+  }
+  const window = { AudioContext: FakeAudioContext };
+  assert.equal(playChime(window), true);
+  assert.equal(playChime(window), true);
+  assert.equal(playChime(window), true);
+  assert.equal(created.length, 1, 'one context for the page');
+  assert.equal(created[0].resumes, 3, 'resumed on each chime, so it plays once the page has user activation');
 });

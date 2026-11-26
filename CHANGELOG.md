@@ -8,8 +8,9 @@
 - A short, soft chime plays for accepted, revived, refund verified, payment received and refund owed. One Settings toggle turns all sound off.
 - Settings → Notifications adds notifications on/off, one toggle per event type, sound, quiet hours, opt-in silent new-queue-request notices for revivers (at most one a minute, count only) and an opt-out for profile badges. A 0.7 "desktop notifications off" choice carries over.
 - An "RR verified requester/reviver" chip appears next to a player's name on their Torn profile when ReviveRelay has verified them. It is looked up only while you are signed in and the profile is visible, and cached for 10 minutes across page loads.
-- A newer ReviveRelay version is announced once by notification, even with the panel closed.
-- An open panel re-checks a Pro invoice as soon as it expires.
+- A newer ReviveRelay version is announced once by notification, even with the panel closed. If another tab found it, the tab that polls announces it.
+- An open panel keeps re-checking a pending Pro invoice once it expires, at most every 15 s for up to 3 minutes, so it shows EXPIRED soon after the server records it (the server checks for expired invoices once a minute).
+- The first check after installing, or after more than 10 minutes without one, is silent: it records what is already open, and only later changes notify. There is no burst of notifications for transactions that were already under way.
 
 ### Changed
 
@@ -22,6 +23,7 @@
 ### Fixed
 
 - After a failed poll, a new polling tab polls at once instead of waiting a full cadence.
+- A chime blocked by the browser's autoplay rule no longer leaves an audio context behind for every event: one is reused for the page and resumed on the next chime.
 - A background tab no longer uses up the 5 s "Revived" display before you look at it.
 - The panel no longer re-fetches a reviver transaction that has closed, and reopening it on an idle pill clears an old "Needs attention" line.
 
@@ -34,7 +36,10 @@
 - For a reviver, a failed transaction that needs reporting shows "Needs attention" on the pill only while the Queue count is not shown.
 - There is no in-app way to report a problem yet: the panel says what happened and asks you to report it to the ReviveRelay operator.
 - Browsers may block the first chime until you have clicked the page once.
-- The whole file is 228.0 KB; the light core is 107.9 KB.
+- A state that repeats on one transaction is announced only once. For example, if a retried revive fails a second time, the requester is not told again to choose retry or refund; the pill and panel still show it.
+- If the server has not marked an expired Pro invoice EXPIRED within 3 minutes of its expiry, the open panel stops re-checking and shows it as pending until the panel is next refreshed.
+- Events that happen while no Torn tab has checked for more than 10 minutes are not announced: the next check takes a silent baseline. The pill and panel still show the current state.
+- The whole file is 229.1 KB; the light core is 108.0 KB.
 
 ### Release status
 
