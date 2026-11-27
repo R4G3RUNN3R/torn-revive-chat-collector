@@ -21,6 +21,12 @@ function accessScopeFromKeyInfo(keyInfo, capability) {
   };
 }
 
+function insufficientReason(message) {
+  if (/owner mismatch/i.test(message)) return 'OWNER_MISMATCH';
+  if (/does not expose selection/i.test(message)) return 'NO_SELECTION_INFO';
+  return 'UNSUPPORTED_KEY';
+}
+
 async function registerVerificationCredentialRoutes(app, {
   tornClient,
   verificationCredentialRepository,
@@ -58,6 +64,7 @@ async function registerVerificationCredentialRoutes(app, {
       if (!capability.requester && !capability.reviver) {
         return reply.code(422).send({
           error: 'VERIFICATION_CREDENTIAL_INSUFFICIENT',
+          reason: 'MISSING_PERMISSIONS',
           missing: capability.missing
         });
       }
@@ -77,8 +84,10 @@ async function registerVerificationCredentialRoutes(app, {
       if (error instanceof TornApiError && error.code === 'TORN_UNAVAILABLE') {
         return reply.code(503).send({ error: 'TORN_UNAVAILABLE' });
       }
-      if (/credential|selection|namespace|permission|owner mismatch/i.test(String(error && error.message))) {
-        return reply.code(422).send({ error: 'VERIFICATION_CREDENTIAL_INSUFFICIENT' });
+      const message = String(error && error.message);
+      if (/credential|selection|namespace|permission|owner mismatch/i.test(message)) {
+        // A machine-readable reason only: never the key, nor the other account's id or name.
+        return reply.code(422).send({ error: 'VERIFICATION_CREDENTIAL_INSUFFICIENT', reason: insufficientReason(message) });
       }
       throw error;
     }

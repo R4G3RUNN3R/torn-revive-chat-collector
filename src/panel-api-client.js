@@ -73,7 +73,13 @@
   function createPanelApiClient(options = {}) {
     const Direct = dependency('ReviveRelayDirectApiClient', './direct-api-client');
     const { DirectApiClientError, segment } = Direct;
-    const { call, setBoundToken, ...everyday } = Direct.createDirectApiClient(options);
+    // Lite core errors keep flat details only: keep the key bind response.
+    let keyResponse = null;
+    const send = options.request;
+    const request = typeof send === 'function'
+      ? async input => (/\/verification-credential$/.test(input.url) ? (keyResponse = await send(input)) : send(input))
+      : send;
+    const { call, setBoundToken, ...everyday } = Direct.createDirectApiClient({ ...options, request });
     const clientVersion = options.clientVersion || '';
     return Object.freeze({
       ...everyday,
@@ -85,7 +91,13 @@
       getMe() { return call('GET', '/v1/me'); },
       getActiveRequest() { return call('GET', '/v1/requests/active'); },
       getVerificationCredential() { return call('GET', '/v1/verification-credential'); },
-      bindVerificationCredential(apiKey) { return call('POST', '/v1/verification-credential', { apiKey: String(apiKey || '') }); },
+      bindVerificationCredential(apiKey) {
+        return call('POST', '/v1/verification-credential', { apiKey: String(apiKey || '') }).catch(error => {
+          const body = Direct.safeParseBody(keyResponse);
+          error.keyError = { reason: body.reason, missing: body.missing };
+          throw error;
+        });
+      },
       revokeVerificationCredential() { return call('POST', '/v1/verification-credential/revoke'); },
       getReviverEligibility() { return call('GET', '/v1/reviver/eligibility'); },
       registerReviver() { return call('POST', '/v1/reviver/register'); },

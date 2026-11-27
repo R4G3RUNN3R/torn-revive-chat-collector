@@ -19,7 +19,7 @@ const MAIN_PATH = path.resolve(__dirname, '..', '..', 'torn-revive-chat-collecto
 const EXPOSED = [
   'state', 'handlePillActivate', 'handlePillRender', 'setPanelOpen', 'panelTabForPill', 'refreshPanelData',
   'refreshMe', 'requestRevive', 'cancelActiveRequest', 'runTransactionAction', 'activatePanelTab', 'renderAll',
-  'retryInitWhenShown', 'deleteReviveRelayAccount'
+  'retryInitWhenShown', 'deleteReviveRelayAccount', 'bindVerificationKey', 'connectIdentity', 'renderSettingsDrawer'
 ];
 
 function mainSource() {
@@ -162,8 +162,9 @@ function loadMain({ store = {}, initialize = null, clock = createFakeTimers(), r
           harness.requests.push(input);
           harness.lastToken = String(input.headers?.Authorization || '').replace(/^Bearer /, '');
           if (harness.pending) await harness.pending;
-          const body = responder(input);
-          return { status: 200, responseText: JSON.stringify(body) };
+          // A responder answers an error with { __status, ...body }.
+          const { __status: status = 200, ...body } = responder(input) || {};
+          return { status, responseText: JSON.stringify(body) };
         }
       };
     }
