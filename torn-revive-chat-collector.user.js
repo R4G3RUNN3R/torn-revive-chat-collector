@@ -160,8 +160,8 @@
   let initRetry = null;
   let retryPill = null;
   let updateResult = null;
-  // The server flips invoices to EXPIRED in a 60 s worker scan, so an open panel keeps asking after
-  // expiry: at most every 15 s, for 3 min past expiry, only while the panel is open and visible.
+  // The server expires invoices in a 60 s scan, so an open, visible panel keeps asking after expiry:
+  // at most every 15 s, for 3 min past expiry.
   const INVOICE_RECHECK_MS = 15000;
   const INVOICE_RECHECK_LIMIT_MS = 180000;
   let invoiceRecheck = { id: null, at: 0 };
@@ -420,11 +420,29 @@
     return messages[code] || fallback;
   }
 
-  function handleApiFailure(error, operation, userMessage = 'ReviveRelay request failed.') {
+  // Torn key checkbox names; only these are shown.
+  const KEY_LABELS = { incoming_revives: 'Revives', outgoing_revives: 'Revives', hospital_status: 'Profile', money_outgoing: 'Log: Money outgoing', money_incoming: 'Log: Money incoming', item_outgoing: 'Log: Items outgoing', item_incoming: 'Log: Items incoming' };
+  const KEY_HINT = 'Create a new key with the button below — it pre-selects everything ReviveRelay needs.';
+
+  function missingKeyLabels(...lists) {
+    return [...new Set(lists.flat().map(name => Object.hasOwn(KEY_LABELS, name) && KEY_LABELS[name]).filter(Boolean))];
+  }
+
+  function keyErrorMessage(error, owner) {
+    const { reason, missing } = error?.keyError || {};
+    const labels = reason === 'MISSING_PERMISSIONS' ? missingKeyLabels(missing?.requester, missing?.reviver) : [];
+    if (labels.length) return `This key is missing: ${labels.join(', ')}. ${KEY_HINT}`;
+    if (reason === 'OWNER_MISMATCH') return `This key belongs to a different Torn account. Create the key while logged in to Torn as ${owner || 'your ReviveRelay account'}.`;
+    return `${userFacingApiErrorMessage(error)} ${KEY_HINT}`;
+  }
+
+  // keyOwner: signed-in name, from the key bind flows only.
+  function handleApiFailure(error, operation, userMessage = 'ReviveRelay request failed.', keyOwner) {
     if (apiErrorCode(error) === 'AUTH_REQUIRED') {
       clearSession('Your ReviveRelay session expired. Verify & connect again.');
       return;
     }
+    if (keyOwner !== undefined && apiErrorCode(error) === 'VERIFICATION_CREDENTIAL_INSUFFICIENT') return setStatus(keyErrorMessage(error, keyOwner), true);
     setStatus(userFacingApiErrorMessage(error, userMessage), true);
   }
 
@@ -505,7 +523,7 @@
       state.identity = null;
       state.verificationCredential = null;
       if (apiKeyInput) apiKeyInput.value = '';
-      handleApiFailure(error, 'identity.bind', 'Torn API key connection failed.');
+      handleApiFailure(error, 'identity.bind', 'Torn API key connection failed.', '');
     }
   }
 
@@ -815,7 +833,7 @@
         renderAll();
       } catch (error) {
         if (verificationKeyInput) verificationKeyInput.value = '';
-        handleApiFailure(error, 'verification.bind', 'Torn API key could not be connected.');
+        handleApiFailure(error, 'verification.bind', 'Torn API key could not be connected.', state.identity?.name || '');
       }
     });
   }
@@ -984,8 +1002,8 @@
     return { x: dock.parentNode.getBoundingClientRect().right + 8, y: dock.getBoundingClientRect().top };
   }
 
-  // The dock never shows status (1.0.2). What the pill used to say shows at the top of the panel,
-  // for the states the panel does not already spell out (a transaction, offline, signed out by the server).
+  // The dock never shows status (1.0.2). The panel's top line shows what the pill used to say, for
+  // states the panel does not spell out (a transaction, offline, signed out by the server).
   function renderStateLine() {
     const line = document.getElementById('rr-state-line');
     if (!line) return;
@@ -1360,6 +1378,7 @@
     const requester = Boolean(credential?.capabilities?.requester);
     const reviver = Boolean(credential?.capabilities?.reviver);
     const broadAccess = Boolean(credential?.accessScope?.broadAccess);
+    const reviverMissing = missingKeyLabels(requester && credential.missing?.reviver);
     const eligibilityStatus = state.reviverEligibility?.status === 'ELIGIBLE'
       ? 'Confirmed'
       : state.reviverEligibility?.status === 'NOT_UNLOCKED'
@@ -1380,7 +1399,7 @@
       : '<button id="rr-replace-verification" type="button">Replace Torn API key</button>';
     return `<div class="rr-kv"><span>Torn API key</span><strong>${usable ? 'Connected' : 'Not connected'}</strong></div>
       <div class="rr-kv"><span>Requester evidence</span><strong>${requester ? 'Ready' : 'Required before Accept'}</strong></div>
-      <div class="rr-kv"><span>Reviver access</span><strong>${reviver ? 'Ready' : 'Not ready'}</strong></div>
+      <div class="rr-kv"><span>Reviver access</span><strong>${reviver ? 'Ready' : `Not ready${reviverMissing.length ? ` — missing: ${escapeHtml(reviverMissing.join(', '))}` : ''}`}</strong></div>
       <div class="rr-kv"><span>Revive ability</span><strong>${escapeHtml(eligibilityStatus)}</strong></div>
       ${broadAccess ? '<div class="rr-warning"><strong>Full/Broad Access key accepted.</strong> This Torn API key grants more access than ReviveRelay requires. You can keep using it, or replace it with the recommended Custom Torn API key below.</div>' : ''}
       <p class="rr-muted">ReviveRelay uses one Torn API key for your account. The same key connects your Torn identity and supplies the limited revive, eligibility and payment evidence ReviveRelay needs. It is encrypted server-side and never stored in Tampermonkey.</p>
@@ -1745,8 +1764,8 @@
     if (force || state.settingsOpen) renderSettingsDrawer();
   }
 
-  // The update notification comes from the leader tab only. A known update (also from a throttled
-  // check) waits here until this tab leads, so a check made in a non-leader tab is not dropped.
+  // Only the leader tab announces an update. A known update (also from a throttled check) waits
+  // here until this tab leads, so a non-leader tab's check is not dropped.
   function announceUpdate() {
     const version = updateResult?.updateAvailable && !updateResult.error && !updateResult.dismissed && updateResult.latestVersion;
     if (!version || announcedUpdate === version || !liteBoot?.engine.isLeader()) return;
@@ -1772,8 +1791,7 @@
     return style;
   }
 
-  // TornPDA toasts (src/platform.js) can show before the lazy panel exists, so their CSS is
-  // installed once at init rather than with the panel styles.
+  // TornPDA toasts (src/platform.js) can show before the lazy panel exists: CSS installed at init.
   const PDA_TOAST_CSS = '.rr-pda-toast-stack{position:fixed;z-index:1000001;left:calc(10px + env(safe-area-inset-left,0px));right:calc(10px + env(safe-area-inset-right,0px));bottom:calc(10px + env(safe-area-inset-bottom,0px));display:grid;gap:6px;max-height:50dvh;overflow:auto}.rr-pda-toast{position:relative;width:100%;display:grid;gap:2px;text-align:left;border:1px solid #66727c;background:#151c22;color:#eef2f5;border-radius:9px;padding:10px 12px;box-shadow:0 10px 30px rgba(0,0,0,.5);font:12px/1.4 Arial,sans-serif}.rr-pda-toast strong{font-size:12px}.rr-pda-toast span{color:#b7c1c8}';
   let pdaToastStyleInstalled = false;
 
@@ -1913,8 +1931,8 @@
     renderAll();
   }
 
-  // The engine reads the session from SHARED storage on every call, never this tab's memory,
-  // so a sign-in, sign-out or account deletion in another tab is seen here too.
+  // The engine reads the session from SHARED storage on every call, never this tab's memory, so
+  // another tab's sign-in, sign-out or account deletion is seen here too.
   function sharedSessionToken() {
     return String(storage.get(KEYS.sessionToken, '') || '');
   }
@@ -1924,8 +1942,8 @@
     return { signedIn: Boolean(sharedSessionToken()), tornId: identity?.tornId ?? null };
   }
 
-  // ReviveRelay 1.0: one engine (scheduler, tab leadership, /v1/state) drives the sidebar dock.
-  // The panel below has no timers of its own; it refreshes while open when the engine's state changes.
+  // ReviveRelay 1.0: one engine (scheduler, tab leadership, /v1/state) drives the sidebar dock. The
+  // panel has no timers; it refreshes while open when the engine's state changes.
   function startLite() {
     const boot = LiteBoot.createLiteBoot({
       platform,
@@ -1968,8 +1986,8 @@
     checkUpdates(false).catch(() => {});
   }
 
-  // A failed init (e.g. TornPDA storage timeout) leaves a dock that retries on a tap (no storage needed) and
-  // retries on a tap and whenever the page is shown again, until init starts. No timers.
+  // A failed init (e.g. TornPDA storage timeout) leaves a dock that retries on a tap and whenever the
+  // page is shown again, until init starts. No timers.
   function retryInitWhenShown() {
     if (liteBoot) return;
     try {

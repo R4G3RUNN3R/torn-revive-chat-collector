@@ -16,7 +16,7 @@ const requiredDocs=[
 
 test('Torn review package contains all 19 approved evidence classes',()=>{
   const artifact=`dist/review/ReviveRelay-${pkg.version}.user.js`;
-  assert.equal(pkg.version,'1.0.2');
+  assert.equal(pkg.version,'1.0.3');
   assert.ok(exists(artifact),'1 review artifact');
   for(const module of require('../scripts/client-modules').DIRECT_SUPPORT_MODULES) assert.ok(exists(module),`2 modular source ${module}`);
   for(const doc of requiredDocs) assert.ok(exists(doc),doc);
@@ -94,8 +94,18 @@ test('README, PRIVACY and the rev006 workflows describe the current release, not
   }
 });
 
-test('the 1.0.2 notes bring back the sidebar dock and move status into the panel',()=>{
+test('the 1.0.3 notes cover the precise Torn API key error messages',()=>{
   const entry=read('CHANGELOG.md').split('\n## ')[1];
+  assert.match(entry,/^1\.0\.3 /);
+  const changed=entry.split('### Changed')[1].split('\n### ')[0];
+  const server=entry.split('### Server')[1].split('\n### ')[0];
+  assert.match(changed,/precise Torn API key error messages/i);
+  assert.match(server,/`reason`/);
+  assert.match(server,/`missing`/);
+});
+
+test('the 1.0.2 notes bring back the sidebar dock and move status into the panel',()=>{
+  const entry=read('CHANGELOG.md').split('\n## ').find(section=>section.startsWith('1.0.2 '));
   assert.match(entry,/^1\.0\.2 /);
   const changed=entry.split('### Changed')[1].split('\n### ')[0];
   const removed=entry.split('### Removed')[1].split('\n### ')[0];

@@ -3,12 +3,12 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const pkg=require('../package.json');
 
-test('build produces ReviveRelay 1.0.2 review artifact with permanent review distribution update URLs',()=>{
-  assert.equal(pkg.version,'1.0.2');
-  const file='dist/review/ReviveRelay-1.0.2.user.js';
+test('build produces ReviveRelay 1.0.3 review artifact with permanent review distribution update URLs',()=>{
+  assert.equal(pkg.version,'1.0.3');
+  const file='dist/review/ReviveRelay-1.0.3.user.js';
   assert.ok(fs.existsSync(file),file);
   const text=fs.readFileSync(file,'utf8');
-  assert.equal(text.match(/@version\s+(\S+)/)?.[1],'1.0.2');
+  assert.equal(text.match(/@version\s+(\S+)/)?.[1],'1.0.3');
   assert.match(text,/ReviveRelay-Build-Commit:\s*[0-9a-f]{40}/);
   assert.match(text,/ReviveRelay-Build-Timestamp:\s*\d{4}-\d{2}-\d{2}T/);
   assert.match(text,/const UPDATE_CHANNEL = 'review'/);

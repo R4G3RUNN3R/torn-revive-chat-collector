@@ -158,3 +158,98 @@ test('full access credential is accepted and persisted with a broad-access warni
   assert.match(response.json().credential.accessScope.accessType,/full/i);
   assert.equal(bound.plaintextKey,'full-key');
 });
+
+// ---- 1.0.3: precise key error reasons -----------------------------------------
+
+const SECRET_KEY = 'S3cretKeyValue123';
+
+function keyInfoFor({ tornId = 123, user = ['basic', 'profile', 'log', 'timestamp', 'lookup'], log = { custom_permissions: true, available: [15, 17].map(category_id => ({ category_id, log_ids: [] })) }, selections } = {}) {
+  return {
+    tornId, name: 'Someone Else',
+    selections: selections === undefined
+      ? { user, company: [], faction: [], market: [], property: [], torn: ['lookup', 'timestamp'], racing: [], forum: [], key: ['info'] }
+      : selections,
+    access: { level: 4, type: 'Custom', faction: false, company: false, log }
+  };
+}
+
+async function postKey({ keyInfo, getKeyInfo }) {
+  const lines = [];
+  let binds = 0;
+  const app = buildApp({
+    config: { API_KEY_ENCRYPTION_KEY: '88'.repeat(32), SESSION_TOKEN_PEPPER: 'pepper' },
+    tornClient: { getKeyInfo: getKeyInfo || (async () => keyInfo) },
+    identityRepository: { async bindIdentity() {} },
+    sessionRepository: sessionRepository(),
+    verificationCredentialRepository: { async getStatus() { return null; }, async bind() { binds += 1; }, async revoke() { return true; } },
+    logMetadataResolver: { async get() { return { categories: { 14: 'Money outgoing', 15: 'Money incoming', 16: 'Items outgoing', 17: 'Items incoming' } }; } },
+    logger: { level: 'trace', stream: { write(line) { lines.push(String(line)); } } }
+  });
+  try {
+    const response = await app.inject({ method: 'POST', url: '/v1/verification-credential', headers: { authorization: 'Bearer token' }, payload: { apiKey: SECRET_KEY } });
+    return { response, body: response.json(), logs: lines.join('\n'), binds };
+  } finally {
+    await app.close();
+  }
+}
+
+function assertNoKeyLeak({ response, logs }) {
+  assert.ok(logs.length > 0, 'request logging was captured');
+  assert.doesNotMatch(response.payload, new RegExp(SECRET_KEY));
+  assert.doesNotMatch(logs, new RegExp(SECRET_KEY));
+}
+
+test('MISSING_PERMISSIONS: the Pro receiver key gets reason and missing capabilities, key never echoed', async () => {
+  const result = await postKey({ keyInfo: keyInfoFor() });
+  assert.equal(result.response.statusCode, 422);
+  assert.equal(result.body.error, 'VERIFICATION_CREDENTIAL_INSUFFICIENT');
+  assert.equal(result.body.reason, 'MISSING_PERMISSIONS');
+  assert.deepEqual(result.body.missing, {
+    requester: ['incoming_revives'],
+    reviver: ['outgoing_revives', 'money_outgoing', 'item_outgoing']
+  });
+  assert.equal(result.binds, 0);
+  assertNoKeyLeak(result);
+});
+
+test('OWNER_MISMATCH: a key of another Torn account never reveals that account', async () => {
+  const result = await postKey({ keyInfo: keyInfoFor({ tornId: 987654, user: ['basic', 'profile', 'revives', 'log'] }) });
+  assert.equal(result.response.statusCode, 422);
+  assert.equal(result.body.error, 'VERIFICATION_CREDENTIAL_INSUFFICIENT');
+  assert.equal(result.body.reason, 'OWNER_MISMATCH');
+  assert.equal(Object.hasOwn(result.body, 'missing'), false);
+  assert.doesNotMatch(result.response.payload, /987654|Someone Else/);
+  assert.equal(result.binds, 0);
+  assertNoKeyLeak(result);
+});
+
+test('NO_SELECTION_INFO: key info without selections', async () => {
+  const result = await postKey({ keyInfo: keyInfoFor({ selections: null }) });
+  assert.equal(result.response.statusCode, 422);
+  assert.equal(result.body.error, 'VERIFICATION_CREDENTIAL_INSUFFICIENT');
+  assert.equal(result.body.reason, 'NO_SELECTION_INFO');
+  assertNoKeyLeak(result);
+});
+
+test('UNSUPPORTED_KEY: any other matched key exception', async () => {
+  const result = await postKey({ getKeyInfo: async () => { throw new Error(`Unsupported namespace for credential ${SECRET_KEY}`); } });
+  assert.equal(result.response.statusCode, 422);
+  assert.deepEqual(result.body, { error: 'VERIFICATION_CREDENTIAL_INSUFFICIENT', reason: 'UNSUPPORTED_KEY' });
+  assertNoKeyLeak(result);
+});
+
+test('GET exposes the stored missing capabilities of a requester-only credential', async t => {
+  const { publicCredentialStatus } = require('../../src/security/verification-credential');
+  const status = publicCredentialStatus({
+    id: 'cred-r', purpose: 'transaction_verification', access_scope: {}, last_validated_at: null, unusable_at: null, revoked_at: null,
+    capability: { requester: true, reviver: false, validated: ['hospital_status', 'incoming_revives', 'outgoing_revives'], missing: { requester: [], reviver: ['money_incoming', 'item_incoming', 'money_outgoing', 'item_outgoing', '<script>'] } }
+  });
+  const app = makeApp({
+    credentialRepository: { async getStatus() { return status; }, async bind() {}, async revoke() { return true; } },
+    tornClient: { async getKeyInfo() { throw new Error('not used'); } },
+    logMetadataResolver: { async get() { throw new Error('not used'); } }
+  });
+  t.after(() => app.close());
+  const response = await app.inject({ method: 'GET', url: '/v1/verification-credential', headers: { authorization: 'Bearer token' } });
+  assert.deepEqual(response.json().credential.missing, { requester: [], reviver: ['money_incoming', 'item_incoming', 'money_outgoing', 'item_outgoing'] });
+});

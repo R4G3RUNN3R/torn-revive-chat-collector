@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.0.3 - Precise Torn API key error messages (review)
+
+### Changed
+
+- Precise Torn API key error messages: when ReviveRelay rejects a pasted Torn API key, the panel now says why. A key without the required permissions lists what it is missing by Torn's checkbox names (for example "This key is missing: Revives, Log: Money outgoing, Log: Items outgoing."), and points to the create-key button, which pre-selects everything ReviveRelay needs. A key made on another Torn account says so and names the account you are signed in with. Other rejected keys keep the previous message, plus the create-key hint.
+- Settings → Torn API key: when your key works for requesting but not for reviving, "Reviver access" lists the reviver permissions the key still lacks.
+
+### Server
+
+- Verification-credential errors include `reason` and `missing`: `POST /v1/verification-credential` rejections (still HTTP 422, `VERIFICATION_CREDENTIAL_INSUFFICIENT`) carry a machine-readable `reason` (`MISSING_PERMISSIONS`, `OWNER_MISMATCH`, `NO_SELECTION_INFO` or `UNSUPPORTED_KEY`), plus `missing` (requester and reviver capabilities) for `MISSING_PERMISSIONS`. An owner mismatch never reveals the other account, and the key is never echoed. `GET /v1/verification-credential` returns the stored credential's `missing` capabilities.
+
+### Release status
+
+1.0.3 is a Beta/Review candidate on the review channel. Stable remains 0.4.4; 0.7.3 remains the rollback.
+
 ## 1.0.2 - Sidebar dock, status inside the panel (review)
 
 ### Changed
